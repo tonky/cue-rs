@@ -1,0 +1,14 @@
+Test json.Valid and json.Validate
+-- in.cue --
+package test
+
+import "encoding/json"
+
+validTrue:  json.Valid("{\"name\": \"kepler\", \"version\": 2}")
+validFalse: json.Valid("{invalid json: here}")
+validated:  json.Validate("{\"port\": 8080}")
+
+-- out/eval --
+validFalse: false
+validTrue: true
+validated: true

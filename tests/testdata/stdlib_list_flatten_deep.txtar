@@ -1,0 +1,41 @@
+Test list.Flatten deeply nested lists
+-- in.cue --
+package test
+
+import "list"
+
+nested: [[[1, 2], [3]], [4, [5, 6]], [7]]
+
+flat: list.Flatten(nested)
+
+-- out/eval --
+flat: [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+]
+nested: [
+    [
+        [
+            1,
+            2
+        ],
+        [
+            3
+        ]
+    ],
+    [
+        4,
+        [
+            5,
+            6
+        ]
+    ],
+    [
+        7
+    ]
+]

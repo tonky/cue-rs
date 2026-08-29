@@ -2,7 +2,7 @@
 
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Clippy Clean](https://img.shields.io/badge/clippy-0%20warnings-brightgreen.svg)](https://github.com/rust-lang/rust-clippy)
-[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-84%2F84%20passing-brightgreen.svg)](tests/testdata/)
+[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-89%2F89%20passing-brightgreen.svg)](tests/testdata/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
 
 A high-performance, modular implementation of the [CUE configuration language](https://cuelang.org/) in **Rust (2024 Edition)**.
@@ -25,7 +25,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
 │   └── cue-cli/                # CLI binary (`cue-rs eval`, `cue-rs vet`, `cue-rs fmt`, `cue-rs test-txtar`)
 ├── tests/
-│   └── testdata/               # 84 conformance .txtar suites (100% passing)
+│   └── testdata/               # 89 conformance .txtar suites (100% passing)
 └── examples/                   # Sample CUE schemas and data files
 ```
 
@@ -34,17 +34,17 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 ## 2. Key Features
 
 - **Lattice Unification ($\sqcap$)**: Greatest lower bound calculation over scalar values, recursive structs, bounds (`>1024 & <65535`), regex constraints (`=~ "^[a-z]+$"`), and closed `#Definitions`.
+- **JSON & YAML Validation Helpers**: `json.Valid(s)`, `json.Validate(s, schema)`, `yaml.Valid(s)`, `yaml.Validate(s, schema)`, `json.Indent`, `json.Compact`.
+- **Extended Math Powers & Roots**: `math.Cbrt(x)`, `math.Exp(x)`, `math.Exp2(x)`, `math.Expm1(x)`, `math.Log1p(x)`, `math.Sign(x)`, `math.Dim(x, y)`, `math.Copysign(x, y)`.
+- **Deep List Operations**: `list.Flatten(l)` recursive flattening, `list.Slice(l, low, high)`, `list.Concat([l1, l2])`, `list.Repeat(elem, count)`.
+- **Hex Formatting & Inspection**: `hex.Dump(s)` spaced byte inspector, `hex.Encode`, `hex.Decode`.
 - **Logical Boolean Operators**: Full `&&` (logical AND) and `||` (logical OR) support across expressions, conditionals, and comprehensions.
 - **Path Matching & Inspection**: `path.Match(pattern, path)`, `path.Split(path)`, `path.IsAbs(path)`, `path.Base`, `path.Dir`, `path.Ext`, `path.Join`.
-- **Extended Strings & Math Functions**: `strings.Count(s, sub)`, `strings.Title(s)`, `math.Sign(x)`, `math.Dim(x, y)`, `math.Copysign(x, y)`, `list.Slice(l, low, high)`.
 - **Module-Aware Package Imports**: Seamless resolution and evaluation of module packages (`import "myorg.com/app/schema"`) and vendored packages (`cue.mod/pkg/...`).
 - **Inter-Arena Deep Value Cloning (`clone_value_into`)**: Recursive value allocation across isolated package evaluation arenas.
 - **Parenthesized Selector & Index Chaining**: `({ cluster: { id: "p1" } }).cluster.id`, `(["alpha", "beta"])[1]`, `(inlineMap["prod"]).ports[1]`.
 - **Comprehensions with `let` Bindings & Dynamic Labels**: `for k, v in map let uk = strings.ToUpper(k) if strings.HasPrefix(uk, "P_") { (strings.ToLower(uk)): v }`.
-- **String Functions & Escape Sequences**: `strings.Fields(s)`, `strings.Split(s, sep)`, `strings.Index(s, sub)`, `strings.LastIndex(s, sub)`, `strings.Compare(a, b)`, and full escape sequence support (`\"`, `\\`, `\n`, `\t`).
-- **JSON Formatting & Minification**: `encoding/json.Indent(s, prefix, indent)`, `encoding/json.Compact(s)`.
-- **Extended Math Package**: `math.Hypot(p, q)`, `math.Log10(x)`, `math.Log2(x)`, `math.Trunc(f)`, `math.Round(f)`, `math.Floor(f)`, `math.Ceil(f)`.
-- **List Aggregation & Manipulation**: `list.Concat([l1, l2])`, `list.Repeat(elem, count)`, `list.Sum`, `list.Product`, `list.Avg`, `list.Min`, `list.Max`.
+- **String Functions & Escape Sequences**: `strings.Fields(s)`, `strings.Split(s, sep)`, `strings.Index(s, sub)`, `strings.LastIndex(s, sub)`, `strings.Compare(a, b)`, `strings.Count(s, sub)`, `strings.Title(s)`.
 - **Time Package Unix Formatter & Constants**: `time.Unix(sec, nsec)`, `time.Hour`, `time.Minute`, `time.Second`, `time.Millisecond`, `time.Microsecond`, `time.Nanosecond`.
 - **Strconv String Escaping & Arbitrary Base Formatting**: `strconv.FormatInt(i, base)`, `strconv.Quote(s)`, `strconv.Unquote(s)`.
 - **Struct Embedding with Disjunction Selection**: Embedded disjunction schemas (`#Prod | #Dev`) resolving via field unification.
@@ -93,7 +93,7 @@ cargo test --workspace
 # Run clippy lint verification (0 warnings)
 cargo clippy --workspace --all-targets
 
-# Run the 84 txtar conformance suites (84/84 passing)
+# Run the 89 txtar conformance suites (89/89 passing)
 cargo run -p cue-cli -- test-txtar tests/testdata
 ```
 

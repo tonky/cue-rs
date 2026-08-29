@@ -1,0 +1,18 @@
+Test math.Cbrt, Exp, Exp2, Expm1, and Log1p
+-- in.cue --
+package test
+
+import "math"
+
+cb1:    math.Cbrt(27.0)
+cb2:    math.Cbrt(8)
+e2_3:   math.Exp2(3.0)
+expm1_0: math.Expm1(0.0)
+log1p_0: math.Log1p(0.0)
+
+-- out/eval --
+cb1: 3.0
+cb2: 2.0
+e2_3: 8.0
+expm1_0: 0.0
+log1p_0: 0.0

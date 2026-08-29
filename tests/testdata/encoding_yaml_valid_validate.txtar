@@ -1,0 +1,12 @@
+Test yaml.Valid and yaml.Validate
+-- in.cue --
+package test
+
+import "encoding/yaml"
+
+yamlTrue:  yaml.Valid("name: kepler\nport: 8080\n")
+yamlVal:   yaml.Validate("cluster: alpha\n")
+
+-- out/eval --
+yamlTrue: true
+yamlVal: true

@@ -737,6 +737,61 @@ pub fn call_stdlib_func(
             }
             Err("math.Hypot requires 2 number arguments (p, q)".to_string())
         }
+        ("math", "Cbrt") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.cbrt()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(f) = i.to_f64() {
+                        return Ok(arena.float(f.cbrt()));
+                    }
+            }
+            Err("math.Cbrt requires 1 number argument".to_string())
+        }
+        ("math", "Exp") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.exp()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(f) = i.to_f64() {
+                        return Ok(arena.float(f.exp()));
+                    }
+            }
+            Err("math.Exp requires 1 number argument".to_string())
+        }
+        ("math", "Exp2") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.exp2()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(f) = i.to_f64() {
+                        return Ok(arena.float(f.exp2()));
+                    }
+            }
+            Err("math.Exp2 requires 1 number argument".to_string())
+        }
+        ("math", "Expm1") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.exp_m1()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(f) = i.to_f64() {
+                        return Ok(arena.float(f.exp_m1()));
+                    }
+            }
+            Err("math.Expm1 requires 1 number argument".to_string())
+        }
+        ("math", "Log1p") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.ln_1p()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(f) = i.to_f64() {
+                        return Ok(arena.float(f.ln_1p()));
+                    }
+            }
+            Err("math.Log1p requires 1 number argument".to_string())
+        }
         ("math", "Sin") => {
             if let Some(&arg0) = args.first() {
                 if let Some(Value::Float(f)) = arena.get(arg0) {
@@ -981,6 +1036,17 @@ pub fn call_stdlib_func(
                         }));
                 }
             Err("list.FlattenN requires 1 list and 1 depth integer argument".to_string())
+        }
+        ("list", "Flatten") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::List { elements, .. }) = arena.get(arg0) {
+                    let flattened = flatten_list(arena, elements, 100);
+                    return Ok(arena.alloc(Value::List {
+                        elements: flattened,
+                        ellipsis: None,
+                    }));
+                }
+            Err("list.Flatten requires 1 list argument".to_string())
         }
         ("list", "Concat") => {
             if let Some(&arg0) = args.first()
@@ -1234,6 +1300,22 @@ pub fn call_stdlib_func(
                 }
             Err("json.Compact requires 1 JSON string argument".to_string())
         }
+        ("json" | "encoding/json", "Valid") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    let is_valid = serde_json::from_str::<serde_json::Value>(s).is_ok();
+                    return Ok(arena.bool(is_valid));
+                }
+            Err("json.Valid requires 1 JSON string argument".to_string())
+        }
+        ("json" | "encoding/json", "Validate") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    let is_valid = serde_json::from_str::<serde_json::Value>(s).is_ok();
+                    return Ok(arena.bool(is_valid));
+                }
+            Err("json.Validate requires 1 JSON string argument".to_string())
+        }
 
         // --- encoding/yaml & yaml package ---
         ("yaml" | "encoding/yaml", "Marshal") => {
@@ -1252,6 +1334,22 @@ pub fn call_stdlib_func(
                     return Ok(json_to_value(arena, parsed));
                 }
             Err("yaml.Unmarshal requires 1 YAML string argument".to_string())
+        }
+        ("yaml" | "encoding/yaml", "Valid") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    let is_valid = serde_yaml::from_str::<serde_yaml::Value>(s).is_ok();
+                    return Ok(arena.bool(is_valid));
+                }
+            Err("yaml.Valid requires 1 YAML string argument".to_string())
+        }
+        ("yaml" | "encoding/yaml", "Validate") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    let is_valid = serde_yaml::from_str::<serde_yaml::Value>(s).is_ok();
+                    return Ok(arena.bool(is_valid));
+                }
+            Err("yaml.Validate requires 1 YAML string argument".to_string())
         }
 
         // --- path package ---
@@ -1536,6 +1634,18 @@ pub fn call_stdlib_func(
                     }
                 }
             Err("hex.Decode requires 1 hex string argument".to_string())
+        }
+        ("hex" | "encoding/hex", "Dump") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    let dumped = s
+                        .bytes()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    return Ok(arena.string(dumped));
+                }
+            Err("hex.Dump requires 1 string argument".to_string())
         }
 
         // --- encoding/csv package ---

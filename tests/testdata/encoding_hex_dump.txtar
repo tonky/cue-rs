@@ -1,0 +1,10 @@
+Test hex.Dump
+-- in.cue --
+package test
+
+import "encoding/hex"
+
+dumped: hex.Dump("CUE")
+
+-- out/eval --
+dumped: "43 55 45"
