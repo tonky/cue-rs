@@ -947,7 +947,13 @@ impl Evaluator {
             Some(Value::Struct(s)) => {
                 let mut map = serde_json::Map::new();
                 for (k, entry) in &s.fields {
-                    map.insert(k.clone(), self.to_json(entry.val)?);
+                    if entry.optional {
+                        if let Ok(v) = self.to_json(entry.val) {
+                            map.insert(k.clone(), v);
+                        }
+                    } else {
+                        map.insert(k.clone(), self.to_json(entry.val)?);
+                    }
                 }
                 Ok(serde_json::Value::Object(map))
             }

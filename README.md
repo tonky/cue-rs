@@ -2,7 +2,7 @@
 
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Clippy Clean](https://img.shields.io/badge/clippy-0%20warnings-brightgreen.svg)](https://github.com/rust-lang/rust-clippy)
-[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-64%2F64%20passing-brightgreen.svg)](tests/testdata/)
+[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-66%2F66%20passing-brightgreen.svg)](tests/testdata/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
 
 A high-performance, modular implementation of the [CUE configuration language](https://cuelang.org/) in **Rust (2024 Edition)**.
@@ -25,7 +25,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
 │   └── cue-cli/                # CLI binary (`cue-rs eval`, `cue-rs vet`, `cue-rs fmt`, `cue-rs test-txtar`)
 ├── tests/
-│   └── testdata/               # 64 conformance .txtar suites (100% passing)
+│   └── testdata/               # 66 conformance .txtar suites (100% passing)
 └── examples/                   # Sample CUE schemas and data files
 ```
 
@@ -34,6 +34,8 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 ## 2. Key Features
 
 - **Lattice Unification ($\sqcap$)**: Greatest lower bound calculation over scalar values, recursive structs, bounds (`>1024 & <65535`), regex constraints (`=~ "^[a-z]+$"`), and closed `#Definitions`.
+- **Optional Field Validation & Export Filtering**: Validates `field?: type` when present and omits unpopulated optional fields from JSON/YAML export.
+- **Hidden Fields & Definitions Isolation**: Evaluates `_internal` and `#Schema` identifiers in scope while filtering them from output.
 - **Discriminated Union Disjunctions**: Pattern and tag-based union branch resolution (`#Circle | #Rectangle`).
 - **Mixed Numeric Bounds**: Multi-constraint numeric bounds with seamless int/float comparisons (`number & >0` matching `12.5` and `42`).
 - **Order-Independent Reference Relaxation**: Multi-pass fixpoint evaluation resolving forward field references and mutual dependencies (`a: b + 1, b: c * 2, c: 10`).
@@ -76,7 +78,7 @@ cargo test --workspace
 # Run clippy lint verification (0 warnings)
 cargo clippy --workspace --all-targets
 
-# Run the 64 txtar conformance suites (64/64 passing)
+# Run the 66 txtar conformance suites (66/66 passing)
 cargo run -p cue-cli -- test-txtar tests/testdata
 ```
 

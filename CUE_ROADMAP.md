@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **26 / 26 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **64 / 64 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **66 / 66 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -43,8 +43,10 @@ This document tracks the technical design, milestone progress, and conformance v
 ┌─────────────────┐
 │    cue-eval     │ ──► SlotMap Arena Allocation with Transactional Trail
 │ (Lattice Engine)│ ──► Greatest Lower Bound Unification (⊓) with Disjunction Rollback
-│ (PackageLoader) │ ──► Discriminated Union Struct Disjunctions (`#Circle | #Rectangle`)
-└────────┬────────┘ ──► Multi-Pass Fixpoint Relaxation Loop for Order-Independent Reference Graphs
+│ (PackageLoader) │ ──► Optional Field Validation (`field?: type`) & Export Filtering
+└────────┬────────┘ ──► Hidden Field (`_secret`) & Definition (`#Schema`) Export Filtering
+         │          ──► Discriminated Union Struct Disjunctions (`#Circle | #Rectangle`)
+         │          ──► Multi-Pass Fixpoint Relaxation Loop for Order-Independent Reference Graphs
          │          ──► Mixed Int/Float Numeric Bounds (`number & >0` matching `12.5` float and `10` int)
          │          ──► Module Discovery (`cue.mod/module.cue` search and `ModuleInfo` parsing)
          │          ──► Multi-Pattern Simultaneous Constraints (`[=~"^STR_"]: string`, `[=~"^NUM_"]: int & >0`)
@@ -124,6 +126,8 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] Mixed Int/Float Multi-Constraint Bounds (`number & >0` matching `12.5` and `42`).
   - [x] Regex matching constraints (`=~ "^[a-z]+$"`).
 - [x] **Open List Ellipsis Unification**: `[...T]` schema unification with concrete and subtyped lists (`[...int] & [1, 2, 3]`).
+- [x] **Optional Field Validation & Export**: `field?: type` constraints applied when present and omitted from export when absent.
+- [x] **Hidden Fields & Definitions Export Filtering**: `_internal` fields and `#Definitions` evaluated in scope and filtered from output.
 - [x] **Discriminated Union Disjunctions**: Struct disjunction branches matching discriminated tags (`#Circle | #Rectangle`).
 - [x] **Disjunction Meet Algebra**: `(A | B) & (C | D)` cross-product branch unification with backtracking.
 - [x] **Closed Struct Algebra**: Rejection of unauthorized fields for closed `#Definitions`.

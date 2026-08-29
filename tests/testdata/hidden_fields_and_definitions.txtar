@@ -1,0 +1,23 @@
+Test hidden fields and definitions during evaluation and export
+-- in.cue --
+package test
+
+_globalInternal: "secret-key-12345"
+
+#AppConfig: {
+    _token: string
+    name:   string
+    port:   int
+}
+
+myApp: #AppConfig & {
+    _token: _globalInternal
+    name:   "analytics-engine"
+    port:   9090
+}
+
+-- out/eval --
+myApp: {
+    name: "analytics-engine"
+    port: 9090
+}

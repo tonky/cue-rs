@@ -1,0 +1,32 @@
+Test optional fields validation and JSON export filtering
+-- in.cue --
+package test
+
+#Service: {
+    name:         string
+    port:         int & >0 & <=65535
+    description?: string
+    tags?:        [...string]
+}
+
+serviceWithOptional: #Service & {
+    name:        "api-gateway"
+    port:        443
+    description: "Main API Gateway"
+}
+
+serviceWithoutOptional: #Service & {
+    name: "auth-service"
+    port: 8080
+}
+
+-- out/eval --
+serviceWithOptional: {
+    description: "Main API Gateway"
+    name: "api-gateway"
+    port: 443
+}
+serviceWithoutOptional: {
+    name: "auth-service"
+    port: 8080
+}

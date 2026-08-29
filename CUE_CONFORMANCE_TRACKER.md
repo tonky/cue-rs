@@ -10,7 +10,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 
 | Upstream Directory | Approx. Fixture Count | Focus Area | Our Rust Coverage |
 | :--- | :---: | :--- | :---: |
-| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, discriminated unions (`#A \| #B`), open lists, dynamic labels, nested dynamic indexing, dynamic list slicing, multi-pattern constraints, comprehensions, `let` comprehension bindings, Cartesian list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (64 fixtures)** |
+| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, discriminated unions (`#A \| #B`), optional fields (`k?: T`), hidden fields (`_foo`), open lists, dynamic labels, nested dynamic indexing, dynamic list slicing, multi-pattern constraints, comprehensions, `let` comprehension bindings, Cartesian list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (66 fixtures)** |
 | `cue/testdata/compile/` | ~110 | Lexer, parser, Pratt expressions, AST construction, binary/hex/octal/SI number literals, identifiers, attributes, raw string literals | **High (syntax 100% passing)** |
 | `cue/testdata/fulleval/` | ~85 | End-to-end multi-struct evaluation, closed definitions, exports | **Core subsets active** |
 | `cue/testdata/resolve/` | ~65 | Scoping, aliases, lexical lookup, forward references, selector chains, embeddings, default overrides | **Active** |
@@ -18,7 +18,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | `cue/testdata/basic/` | ~35 | Primitive types, literals, raw strings, mixed arithmetic, list/string arithmetic, comparisons, numeric types, hierarchy | **Active** |
 | `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, module discovery (`cue.mod/module.cue`), import aliases | **Active via `PackageLoader`** |
 | `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `math/bits`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding/json`, `encoding/yaml`, `encoding/html`, `encoding/csv`, `encoding/base32`, `encoding/base64`, `encoding/hex`, `text/tabwriter`, `text/template`, `crypto/sha256`, `crypto/md5`, `crypto/sha1`, `crypto/hmac`, `path`) | **23 core packages active** |
-| **Total** | **~580+ fixtures** | | **64 conformance suites (100% pass)** |
+| **Total** | **~580+ fixtures** | | **66 conformance suites (100% pass)** |
 
 ---
 
@@ -56,6 +56,8 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **Scalar Unification** | ✅ | **100% Complete** | Type promotions (`number` $\sqcap$ `int` $\to$ `int`), conflict to $\bot$. |
 | **Hierarchical Type Subsumption** | ✅ | **100% Complete** | `number & int & uint & uint16 & 8080` $\to$ `8080`, `number & float & float64` $\to$ `float64`. |
 | **Mixed Int/Float Multi-Constraint Bounds** | ✅ | **100% Complete** | `number & >0` matching `12.5` float and `42` int. |
+| **Optional Field Validation & Export** | ✅ | **100% Complete** | `field?: type` constraints applied when present, omitted from export when absent. |
+| **Hidden Field & Def Filtering** | ✅ | **100% Complete** | `_hidden` fields and `#Definitions` evaluated and filtered from output. |
 | **Lexical Scope Isolation** | ✅ | **100% Complete** | Nested struct scopes isolated with parent lookup chaining. |
 | **Multi-Pass Reference Relaxation** | ✅ | **100% Complete** | Order-independent forward references and mutual derivations (`a: b + 1, b: c * 2, c: 10`). |
 | **Nested Dynamic Struct & Array Indexing** | ✅ | **100% Complete** | `database.environments[targetEnv].pool[tierIndex]`. |
