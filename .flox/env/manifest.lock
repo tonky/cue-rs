@@ -1,0 +1,136 @@
+{
+  "lockfile-version": 1,
+  "manifest": {
+    "schema-version": "1.12.0",
+    "install": {
+      "smithy-cli": {
+        "pkg-path": "smithy-cli"
+      }
+    },
+    "hook": {},
+    "profile": {},
+    "options": {}
+  },
+  "packages": [
+    {
+      "attr_path": "smithy-cli",
+      "broken": false,
+      "derivation": "/nix/store/q22l828n10frvykazqh0snvmkc63ggpm-smithy-cli-1.68.0.drv",
+      "description": "CLI for the Smithy interface definition language (IDL)",
+      "install_id": "smithy-cli",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "smithy-cli-1.68.0",
+      "pname": "smithy-cli",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:14:51.004475Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.68.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/ccdn2gzgwnfsljlyjvkrfq04df2pwmlq-smithy-cli-1.68.0"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "smithy-cli",
+      "broken": false,
+      "derivation": "/nix/store/8sxqxrvfidkd6q1sx5dicjhva44nw7yz-smithy-cli-1.68.0.drv",
+      "description": "CLI for the Smithy interface definition language (IDL)",
+      "install_id": "smithy-cli",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "smithy-cli-1.68.0",
+      "pname": "smithy-cli",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:43:50.224148Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.68.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/4myiijq6ikrz1iyzc32qwkyc4dm83flk-smithy-cli-1.68.0"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "smithy-cli",
+      "broken": false,
+      "derivation": "/nix/store/3xp3fg29dasrh8ycs0x7d5dpidn60yxx-smithy-cli-1.68.0.drv",
+      "description": "CLI for the Smithy interface definition language (IDL)",
+      "install_id": "smithy-cli",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "smithy-cli-1.68.0",
+      "pname": "smithy-cli",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:11:24.252098Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.68.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/0s6sp9xxz1v1k2rqwh35rl8858n2jrlw-smithy-cli-1.68.0"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "smithy-cli",
+      "broken": false,
+      "derivation": "/nix/store/wi82c50q7izwlwljlwawgi6v79ir95ks-smithy-cli-1.68.0.drv",
+      "description": "CLI for the Smithy interface definition language (IDL)",
+      "install_id": "smithy-cli",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "smithy-cli-1.68.0",
+      "pname": "smithy-cli",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:43:06.100668Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.68.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/aifr4c4sdqz4y5pi5w8r4ppjps33lv11-smithy-cli-1.68.0"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    }
+  ]
+}

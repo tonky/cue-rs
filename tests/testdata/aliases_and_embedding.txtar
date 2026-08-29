@@ -1,0 +1,24 @@
+Test struct embedding and let/alias bindings
+-- in.cue --
+package test
+
+#BaseConfig: {
+    host: string
+    port: int & >0
+}
+
+let defaultHost = "api.internal"
+
+server: {
+    #BaseConfig
+    host: defaultHost
+    port: 8080
+    debug: true
+}
+
+-- out/eval --
+server: {
+    debug: true
+    host: "api.internal"
+    port: 8080
+}

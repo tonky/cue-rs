@@ -1,0 +1,25 @@
+Test extended list functions (Range, Take, Drop)
+-- in.cue --
+package test
+
+numbers: list.Range(0, 10, 2)
+firstThree: list.Take(numbers, 3)
+remaining: list.Drop(numbers, 3)
+
+-- out/eval --
+firstThree: [
+    0,
+    2,
+    4
+]
+numbers: [
+    0,
+    2,
+    4,
+    6,
+    8
+]
+remaining: [
+    6,
+    8
+]

@@ -1,0 +1,19 @@
+[package]
+name = "cue-eval"
+version = "0.1.0"
+edition = "2024"
+description = "Arena-based lattice unification engine and evaluator for CUE"
+
+[dependencies]
+cue-syntax = { path = "../cue-syntax" }
+slotmap = "1.0"
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+regex = "1.11"
+num-bigint = "0.4"
+num-traits = "0.2"
+
+[dev-dependencies]
+cue-test-harness = { path = "../cue-test-harness" }

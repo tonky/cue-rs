@@ -1,0 +1,27 @@
+Test basic struct unification and type constraints
+-- schema.cue --
+package test
+
+#ServerConfig: {
+    host: string
+    port: int & >1024 & <65535
+    tls:  *true | false
+    environment: "dev" | "staging" | "prod"
+}
+
+-- config.cue --
+package test
+
+server: #ServerConfig & {
+    host: "localhost"
+    port: 8080
+    environment: "prod"
+}
+
+-- out/eval --
+server: {
+    host: "localhost"
+    port: 8080
+    tls: true
+    environment: "prod"
+}

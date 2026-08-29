@@ -1,0 +1,23 @@
+Test import declarations and package aliases
+-- in.cue --
+package test
+
+import (
+    s "strings"
+    json "encoding/json"
+    "math"
+)
+
+raw: {
+    message: s.ToUpper("antigravity")
+    val:     math.Floor(12.8)
+}
+
+serialized: json.Marshal(raw)
+
+-- out/eval --
+raw: {
+    message: "ANTIGRAVITY"
+    val: 12
+}
+serialized: "{\"message\":\"ANTIGRAVITY\",\"val\":12}"

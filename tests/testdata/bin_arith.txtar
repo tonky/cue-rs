@@ -1,0 +1,23 @@
+Test binary arithmetic and mixed integer/float operations
+-- in.cue --
+package test
+
+mixedAdd: 10 + 2.5
+mixedSub: 10.5 - 3
+mixedMul: 4 * 2.5
+mixedDiv: 15.0 / 3
+strConcat: "Hello, " + "World!"
+
+cmp1: 10 < 20
+cmp2: 5.5 >= 5.0
+cmp3: 10 == 10
+
+-- out/eval --
+cmp1: true
+cmp2: true
+cmp3: true
+mixedAdd: 12.5
+mixedDiv: 5.0
+mixedMul: 10.0
+mixedSub: 7.5
+strConcat: "Hello, World!"

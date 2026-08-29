@@ -1,0 +1,9 @@
+[package]
+name = "cue-test-harness"
+version = "0.1.0"
+edition = "2024"
+description = "Txtar test archive parser and test runner for CUE upstream conformance suites"
+
+[dependencies]
+thiserror = "2.0"
+walkdir = "2.5"

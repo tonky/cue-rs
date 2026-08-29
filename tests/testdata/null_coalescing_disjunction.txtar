@@ -1,0 +1,15 @@
+Test nullable types and disjunctions with null
+-- in.cue --
+package test
+
+#NullableString: null | string
+#NullableInt:    *null | int
+
+name:  #NullableString & "Kepler"
+empty: #NullableString & null
+port:  #NullableInt
+
+-- out/eval --
+empty: null
+name: "Kepler"
+port: null

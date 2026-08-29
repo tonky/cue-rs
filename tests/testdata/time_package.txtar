@@ -1,0 +1,25 @@
+Test time standard library package (Duration and RFC3339 validator)
+-- in.cue --
+package test
+
+#Event: {
+    name:      string
+    timestamp: string & time.Time
+    timeout:   int
+}
+
+event: #Event & {
+    name:      "session_start"
+    timestamp: "2026-08-29T22:50:00Z"
+    timeout:   time.Duration("1h30m")
+}
+
+durationNanos: time.Duration("500ms")
+
+-- out/eval --
+durationNanos: 500000000
+event: {
+    name: "session_start"
+    timeout: 5400000000000
+    timestamp: "2026-08-29T22:50:00Z"
+}

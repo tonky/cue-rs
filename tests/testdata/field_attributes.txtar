@@ -1,0 +1,22 @@
+Test field attributes parsing
+-- in.cue --
+package test
+
+#UserProto: {
+    id:    int    @protobuf(1,int64)
+    name:  string @protobuf(2,string) @json(userName)
+    email: string @protobuf(3,string)
+}
+
+user: #UserProto & {
+    id:    101
+    name:  "antigravity"
+    email: "dev@antigravity.io"
+}
+
+-- out/eval --
+user: {
+    email: "dev@antigravity.io"
+    id: 101
+    name: "antigravity"
+}

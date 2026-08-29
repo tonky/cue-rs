@@ -1,0 +1,24 @@
+Test struct package validators (MinFields, MaxFields)
+-- in.cue --
+package test
+
+#ConfigMap: {
+    data: struct.MinFields(2) & struct.MaxFields(5)
+}
+
+config: #ConfigMap & {
+    data: {
+        DATABASE_URL: "postgres://localhost:5432"
+        PORT:         "8080"
+        ENV:          "production"
+    }
+}
+
+-- out/eval --
+config: {
+    data: {
+        DATABASE_URL: "postgres://localhost:5432"
+        ENV: "production"
+        PORT: "8080"
+    }
+}

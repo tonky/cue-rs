@@ -1,0 +1,13 @@
+[package]
+name = "cue-syntax"
+version = "0.1.0"
+edition = "2024"
+description = "Lexer, AST, and Parser for the CUE configuration language"
+
+[dependencies]
+logos = "0.14"
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+insta = { version = "1.42", features = ["yaml"] }

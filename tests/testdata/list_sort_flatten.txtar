@@ -1,0 +1,73 @@
+Test list sorting and flattening functions (list.Sort, list.FlattenN)
+-- in.cue --
+package test
+
+rawNumbers: [50, 10, 40, 20, 30]
+sortedNumbers: list.Sort(rawNumbers)
+
+rawStrings: ["zebra", "apple", "mango", "banana"]
+sortedStrings: list.Sort(rawStrings)
+
+nested: [1, [2, 3], [4, [5, 6]]]
+flatOnce: list.FlattenN(nested, 1)
+flatDeep: list.FlattenN(nested, 2)
+
+-- out/eval --
+flatDeep: [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+]
+flatOnce: [
+    1,
+    2,
+    3,
+    4,
+    [
+        5,
+        6
+    ]
+]
+nested: [
+    1,
+    [
+        2,
+        3
+    ],
+    [
+        4,
+        [
+            5,
+            6
+        ]
+    ]
+]
+rawNumbers: [
+    50,
+    10,
+    40,
+    20,
+    30
+]
+rawStrings: [
+    "zebra",
+    "apple",
+    "mango",
+    "banana"
+]
+sortedNumbers: [
+    10,
+    20,
+    30,
+    40,
+    50
+]
+sortedStrings: [
+    "apple",
+    "banana",
+    "mango",
+    "zebra"
+]

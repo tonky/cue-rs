@@ -1,0 +1,21 @@
+Test pattern constraints on struct fields
+-- in.cue --
+package test
+
+#KubernetesLabels: {
+    [=~"^app\\.kubernetes\\.io/"]: string
+    [=~"^custom\\.prefix/"]: int & >0
+}
+
+app: #KubernetesLabels & {
+    "app.kubernetes.io/name": "web"
+    "app.kubernetes.io/version": "1.0.0"
+    "custom.prefix/port": 8080
+}
+
+-- out/eval --
+app: {
+    "app.kubernetes.io/name": "web"
+    "app.kubernetes.io/version": "1.0.0"
+    "custom.prefix/port": 8080
+}

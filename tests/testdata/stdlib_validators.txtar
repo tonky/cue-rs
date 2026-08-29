@@ -1,0 +1,22 @@
+Test standard library validators (strings, list, math)
+-- in.cue --
+package test
+
+#APISpec: {
+    serviceName: string & strings.MinRunes(3) & strings.MaxRunes(30)
+    endpoints:   list.MinItems(1) & list.UniqueItems()
+    rateLimit:   int & math.MultipleOf(100) & >0
+}
+
+billingApi: #APISpec & {
+    serviceName: "billing-service"
+    endpoints: ["/charge", "/refund", "/status"]
+    rateLimit: 5000
+}
+
+-- out/eval --
+billingApi: {
+    serviceName: "billing-service"
+    endpoints: ["/charge", "/refund", "/status"]
+    rateLimit: 5000
+}

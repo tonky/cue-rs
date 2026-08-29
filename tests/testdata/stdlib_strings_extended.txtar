@@ -1,0 +1,14 @@
+Test extended string functions (Trim, TrimPrefix, TrimSuffix, Repeat)
+-- in.cue --
+package test
+
+trimmed: strings.Trim("  hello world  ", " ")
+prefix:  strings.TrimPrefix("https://antigravity.dev", "https://")
+suffix:  strings.TrimSuffix("document.pdf", ".pdf")
+repeated: strings.Repeat("abc", 3)
+
+-- out/eval --
+prefix: "antigravity.dev"
+repeated: "abcabcabc"
+suffix: "document"
+trimmed: "hello world"

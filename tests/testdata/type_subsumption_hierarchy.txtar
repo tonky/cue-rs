@@ -1,0 +1,15 @@
+Test multi-type lattice hierarchy subsumption
+-- in.cue --
+package test
+
+#HierarchyVal: number & int & uint & uint16 & 8080
+
+port: #HierarchyVal
+
+#FloatHierarchy: number & float & float64 & 3.14159
+
+pi: #FloatHierarchy
+
+-- out/eval --
+pi: 3.14159
+port: 8080

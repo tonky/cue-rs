@@ -1,0 +1,16 @@
+Test extended math package functions (Sqrt, Pow, Max, Min, Pi)
+-- in.cue --
+package test
+
+sqrtVal: math.Sqrt(16.0)
+powVal:  math.Pow(2.0, 8.0)
+maxVal:  math.Max(10, 25)
+minVal:  math.Min(10, 25)
+piVal:   math.Round(math.Pi)
+
+-- out/eval --
+maxVal: 25
+minVal: 10
+piVal: 3
+powVal: 256
+sqrtVal: 4

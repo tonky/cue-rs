@@ -1,0 +1,175 @@
+use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
+use cue_eval::eval_to_json;
+use cue_test_harness::TxtarArchive;
+use std::path::PathBuf;
+
+#[derive(Parser, Debug)]
+#[command(name = "cue-rs", version = "0.1.0", about = "High-performance CUE language validator and evaluator in Rust")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Evaluate a CUE file and export to JSON or YAML
+    Eval {
+        /// Input CUE file
+        file: PathBuf,
+        /// Output export format (json or yaml)
+        #[arg(long, default_value = "json")]
+        format: String,
+        /// Pretty-print the JSON output
+        #[arg(short, long, default_value_t = true)]
+        pretty: bool,
+    },
+    /// Vet / validate a JSON or CUE data file against a CUE schema
+    Vet {
+        /// Schema CUE file
+        schema: PathBuf,
+        /// Data file to validate
+        data: PathBuf,
+    },
+    /// Format a CUE file
+    Fmt {
+        /// Input CUE file
+        file: PathBuf,
+        /// Overwrite file in-place
+        #[arg(short, long)]
+        write: bool,
+    },
+    /// Run .txtar test suites from a file or directory
+    TestTxtar {
+        /// Path to .txtar file or directory containing .txtar files
+        path: PathBuf,
+    },
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Fmt { file, write } => {
+            let content = std::fs::read_to_string(&file)
+                .with_context(|| format!("Failed to read file {}", file.display()))?;
+            let source_file = cue_syntax::parse_file(&content)
+                .map_err(|e| anyhow::anyhow!("Parse error: {e}"))?;
+            let formatted = cue_syntax::format_file(&source_file);
+
+            if write {
+                std::fs::write(&file, &formatted)
+                    .with_context(|| format!("Failed to write file {}", file.display()))?;
+                println!("Formatted {}", file.display());
+            } else {
+                print!("{formatted}");
+            }
+        }
+        Commands::Eval { file, format, pretty } => {
+            let json = if file.is_dir() {
+                let (evaluator, root_id) = cue_eval::PackageLoader::load_dir(&file)
+                    .map_err(|e| anyhow::anyhow!("Package load error: {e}"))?;
+                evaluator
+                    .to_json(root_id)
+                    .map_err(|e| anyhow::anyhow!("CUE evaluation failed: {e}"))?
+            } else {
+                let content = std::fs::read_to_string(&file)
+                    .with_context(|| format!("Failed to read file {}", file.display()))?;
+                eval_to_json(&content)
+                    .map_err(|e| anyhow::anyhow!("CUE evaluation failed: {e}"))?
+            };
+
+            match format.to_lowercase().as_str() {
+                "yaml" | "yml" => {
+                    let yml = serde_yaml::to_string(&json)?;
+                    print!("{yml}");
+                }
+                _ => {
+                    if pretty {
+                        println!("{}", serde_json::to_string_pretty(&json)?);
+                    } else {
+                        println!("{}", serde_json::to_string(&json)?);
+                    }
+                }
+            }
+        }
+        Commands::Vet { schema, data } => {
+            let schema_content = std::fs::read_to_string(&schema)
+                .with_context(|| format!("Failed to read schema file {}", schema.display()))?;
+            let data_content = std::fs::read_to_string(&data)
+                .with_context(|| format!("Failed to read data file {}", data.display()))?;
+
+            // Unify schema and data
+            let combined = format!("{schema_content}\n{data_content}");
+            match eval_to_json(&combined) {
+                Ok(_) => {
+                    println!("Validation successful! Data satisfies the schema.");
+                }
+                Err(e) => {
+                    eprintln!("Validation failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::TestTxtar { path } => {
+            if path.is_file() {
+                run_txtar_file(&path)?;
+            } else if path.is_dir() {
+                let fixtures = TxtarArchive::find_fixtures_in_dir(&path);
+                println!("Found {} txtar fixture(s) in {}", fixtures.len(), path.display());
+                let mut passed = 0;
+                let mut failed = 0;
+
+                for fix in fixtures {
+                    print!("Running {} ... ", fix.display());
+                    match run_txtar_file(&fix) {
+                        Ok(()) => {
+                            println!("PASSED");
+                            passed += 1;
+                        }
+                        Err(e) => {
+                            println!("FAILED: {e}");
+                            failed += 1;
+                        }
+                    }
+                }
+                println!("\nTest Results: {passed} passed, {failed} failed");
+            } else {
+                anyhow::bail!("Path {} does not exist", path.display());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn run_txtar_file(path: &std::path::Path) -> Result<()> {
+    let archive = TxtarArchive::from_file(path)
+        .with_context(|| format!("Failed to parse txtar file {}", path.display()))?;
+
+    let cue_files = archive.cue_files();
+    if cue_files.is_empty() {
+        anyhow::bail!("No CUE files found in archive");
+    }
+
+    let mut evaluator = cue_eval::Evaluator::new();
+    let mut last_val = None;
+
+    for (name, content) in cue_files {
+        let file = cue_syntax::parse_file(content)
+            .map_err(|e| anyhow::anyhow!("Parse error in {name}: {e}"))?;
+        let val_id = evaluator
+            .eval_file(&file)
+            .map_err(|e| anyhow::anyhow!("Eval error in {name}: {e}"))?;
+        last_val = Some(val_id);
+    }
+
+    if let Some(val_id) = last_val {
+        let json = evaluator
+            .to_json(val_id)
+            .map_err(|e| anyhow::anyhow!("JSON export error: {e}"))?;
+        println!("Output JSON:\n{}", serde_json::to_string_pretty(&json)?);
+    }
+
+    Ok(())
+}

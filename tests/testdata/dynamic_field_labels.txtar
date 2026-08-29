@@ -1,0 +1,21 @@
+Test dynamic field labels in structs
+-- in.cue --
+package test
+
+keyA: "service_name"
+keyB: "service_port"
+
+config: {
+    (keyA): "auth"
+    (keyB): 8080
+    "\(keyA)_env": "prod"
+}
+
+-- out/eval --
+config: {
+    service_name: "auth"
+    service_name_env: "prod"
+    service_port: 8080
+}
+keyA: "service_name"
+keyB: "service_port"

@@ -1,0 +1,21 @@
+Test base64, hex, and sha256 standard library packages
+-- in.cue --
+package test
+
+plain: "hello world"
+
+b64Encoded: base64.Encode(plain)
+b64Decoded: base64.Decode(b64Encoded)
+
+hexEncoded: hex.Encode(plain)
+hexDecoded: hex.Decode(hexEncoded)
+
+hash: sha256.Sum(plain)
+
+-- out/eval --
+b64Decoded: "hello world"
+b64Encoded: "aGVsbG8gd29ybGQ="
+hash: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+hexDecoded: "hello world"
+hexEncoded: "68656c6c6f20776f726c64"
+plain: "hello world"

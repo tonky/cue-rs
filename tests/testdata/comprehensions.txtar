@@ -1,0 +1,31 @@
+Test for and if comprehensions
+-- in.cue --
+package test
+
+services: ["auth", "billing", "gateway"]
+
+configs: {
+    for i, s in services {
+        (s): {
+            name: s
+            port: 8000 + i
+        }
+    }
+}
+
+-- out/eval --
+services: ["auth", "billing", "gateway"]
+configs: {
+    auth: {
+        name: "auth"
+        port: 8000
+    }
+    billing: {
+        name: "billing"
+        port: 8001
+    }
+    gateway: {
+        name: "gateway"
+        port: 8002
+    }
+}

@@ -1,0 +1,36 @@
+Test recursive definition schemas and self-referencing nodes
+-- in.cue --
+package test
+
+#Tree: {
+    name: string
+    left?: #Tree
+    right?: #Tree
+}
+
+tree: #Tree & {
+    name: "root"
+    left: {
+        name: "child_left"
+    }
+    right: {
+        name: "child_right"
+        left: {
+            name: "grandchild"
+        }
+    }
+}
+
+-- out/eval --
+tree: {
+    name: "root"
+    left: {
+        name: "child_left"
+    }
+    right: {
+        name: "child_right"
+        left: {
+            name: "grandchild"
+        }
+    }
+}

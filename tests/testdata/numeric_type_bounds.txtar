@@ -1,0 +1,28 @@
+Test fixed-width numeric types (uint, uint8, uint16, int8, int32, float64)
+-- in.cue --
+package test
+
+#Packet: {
+    ttl:      uint8
+    port:     uint16
+    offset:   int8
+    sequence: int32
+    weight:   float64
+}
+
+packet: #Packet & {
+    ttl:      64
+    port:     8080
+    offset:   -10
+    sequence: 100000
+    weight:   0.75
+}
+
+-- out/eval --
+packet: {
+    offset: -10
+    port: 8080
+    sequence: 100000
+    ttl: 64
+    weight: 0.75
+}

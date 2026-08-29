@@ -1,0 +1,25 @@
+Test list indexing, slicing, and standard list operations
+-- in.cue --
+package test
+
+items: [10, 20, 30, 40, 50]
+
+first: items[0]
+middle: items[1:4]
+last: items[4]
+
+-- out/eval --
+first: 10
+items: [
+    10,
+    20,
+    30,
+    40,
+    50
+]
+last: 50
+middle: [
+    20,
+    30,
+    40
+]

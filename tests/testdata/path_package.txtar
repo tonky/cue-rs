@@ -1,0 +1,17 @@
+Test path standard library functions
+-- in.cue --
+package test
+
+fullPath: "/etc/antigravity/config.cue"
+
+base: path.Base(fullPath)
+dir:  path.Dir(fullPath)
+ext:  path.Ext(fullPath)
+joined: path.Join(["var", "log", "antigravity.log"])
+
+-- out/eval --
+base: "config.cue"
+dir: "/etc/antigravity"
+ext: ".cue"
+fullPath: "/etc/antigravity/config.cue"
+joined: "var/log/antigravity.log"

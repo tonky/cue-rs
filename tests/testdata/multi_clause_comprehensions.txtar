@@ -1,0 +1,26 @@
+Test multi-clause comprehensions with nested for and if filters
+-- in.cue --
+package test
+
+numbers: [1, 2, 3, 4, 5, 6]
+
+filtered: {
+    for n in numbers if n > 2 if n < 6 {
+        ("item_\(n)"): n * 10
+    }
+}
+
+-- out/eval --
+filtered: {
+    item_3: 30
+    item_4: 40
+    item_5: 50
+}
+numbers: [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+]

@@ -1,0 +1,31 @@
+Test disjunctions with defaults and constraint narrowing
+-- in.cue --
+package test
+
+#Database: {
+    engine: *"postgres" | "mysql" | "sqlite"
+    ssl:    *true | false
+    pool:   int & >=5 & <=100
+}
+
+prodDb: #Database & {
+    pool: 20
+}
+
+devDb: #Database & {
+    engine: "sqlite"
+    ssl:    false
+    pool:   5
+}
+
+-- out/eval --
+prodDb: {
+    engine: "postgres"
+    ssl:    true
+    pool:   20
+}
+devDb: {
+    engine: "sqlite"
+    ssl:    false
+    pool:   5
+}

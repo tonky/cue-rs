@@ -1,0 +1,24 @@
+Test field aliases and let bindings in structs
+-- in.cue --
+package test
+
+let BasePort = 8000
+
+X = 42
+
+server: {
+    let InternalHost = "localhost"
+    port: BasePort + 80
+    host: InternalHost
+    magic: X
+}
+
+otherMagic: X + 10
+
+-- out/eval --
+otherMagic: 52
+server: {
+    host: "localhost"
+    magic: 42
+    port: 8080
+}

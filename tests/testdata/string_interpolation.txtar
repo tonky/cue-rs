@@ -1,0 +1,21 @@
+Test string interpolation with expressions and variables
+-- in.cue --
+package test
+
+name: "Cluster-Alpha"
+nodeCount: 3
+region: "us-west-2"
+
+info: {
+    title: "Deployment: \(name)"
+    endpoint: "https://\(name).\(region).internal:\(8000 + nodeCount)"
+}
+
+-- out/eval --
+name: "Cluster-Alpha"
+nodeCount: 3
+region: "us-west-2"
+info: {
+    title: "Deployment: Cluster-Alpha"
+    endpoint: "https://Cluster-Alpha.us-west-2.internal:8003"
+}

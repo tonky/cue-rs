@@ -1,0 +1,22 @@
+Test list ellipsis pattern unification with concrete lists
+-- in.cue --
+package test
+
+#IntList: [...int]
+#PortList: [...uint16]
+
+numbers: #IntList & [10, 20, 30, 40]
+ports: #PortList & [80, 443, 8080]
+
+-- out/eval --
+numbers: [
+    10,
+    20,
+    30,
+    40
+]
+ports: [
+    80,
+    443,
+    8080
+]

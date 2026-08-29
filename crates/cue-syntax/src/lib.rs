@@ -1,0 +1,105 @@
+pub mod ast;
+pub mod formatter;
+pub mod parser;
+pub mod token;
+
+pub use ast::*;
+pub use formatter::format_file;
+pub use parser::{ParseError, Parser};
+pub use token::Token;
+
+/// Parse a CUE source string into a `SourceFile`.
+pub fn parse_file(source: &str) -> Result<SourceFile, ParseError> {
+    let mut parser = Parser::new(source)?;
+    parser.parse_file()
+}
+
+/// Parse a CUE expression string.
+pub fn parse_expr(source: &str) -> Result<Expr, ParseError> {
+    Parser::parse_expr_str(source)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_roundtrip() {
+        let src = r#"package test
+
+#Config: {
+    port: int & >1024
+    tls: *true | false
+}
+"#;
+        let file = parse_file(src).unwrap();
+        let formatted = format_file(&file);
+        assert!(formatted.contains("package test"));
+        assert!(formatted.contains("#Config: {"));
+        assert!(formatted.contains("port: int & >1024"));
+    }
+
+    #[test]
+    fn test_parse_simple_struct() {
+        let src = r#"
+            package test
+
+            #Schema: {
+                name: string
+                age?: int
+                role: *"user" | "admin"
+            }
+
+            user1: #Schema & {
+                name: "Alice"
+                age: 30
+            }
+        "#;
+        let file = parse_file(src).unwrap();
+        assert_eq!(file.package, Some("test".to_string()));
+        assert_eq!(file.decls.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_nested_fields() {
+        let src = "a: b: c: 42";
+        let file = parse_file(src).unwrap();
+        assert_eq!(file.decls.len(), 1);
+        if let Decl::Field(f) = &file.decls[0] {
+            assert_eq!(f.label.name(), Some("a"));
+            if let Expr::Struct(inner) = &f.value {
+                assert_eq!(inner.decls.len(), 1);
+            } else {
+                panic!("Expected nested struct");
+            }
+        } else {
+            panic!("Expected field");
+        }
+    }
+
+    #[test]
+    fn test_parse_disjunction_and_unification() {
+        let expr_src = r#"int & >0 & <=100 | *"default""#;
+        let expr = parse_expr(expr_src).unwrap();
+        match expr {
+            Expr::Disjunction { branches } => {
+                assert_eq!(branches.len(), 2);
+                assert!(!branches[0].default);
+                assert!(branches[1].default);
+            }
+            _ => panic!("Expected disjunction"),
+        }
+    }
+
+    #[test]
+    fn test_parse_list_and_ellipsis() {
+        let src = r#"[1, 2, 3, ...int]"#;
+        let expr = parse_expr(src).unwrap();
+        if let Expr::List(l) = expr {
+            assert_eq!(l.elements.len(), 3);
+            assert!(l.ellipsis.is_some());
+        } else {
+            panic!("Expected list");
+        }
+    }
+}

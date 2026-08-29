@@ -1,0 +1,43 @@
+Test json and yaml standard library encoding functions
+-- in.cue --
+package test
+
+data: {
+    service: "auth"
+    port: 8080
+    tags: ["security", "v1"]
+}
+
+encodedJson: json.Marshal(data)
+decodedJson: json.Unmarshal(encodedJson)
+
+encodedYaml: yaml.Marshal(data)
+decodedYaml: yaml.Unmarshal(encodedYaml)
+
+-- out/eval --
+data: {
+    port: 8080
+    service: "auth"
+    tags: [
+        "security",
+        "v1"
+    ]
+}
+decodedJson: {
+    port: 8080
+    service: "auth"
+    tags: [
+        "security",
+        "v1"
+    ]
+}
+decodedYaml: {
+    port: 8080
+    service: "auth"
+    tags: [
+        "security",
+        "v1"
+    ]
+}
+encodedJson: "{\"port\":8080,\"service\":\"auth\",\"tags\":[\"security\",\"v1\"]}"
+encodedYaml: "port: 8080\nservice: auth\ntags:\n- security\n- v1\n"

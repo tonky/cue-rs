@@ -1,0 +1,18 @@
+Test disjunction unification (meet)
+-- in.cue --
+package test
+
+#ScalarUnion: int | string
+result1: #ScalarUnion & "antigravity"
+
+#RangeA: 10 | 20 | 30
+#RangeB: 20 | 30 | 40
+result2: #RangeA & #RangeB & 20
+
+#DefaultA: *8080 | 9090
+result3: #DefaultA
+
+-- out/eval --
+result1: "antigravity"
+result2: 20
+result3: 8080

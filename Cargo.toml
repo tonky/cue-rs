@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "crates/cue-syntax",
+    "crates/cue-eval",
+    "crates/cue-test-harness",
+    "crates/cue-cli",
+    "crates/cue-derive",
+]
+resolver = "2"
