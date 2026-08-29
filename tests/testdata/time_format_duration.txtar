@@ -1,0 +1,14 @@
+Test time.FormatDuration
+-- in.cue --
+package test
+
+import "time"
+
+d1: time.FormatDuration(time.Hour + 30 * time.Minute)
+d2: time.FormatDuration(500 * time.Millisecond)
+d3: time.FormatDuration(0)
+
+-- out/eval --
+d1: "1h30m"
+d2: "500ms"
+d3: "0s"

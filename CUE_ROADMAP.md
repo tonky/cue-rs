@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **27 / 27 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **89 / 89 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **94 / 94 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -67,13 +67,13 @@ This document tracks the technical design, milestone progress, and conformance v
          │                • uint, uint8, uint16, uint32, uint64
          │                • int8, int16, int32, int64, float32, float64
          │          ──► Standard Library Packages (24 packages active):
-         │                • strings (MinRunes, MaxRunes, Trim, TrimPrefix, TrimSuffix, Repeat, Replace, Fields, Split, Index, LastIndex, Compare, Count, Title)
-         │                • math (Sqrt, Pow, Log, Log10, Log2, Hypot, Sin, Cos, Tan, Asin, Acos, Atan, Atan2, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, Trunc, Abs, Sign, Dim, Copysign, Cbrt, Exp, Exp2, Expm1, Log1p)
-         │                • math/bits (And, Or, Xor, Lsh, Rsh, OnesCount)
-         │                • list (MinItems, MaxItems, UniqueItems, Sort, FlattenN, Flatten, Concat, Repeat, Range, Take, Drop, Slice, Sum, Product, Avg, Min, Max)
+         │                • strings (MinRunes, MaxRunes, Trim, TrimPrefix, TrimSuffix, TrimSpace, TrimLeft, TrimRight, Repeat, Replace, Fields, Split, Index, LastIndex, Compare, Count, Title)
+         │                • math (Sqrt, Pow, Log, Log10, Log2, Hypot, Sin, Cos, Tan, Asin, Acos, Atan, Atan2, Sinh, Cosh, Tanh, Asinh, Acosh, Atanh, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, Trunc, Abs, Sign, Dim, Copysign, Cbrt, Exp, Exp2, Expm1, Log1p)
+         │                • math/bits (And, Or, Xor, Lsh, Rsh, OnesCount, Len, LeadingZeros, TrailingZeros, Reverse)
+         │                • list (MinItems, MaxItems, UniqueItems, Sort, SortStrings, FlattenN, Flatten, Concat, Repeat, Range, Take, Drop, Slice, Sum, Product, Avg, Min, Max)
          │                • regexp (Valid, Match, Find, FindAll, ReplaceAll)
          │                • struct (MinFields, MaxFields)
-         │                • time (Time RFC3339 validator, Duration parser, Unix, Hour, Minute, Second, Millisecond, Microsecond, Nanosecond)
+         │                • time (Time RFC3339 validator, Duration parser, Unix, FormatDuration, Hour, Minute, Second, Millisecond, Microsecond, Nanosecond)
          │                • net (IPv4, IPv6, IP validators)
          │                • strconv (Atoi, Itoa, ParseFloat, FormatFloat, ParseBool, FormatBool, ParseInt, ParseUint, FormatInt, FormatUint, Quote, Unquote)
          │                • uuid (Valid, Version)
@@ -164,13 +164,13 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] List concatenation (`l1 + l2`), repetition (`[0] * 4`), and `list.Concat` / `list.Repeat`.
 - [x] **String Interpolation & Repetition**: `"prefix \(expr) suffix"` and `"x" * 10`.
 - [x] **24 Standard Library Packages**:
-  - [x] `strings`: `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `Repeat`, `Replace`, `Fields`, `Split`, `Index`, `LastIndex`, `Compare`, `Count`, `Title`.
-  - [x] `math`: `Sqrt`, `Pow`, `Log`, `Log10`, `Log2`, `Hypot`, `Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Trunc`, `Abs`, `Sign`, `Dim`, `Copysign`, `Cbrt`, `Exp`, `Exp2`, `Expm1`, `Log1p`.
-  - [x] `math/bits`: `And`, `Or`, `Xor`, `Lsh`, `Rsh`, `OnesCount`.
-  - [x] `list`: `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `FlattenN`, `Flatten`, `Concat`, `Repeat`, `Slice`, `Range`, `Take`, `Drop`, `Sum`, `Product`, `Avg`, `Min`, `Max`.
+  - [x] `strings`: `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `TrimSpace`, `TrimLeft`, `TrimRight`, `Repeat`, `Replace`, `Fields`, `Split`, `Index`, `LastIndex`, `Compare`, `Count`, `Title`.
+  - [x] `math`: `Sqrt`, `Pow`, `Log`, `Log10`, `Log2`, `Hypot`, `Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, `Sinh`, `Cosh`, `Tanh`, `Asinh`, `Acosh`, `Atanh`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Trunc`, `Abs`, `Sign`, `Dim`, `Copysign`, `Cbrt`, `Exp`, `Exp2`, `Expm1`, `Log1p`.
+  - [x] `math/bits`: `And`, `Or`, `Xor`, `Lsh`, `Rsh`, `OnesCount`, `Len`, `LeadingZeros`, `TrailingZeros`, `Reverse`.
+  - [x] `list`: `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `SortStrings`, `FlattenN`, `Flatten`, `Concat`, `Repeat`, `Slice`, `Range`, `Take`, `Drop`, `Sum`, `Product`, `Avg`, `Min`, `Max`.
   - [x] `regexp`: `Valid`, `Match`, `Find`, `FindAll`, `ReplaceAll`.
   - [x] `struct`: `MinFields`, `MaxFields`.
-  - [x] `time`: `Time` (RFC3339 validator), `Duration` (string duration to nanoseconds), `Unix` (timestamp formatter), `Hour`, `Minute`, `Second`, `Millisecond`, `Microsecond`, `Nanosecond`.
+  - [x] `time`: `Time` (RFC3339 validator), `Duration` (string duration to nanoseconds), `Unix` (timestamp formatter), `FormatDuration`, `Hour`, `Minute`, `Second`, `Millisecond`, `Microsecond`, `Nanosecond`.
   - [x] `net`: `IPv4`, `IPv6`, `IP` address validators.
   - [x] `strconv`: `Atoi`, `Itoa`, `ParseFloat`, `FormatFloat`, `ParseBool`, `FormatBool`, `ParseInt`, `ParseUint`, `FormatInt`, `FormatUint`, `Quote`, `Unquote`.
   - [x] `uuid`: `Valid`, `Version`.

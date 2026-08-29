@@ -1,0 +1,18 @@
+Test math hyperbolic functions
+-- in.cue --
+package test
+
+import "math"
+
+sh0:  math.Sinh(0.0)
+ch0:  math.Cosh(0.0)
+th0:  math.Tanh(0.0)
+ash0: math.Asinh(0.0)
+ath0: math.Atanh(0.0)
+
+-- out/eval --
+ash0: 0.0
+ath0: 0.0
+ch0: 1.0
+sh0: 0.0
+th0: 0.0

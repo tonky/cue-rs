@@ -377,6 +377,33 @@ pub fn call_stdlib_func(
                 }
             Err("strings.TrimSuffix requires 2 string arguments".to_string())
         }
+        ("strings", "TrimSpace") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    return Ok(arena.string(s.trim().to_string()));
+                }
+            Err("strings.TrimSpace requires 1 string argument".to_string())
+        }
+        ("strings", "TrimLeft") => {
+            if args.len() >= 2
+                && let (Some(Value::String(s)), Some(Value::String(cutset))) =
+                    (arena.get(args[0]), arena.get(args[1]))
+                {
+                    let trimmed = s.trim_start_matches(|c| cutset.contains(c)).to_string();
+                    return Ok(arena.string(trimmed));
+                }
+            Err("strings.TrimLeft requires (string, cutset) arguments".to_string())
+        }
+        ("strings", "TrimRight") => {
+            if args.len() >= 2
+                && let (Some(Value::String(s)), Some(Value::String(cutset))) =
+                    (arena.get(args[0]), arena.get(args[1]))
+                {
+                    let trimmed = s.trim_end_matches(|c| cutset.contains(c)).to_string();
+                    return Ok(arena.string(trimmed));
+                }
+            Err("strings.TrimRight requires (string, cutset) arguments".to_string())
+        }
         ("strings", "Repeat") => {
             if args.len() >= 2
                 && let (Some(Value::String(s)), Some(Value::Int(count))) =
@@ -814,6 +841,72 @@ pub fn call_stdlib_func(
             }
             Err("math.Cos requires 1 number argument".to_string())
         }
+        ("math", "Sinh") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.sinh()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(n) = i.to_f64() {
+                        return Ok(arena.float(n.sinh()));
+                    }
+            }
+            Err("math.Sinh requires 1 number argument".to_string())
+        }
+        ("math", "Cosh") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.cosh()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(n) = i.to_f64() {
+                        return Ok(arena.float(n.cosh()));
+                    }
+            }
+            Err("math.Cosh requires 1 number argument".to_string())
+        }
+        ("math", "Tanh") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.tanh()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(n) = i.to_f64() {
+                        return Ok(arena.float(n.tanh()));
+                    }
+            }
+            Err("math.Tanh requires 1 number argument".to_string())
+        }
+        ("math", "Asinh") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.asinh()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(n) = i.to_f64() {
+                        return Ok(arena.float(n.asinh()));
+                    }
+            }
+            Err("math.Asinh requires 1 number argument".to_string())
+        }
+        ("math", "Acosh") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.acosh()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(n) = i.to_f64() {
+                        return Ok(arena.float(n.acosh()));
+                    }
+            }
+            Err("math.Acosh requires 1 number argument".to_string())
+        }
+        ("math", "Atanh") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.atanh()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(n) = i.to_f64() {
+                        return Ok(arena.float(n.atanh()));
+                    }
+            }
+            Err("math.Atanh requires 1 number argument".to_string())
+        }
         ("math", "Max") => {
             if args.len() >= 2 {
                 match (arena.get(args[0]), arena.get(args[1])) {
@@ -909,6 +1002,39 @@ pub fn call_stdlib_func(
                     return Ok(arena.int(x_u.count_ones() as i64));
                 }
             Err("bits.OnesCount requires 1 non-negative integer argument".to_string())
+        }
+        ("bits" | "math/bits", "Len") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::Int(x)) = arena.get(arg0)
+                && let Some(x_u) = x.to_u64() {
+                    let len = if x_u == 0 { 0 } else { 64 - x_u.leading_zeros() };
+                    return Ok(arena.int(len as i64));
+                }
+            Err("bits.Len requires 1 non-negative integer argument".to_string())
+        }
+        ("bits" | "math/bits", "LeadingZeros") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::Int(x)) = arena.get(arg0)
+                && let Some(x_u) = x.to_u64() {
+                    return Ok(arena.int(x_u.leading_zeros() as i64));
+                }
+            Err("bits.LeadingZeros requires 1 non-negative integer argument".to_string())
+        }
+        ("bits" | "math/bits", "TrailingZeros") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::Int(x)) = arena.get(arg0)
+                && let Some(x_u) = x.to_u64() {
+                    return Ok(arena.int(x_u.trailing_zeros() as i64));
+                }
+            Err("bits.TrailingZeros requires 1 non-negative integer argument".to_string())
+        }
+        ("bits" | "math/bits", "Reverse") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::Int(x)) = arena.get(arg0)
+                && let Some(x_u) = x.to_u64() {
+                    return Ok(arena.int(x_u.reverse_bits() as i64));
+                }
+            Err("bits.Reverse requires 1 non-negative integer argument".to_string())
         }
 
         // --- list package ---
@@ -1022,6 +1148,24 @@ pub fn call_stdlib_func(
                     }));
                 }
             Err("list.Sort requires 1 list argument".to_string())
+        }
+        ("list", "SortStrings") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::List { elements, ellipsis }) = arena.get(arg0) {
+                    let mut elems = elements.clone();
+                    let el = *ellipsis;
+                    elems.sort_by(|&a_id, &b_id| {
+                        match (arena.get(a_id), arena.get(b_id)) {
+                            (Some(Value::String(a)), Some(Value::String(b))) => a.cmp(b),
+                            _ => std::cmp::Ordering::Equal,
+                        }
+                    });
+                    return Ok(arena.alloc(Value::List {
+                        elements: elems,
+                        ellipsis: el,
+                    }));
+                }
+            Err("list.SortStrings requires 1 list of strings argument".to_string())
         }
         ("list", "FlattenN") => {
             if args.len() >= 2
@@ -1255,6 +1399,14 @@ pub fn call_stdlib_func(
                     return Ok(arena.string(format_unix_rfc3339(sec)));
                 }
             Err("time.Unix requires (sec, nsec) integer arguments".to_string())
+        }
+        ("time", "FormatDuration") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::Int(nanos_val)) = arena.get(arg0)
+                && let Some(nanos) = nanos_val.to_i64() {
+                    return Ok(arena.string(format_duration_string(nanos)));
+                }
+            Err("time.FormatDuration requires 1 integer nanos argument".to_string())
         }
         ("time", "Hour") => Ok(arena.int(3_600_000_000_000i64)),
         ("time", "Minute") => Ok(arena.int(60_000_000_000i64)),
@@ -2774,4 +2926,46 @@ fn title_case(s: &str) -> String {
         }
     }
     result
+}
+
+fn format_duration_string(nanos: i64) -> String {
+    if nanos == 0 {
+        return "0s".to_string();
+    }
+    let mut s = String::new();
+    let mut rem = nanos;
+    if rem < 0 {
+        s.push('-');
+        rem = -rem;
+    }
+    let hours = rem / 3_600_000_000_000;
+    rem %= 3_600_000_000_000;
+    let mins = rem / 60_000_000_000;
+    rem %= 60_000_000_000;
+    let secs = rem / 1_000_000_000;
+    rem %= 1_000_000_000;
+    let millis = rem / 1_000_000;
+    rem %= 1_000_000;
+    let micros = rem / 1_000;
+    let nsec = rem % 1_000;
+
+    if hours > 0 {
+        s.push_str(&format!("{hours}h"));
+    }
+    if mins > 0 {
+        s.push_str(&format!("{mins}m"));
+    }
+    if secs > 0 || (millis == 0 && micros == 0 && nsec == 0 && hours == 0 && mins == 0) {
+        s.push_str(&format!("{secs}s"));
+    }
+    if millis > 0 {
+        s.push_str(&format!("{millis}ms"));
+    }
+    if micros > 0 {
+        s.push_str(&format!("{micros}µs"));
+    }
+    if nsec > 0 {
+        s.push_str(&format!("{nsec}ns"));
+    }
+    s
 }

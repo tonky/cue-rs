@@ -1,0 +1,14 @@
+Test strings.TrimSpace, TrimLeft, and TrimRight
+-- in.cue --
+package test
+
+import "strings"
+
+spaced:  strings.TrimSpace("   hello world \t\n ")
+leftCut: strings.TrimLeft("/--/endpoint/data", "/-")
+rightCut: strings.TrimRight("filename.cue.bak", ".bak")
+
+-- out/eval --
+leftCut: "endpoint/data"
+rightCut: "filename.cue"
+spaced: "hello world"

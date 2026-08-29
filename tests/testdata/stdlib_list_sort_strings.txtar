@@ -1,0 +1,24 @@
+Test list.SortStrings
+-- in.cue --
+package test
+
+import "list"
+
+raw: ["zebra", "apple", "banana", "cherry", "avocado"]
+sorted: list.SortStrings(raw)
+
+-- out/eval --
+raw: [
+    "zebra",
+    "apple",
+    "banana",
+    "cherry",
+    "avocado"
+]
+sorted: [
+    "apple",
+    "avocado",
+    "banana",
+    "cherry",
+    "zebra"
+]

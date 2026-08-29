@@ -1,0 +1,14 @@
+Test math/bits Len, LeadingZeros, TrailingZeros, and Reverse
+-- in.cue --
+package test
+
+import "math/bits"
+
+len8:    bits.Len(8)
+zerosTrail: bits.TrailingZeros(8)
+zerosLead: bits.LeadingZeros(1)
+
+-- out/eval --
+len8: 4
+zerosLead: 63
+zerosTrail: 3
