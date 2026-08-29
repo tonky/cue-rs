@@ -1,0 +1,32 @@
+Test Cartesian product list comprehensions with multiple for clauses
+-- in.cue --
+package test
+
+numbers: [1, 2, 3]
+letters: ["a", "b"]
+
+pairs: [
+    for n in numbers
+    for l in letters {
+        "\(n)-\(l)"
+    }
+]
+
+-- out/eval --
+letters: [
+    "a",
+    "b"
+]
+numbers: [
+    1,
+    2,
+    3
+]
+pairs: [
+    "1-a",
+    "1-b",
+    "2-a",
+    "2-b",
+    "3-a",
+    "3-b"
+]

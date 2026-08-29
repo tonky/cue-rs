@@ -936,6 +936,29 @@ pub fn call_stdlib_func(
             Err("hex.Decode requires 1 hex string argument".to_string())
         }
 
+        // --- encoding/csv package ---
+        ("csv" | "encoding/csv", "Decode") => {
+            if let Some(&arg0) = args.first() {
+                let s_opt = if let Some(Value::String(s)) = arena.get(arg0) {
+                    Some(s.clone())
+                } else {
+                    None
+                };
+                if let Some(s) = s_opt {
+                    let res = csv_decode(arena, &s);
+                    return Ok(res);
+                }
+            }
+            Err("csv.Decode requires 1 CSV string argument".to_string())
+        }
+        ("csv" | "encoding/csv", "Encode") => {
+            if let Some(&arg0) = args.first() {
+                let csv_text = csv_encode(arena, arg0)?;
+                return Ok(arena.string(csv_text));
+            }
+            Err("csv.Encode requires 1 list argument".to_string())
+        }
+
         // --- crypto/sha256 package ---
         ("sha256" | "crypto/sha256", "Sum") => {
             if let Some(&arg0) = args.first()
@@ -1411,4 +1434,63 @@ fn sha1_digest(input: &[u8]) -> String {
         result.push_str(&format!("{word:08x}"));
     }
     result
+}
+
+fn csv_decode(arena: &mut ValueArena, input: &str) -> ValueId {
+    let mut rows = Vec::new();
+    let unescaped = input.replace("\\n", "\n").replace("\\r", "\r");
+    for line in unescaped.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let fields: Vec<ValueId> = trimmed
+            .split(',')
+            .map(|field| arena.string(field.trim().trim_matches('"').to_string()))
+            .collect();
+        let row_id = arena.alloc(Value::List {
+            elements: fields,
+            ellipsis: None,
+        });
+        rows.push(row_id);
+    }
+    arena.alloc(Value::List {
+        elements: rows,
+        ellipsis: None,
+    })
+}
+
+fn csv_encode(arena: &ValueArena, val_id: ValueId) -> Result<String, String> {
+    let rows = match arena.get(val_id) {
+        Some(Value::List { elements, .. }) => elements,
+        _ => return Err("csv.Encode expects a list of lists".to_string()),
+    };
+    let mut out = String::new();
+    for (i, &row_id) in rows.iter().enumerate() {
+        let fields = match arena.get(row_id) {
+            Some(Value::List { elements, .. }) => elements,
+            _ => return Err("csv.Encode expects inner list elements".to_string()),
+        };
+        let mut row_str = Vec::new();
+        for &field_id in fields {
+            match arena.get(field_id) {
+                Some(Value::String(s)) => {
+                    if s.contains(',') || s.contains('"') || s.contains('\n') {
+                        row_str.push(format!("\"{}\"", s.replace('"', "\"\"")));
+                    } else {
+                        row_str.push(s.clone());
+                    }
+                }
+                Some(Value::Int(i)) => row_str.push(i.to_string()),
+                Some(Value::Float(f)) => row_str.push(f.to_string()),
+                Some(Value::Bool(b)) => row_str.push(b.to_string()),
+                _ => return Err("csv.Encode unsupported element type".to_string()),
+            }
+        }
+        out.push_str(&row_str.join(","));
+        if i + 1 < rows.len() {
+            out.push('\n');
+        }
+    }
+    Ok(out)
 }

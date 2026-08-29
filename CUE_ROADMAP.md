@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **25 / 25 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **45 / 45 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **47 / 47 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -27,7 +27,7 @@ This document tracks the technical design, milestone progress, and conformance v
 │   (AST & CST)   │ ──► Pratt Recursive Descent Parser + String Interpolation
 │   (Formatter)   │ ──► AST Pretty-Printer / Formatter (`cue-rs fmt`)
 │                 │ ──► Raw & Multi-Line Strings (`#"..."#`, `#"""..."""#`, `#'...'#`)
-│                 │ ──► List Comprehensions (`[ for x in src if x > 1 { x * 10 } ]`)
+│                 │ ──► Cartesian Multi-Clause List Comprehensions (`[ for x in src for y in src2 { ... } ]`)
 │                 │ ──► Struct Body Comprehensions (`[ for k, v in map { name: k, val: v } ]`)
 │                 │ ──► Field Attributes Parser (`@protobuf`, `@json`, `@tag`)
 │                 │ ──► Single & Multi-Import Statements (`import s "strings"`)
@@ -50,7 +50,7 @@ This document tracks the technical design, milestone progress, and conformance v
          │          ──► Numeric Type Constraints:
          │                • uint, uint8, uint16, uint32, uint64
          │                • int8, int16, int32, int64, float32, float64
-         │          ──► Standard Library Packages (16 packages active):
+         │          ──► Standard Library Packages (17 packages active):
          │                • strings (MinRunes, MaxRunes, Trim, TrimPrefix, Repeat)
          │                • math (Sqrt, Pow, Log, Sin, Cos, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, Abs)
          │                • list (MinItems, MaxItems, UniqueItems, Sort, FlattenN, Range, Take, Drop)
@@ -62,6 +62,7 @@ This document tracks the technical design, milestone progress, and conformance v
          │                • uuid (Valid, Version)
          │                • encoding/json (Marshal, Unmarshal)
          │                • encoding/yaml (Marshal, Unmarshal)
+         │                • encoding/csv (Decode, Encode)
          │                • encoding/base64 (Encode, Decode)
          │                • encoding/hex (Encode, Decode)
          │                • crypto/sha256 (Sum)
@@ -86,7 +87,7 @@ This document tracks the technical design, milestone progress, and conformance v
 - [x] **Logos Lexer**: Identifiers, Definitions (`#Def`), Hidden fields (`_hidden`), Bottom (`_|_`), Top (`_`), Numbers, Strings, and Operators.
 - [x] **Raw Strings & Multi-Line Literals**: `#""" ... """#`, `#"..."#`, and `#'...'#`.
 - [x] **Pratt Expression Parser**: Unification (`&`), Disjunction (`|`), Comparison operators (`==`, `!=`, `<`, `<=`, `>`, `>=`, `=~`, `!~`), Mixed integer/float arithmetic (`+`, `-`, `*`, `/`), Unary arithmetic/bounds, and Selectors/Indexing.
-- [x] **List Comprehensions**: `[ for x in src if x > 1 { x * 10 } ]`, `[ for i, x in src { i + x } ]`, and struct-body mappings `[ for k, v in map { name: k, port: v.port } ]`.
+- [x] **Cartesian & List Comprehensions**: `[ for x in src if x > 1 { x * 10 } ]`, `[ for n in nums for l in letters { ... } ]`, and struct-body mappings `[ for k, v in map { name: k, port: v.port } ]`.
 - [x] **Import Declarations & Aliases**: Single and multi-import blocks (`import ( s "strings", json "encoding/json" )`).
 - [x] **Dynamic & Interpolated Field Labels**: `(expr): val` and `"\(expr)_suffix": val`.
 - [x] **Field Aliases & Let Bindings**: `let Identifier = Expr` and `Alias = Expr`.
@@ -115,7 +116,7 @@ This document tracks the technical design, milestone progress, and conformance v
 
 ---
 
-### Phase 3: Advanced Language Features & 16 Standard Library Packages
+### Phase 3: Advanced Language Features & 17 Standard Library Packages
 - [x] **Pattern Constraints on Structs**:
   - [x] Support `[Expr]: Type` constraint evaluation (e.g. `[=~"^app\\.kubernetes\\.io/"]: string`).
   - [x] Pattern exemption in closed `#Definitions`.
@@ -123,6 +124,7 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `for k, v in source { ... }` list and struct iterations.
   - [x] `if condition { ... }` conditional declarations.
   - [x] Chained multi-clause comprehensions (`for x in list if x > 2 if x < 6 { ... }`).
+  - [x] Cartesian product list comprehensions (`for x in src1 for y in src2 { ... }`).
   - [x] List comprehensions producing evaluated lists (`[ for x in raw if x > 2 { x * 10 } ]`).
   - [x] Dynamic parenthesized label evaluation inside loops `("k_\(i)"): val`.
 - [x] **List Indexing & Slicing & Operations**:
@@ -130,7 +132,7 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `list[low:high]` range slicing.
   - [x] List concatenation (`l1 + l2`) and repetition (`[0] * 4`).
 - [x] **String Interpolation & Repetition**: `"prefix \(expr) suffix"` and `"x" * 10`.
-- [x] **16 Standard Library Packages**:
+- [x] **17 Standard Library Packages**:
   - [x] `strings`: `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `Repeat`.
   - [x] `math`: `Sqrt`, `Pow`, `Log`, `Sin`, `Cos`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Abs`.
   - [x] `list`: `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `FlattenN`, `Range`, `Take`, `Drop`.
@@ -142,6 +144,7 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `uuid`: `Valid`, `Version`.
   - [x] `encoding/json`: `Marshal`, `Unmarshal`.
   - [x] `encoding/yaml`: `Marshal`, `Unmarshal`.
+  - [x] `encoding/csv`: `Decode`, `Encode`.
   - [x] `encoding/base64`: `Encode`, `Decode`.
   - [x] `encoding/hex`: `Encode`, `Decode`.
   - [x] `crypto/sha256`: `Sum`.

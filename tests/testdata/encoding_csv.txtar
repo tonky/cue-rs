@@ -1,0 +1,30 @@
+Test encoding/csv package (csv.Decode, csv.Encode)
+-- in.cue --
+package test
+
+rawCsv: "id,name,role\n1,alice,admin\n2,bob,dev"
+
+decoded: csv.Decode(rawCsv)
+
+reEncoded: csv.Encode(decoded)
+
+-- out/eval --
+decoded: [
+    [
+        "id",
+        "name",
+        "role"
+    ],
+    [
+        "1",
+        "alice",
+        "admin"
+    ],
+    [
+        "2",
+        "bob",
+        "dev"
+    ]
+]
+rawCsv: "id,name,role\\n1,alice,admin\\n2,bob,dev"
+reEncoded: "id,name,role\n1,alice,admin\n2,bob,dev"

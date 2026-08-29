@@ -541,6 +541,7 @@ impl<'a> Parser<'a> {
             } else {
                 break;
             }
+            self.match_token(&Token::Comma);
         }
 
         self.expect(Token::LBrace)?;
@@ -553,13 +554,18 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn parse_list_comprehension(&mut self) -> Result<Expr, ParseError> {
+    /// Parse a list comprehension: `[ for x in src if x > 1 { x * 10 } ]`
+    pub fn parse_list_comprehension(&mut self) -> Result<Expr, ParseError> {
         let mut clauses = Vec::new();
-        while !self.is_eof() && self.peek() != Some(&Token::LBrace) && self.peek() != Some(&Token::RBracket) {
+
+        while self.peek() == Some(&Token::KwFor)
+            || self.peek() == Some(&Token::KwIf)
+            || self.peek() == Some(&Token::KwLet)
+        {
             if self.match_token(&Token::KwFor) {
                 let (first_tok, span) = self.advance()?;
                 let (key, val) = match first_tok {
-                    Token::Ident(k_or_v) => {
+                    Token::Ident(k_or_v) | Token::DefIdent(k_or_v) => {
                         if self.match_token(&Token::Comma) {
                             let (val_tok, val_span) = self.advance()?;
                             if let Token::Ident(v) = val_tok {
@@ -611,6 +617,7 @@ impl<'a> Parser<'a> {
             } else {
                 break;
             }
+            self.match_token(&Token::Comma);
         }
 
         let expr = if self.match_token(&Token::LBrace) {
@@ -620,6 +627,7 @@ impl<'a> Parser<'a> {
                 Expr::Struct(StructLit { decls })
             } else {
                 let inner_expr = self.parse_expr()?;
+                self.match_token(&Token::Comma);
                 self.expect(Token::RBrace)?;
                 inner_expr
             }
