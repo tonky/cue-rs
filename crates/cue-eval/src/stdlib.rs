@@ -503,6 +503,45 @@ pub fn call_stdlib_func(
                 }
             Err("strings.Title requires 1 string argument".to_string())
         }
+        ("strings", "ByteAt") => {
+            if args.len() >= 2
+                && let (Some(Value::String(s)), Some(Value::Int(idx))) = (arena.get(args[0]), arena.get(args[1]))
+                && let Some(i) = idx.to_usize() {
+                    let bytes = s.as_bytes();
+                    if i < bytes.len() {
+                        return Ok(arena.int(bytes[i] as i64));
+                    } else {
+                        return Err(format!("strings.ByteAt: index {i} out of range for string of length {}", bytes.len()));
+                    }
+                }
+            Err("strings.ByteAt requires (string, int) arguments".to_string())
+        }
+        ("strings", "ByteSlice") => {
+            if args.len() >= 3
+                && let (Some(Value::String(s)), Some(Value::Int(start_val)), Some(Value::Int(end_val))) =
+                    (arena.get(args[0]), arena.get(args[1]), arena.get(args[2]))
+                && let (Some(start), Some(end)) = (start_val.to_usize(), end_val.to_usize()) {
+                    let bytes = s.as_bytes();
+                    let end_clamped = end.min(bytes.len());
+                    let start_clamped = start.min(end_clamped);
+                    let slice = &bytes[start_clamped..end_clamped];
+                    let result = String::from_utf8_lossy(slice).to_string();
+                    return Ok(arena.string(result));
+                }
+            Err("strings.ByteSlice requires (string, start, end) arguments".to_string())
+        }
+        ("strings", "Runes") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    let runes: Vec<String> = s.chars().map(|c| c.to_string()).collect();
+                    let elems: Vec<ValueId> = runes.into_iter().map(|r| arena.string(r)).collect();
+                    return Ok(arena.alloc(Value::List {
+                        elements: elems,
+                        ellipsis: None,
+                    }));
+                }
+            Err("strings.Runes requires 1 string argument".to_string())
+        }
         ("strings", "MinRunes") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(i)) = arena.get(arg0)
@@ -1166,6 +1205,36 @@ pub fn call_stdlib_func(
                     }));
                 }
             Err("list.SortStrings requires 1 list of strings argument".to_string())
+        }
+        ("list", "IsSorted") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::List { elements, .. }) = arena.get(arg0) {
+                    let elems = elements.clone();
+                    let sorted = elems.windows(2).all(|pair| {
+                        match (arena.get(pair[0]), arena.get(pair[1])) {
+                            (Some(Value::Int(a)), Some(Value::Int(b))) => a <= b,
+                            (Some(Value::Float(a)), Some(Value::Float(b))) => a <= b,
+                            (Some(Value::String(a)), Some(Value::String(b))) => a <= b,
+                            _ => true,
+                        }
+                    });
+                    return Ok(arena.bool(sorted));
+                }
+            Err("list.IsSorted requires 1 list argument".to_string())
+        }
+        ("list", "IsSortedStrings") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::List { elements, .. }) = arena.get(arg0) {
+                    let elems = elements.clone();
+                    let sorted = elems.windows(2).all(|pair| {
+                        match (arena.get(pair[0]), arena.get(pair[1])) {
+                            (Some(Value::String(a)), Some(Value::String(b))) => a <= b,
+                            _ => true,
+                        }
+                    });
+                    return Ok(arena.bool(sorted));
+                }
+            Err("list.IsSortedStrings requires 1 list of strings argument".to_string())
         }
         ("list", "FlattenN") => {
             if args.len() >= 2
@@ -1940,6 +2009,53 @@ pub fn call_stdlib_func(
                 target: dummy,
             }))
         }
+        ("net", "ParseIP") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    let trimmed = s.trim();
+                    if let Ok(addr) = trimmed.parse::<std::net::IpAddr>() {
+                        // Return the canonical string representation
+                        return Ok(arena.string(addr.to_string()));
+                    } else {
+                        return Err(format!("net.ParseIP: invalid IP address: \"{s}\""));
+                    }
+                }
+            Err("net.ParseIP requires 1 string argument".to_string())
+        }
+        ("net", "SplitHostPort") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    // Parse host:port or [host]:port
+                    let trimmed = s.trim();
+                    let (host, port) = if trimmed.starts_with('[') {
+                        // IPv6: [host]:port
+                        if let Some(bracket_end) = trimmed.find(']') {
+                            let h = &trimmed[1..bracket_end];
+                            let rest = &trimmed[bracket_end + 1..];
+                            if let Some(p) = rest.strip_prefix(':') {
+                                (h.to_string(), p.to_string())
+                            } else {
+                                return Err(format!("net.SplitHostPort: missing port in \"{s}\""));
+                            }
+                        } else {
+                            return Err(format!("net.SplitHostPort: missing ']' in \"{s}\""));
+                        }
+                    } else if let Some(colon_pos) = trimmed.rfind(':') {
+                        // IPv4 or hostname: host:port
+                        let h = &trimmed[..colon_pos];
+                        let p = &trimmed[colon_pos + 1..];
+                        (h.to_string(), p.to_string())
+                    } else {
+                        return Err(format!("net.SplitHostPort: missing port in \"{s}\""));
+                    };
+                    let elems = vec![arena.string(host), arena.string(port)];
+                    return Ok(arena.alloc(Value::List {
+                        elements: elems,
+                        ellipsis: None,
+                    }));
+                }
+            Err("net.SplitHostPort requires 1 string argument".to_string())
+        }
 
         // --- strconv package ---
         ("strconv", "Atoi") => {
@@ -2104,6 +2220,17 @@ pub fn call_stdlib_func(
                     }
                 }
             Err("uuid.Version requires 1 string argument".to_string())
+        }
+        ("uuid", "URN") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    if is_valid_uuid(s) {
+                        return Ok(arena.string(format!("urn:uuid:{}", s.to_lowercase())));
+                    } else {
+                        return Err(format!("uuid.URN: invalid UUID string \"{s}\""));
+                    }
+                }
+            Err("uuid.URN requires 1 string argument".to_string())
         }
 
         _ => Err(format!("unknown stdlib function: {pkg}.{func_name}")),

@@ -1,0 +1,18 @@
+Test list.IsSorted and list.IsSortedStrings
+-- in.cue --
+package test
+
+import "list"
+
+sortedNums: list.IsSorted([1, 2, 3, 4, 5])
+unsortedNums: list.IsSorted([5, 1, 3])
+sortedStrs: list.IsSortedStrings(["alpha", "beta", "gamma"])
+unsortedStrs: list.IsSortedStrings(["zebra", "apple"])
+emptyList: list.IsSorted([])
+
+-- out/eval --
+emptyList: true
+sortedNums: true
+sortedStrs: true
+unsortedNums: false
+unsortedStrs: false

@@ -1,0 +1,20 @@
+Test strings.ByteAt, strings.ByteSlice, and strings.Runes
+-- in.cue --
+package test
+
+import "strings"
+
+byte0: strings.ByteAt("ABC", 0)
+byte2: strings.ByteAt("ABC", 2)
+sliced: strings.ByteSlice("Hello, World!", 7, 12)
+runes: strings.Runes("Hi!")
+
+-- out/eval --
+byte0: 65
+byte2: 67
+runes: [
+    "H",
+    "i",
+    "!"
+]
+sliced: "World"

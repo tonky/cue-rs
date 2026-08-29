@@ -1,0 +1,12 @@
+Test uuid.URN
+-- in.cue --
+package test
+
+import "uuid"
+
+id: "123e4567-e89b-42d3-a456-426614174000"
+urn: uuid.URN(id)
+
+-- out/eval --
+id: "123e4567-e89b-42d3-a456-426614174000"
+urn: "urn:uuid:123e4567-e89b-42d3-a456-426614174000"

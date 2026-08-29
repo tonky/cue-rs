@@ -1,0 +1,22 @@
+Test net.ParseIP and net.SplitHostPort
+-- in.cue --
+package test
+
+import "net"
+
+parsed4: net.ParseIP("192.168.1.1")
+parsed6: net.ParseIP("::1")
+hostport1: net.SplitHostPort("example.com:443")
+hostport2: net.SplitHostPort("[::1]:8080")
+
+-- out/eval --
+hostport1: [
+    "example.com",
+    "443"
+]
+hostport2: [
+    "::1",
+    "8080"
+]
+parsed4: "192.168.1.1"
+parsed6: "::1"
