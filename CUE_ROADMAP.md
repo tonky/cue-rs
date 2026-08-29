@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **25 / 25 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **35 / 35 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **37 / 37 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -37,8 +37,9 @@ This document tracks the technical design, milestone progress, and conformance v
 ┌─────────────────┐
 │    cue-eval     │ ──► SlotMap Arena Allocation with Transactional Trail
 │ (Lattice Engine)│ ──► Greatest Lower Bound Unification (⊓) with Disjunction Rollback
-│ (PackageLoader) │ ──► Lexical Scope Isolation for Nested Struct Blocks
-└────────┬────────┘ ──► Open List Ellipsis Unification (`[...int]` ⊓ `[1, 2, 3]`)
+│ (PackageLoader) │ ──► Multi-Pass Fixpoint Relaxation Loop for Order-Independent Reference Graphs
+└────────┬────────┘ ──► Lexical Scope Isolation for Nested Struct Blocks
+         │          ──► Open List Ellipsis Unification (`[...int]` ⊓ `[1, 2, 3]`)
          │          ──► Hierarchical Type Subsumption (`number` ⊓ `int` ⊓ `uint16` ⊓ `8080`)
          │          ──► Disjunction Meet Algebra (`(A | B) ⊓ (C | D)`)
          │          ──► Multi-File Package Hoisting, Import Aliasing & Cycle Solver
@@ -141,6 +142,7 @@ This document tracks the technical design, milestone progress, and conformance v
 ### Phase 4: Scoping, Multi-file Packages & Rust Procedural Macro
 - [x] **Struct Embedding**: Embedding `#Definitions` and structs into target structs (`{ #Base, extra: 1 }`).
 - [x] **Lexical Scope Isolation**: Nested struct evaluations maintain private environments with outermost scope resolution.
+- [x] **Multi-Pass Reference Relaxation**: Fixpoint loop for forward and mutually derived struct fields (`a: b + 1, b: c * 2, c: 10`).
 - [x] **Multi-File Package Loader (`PackageLoader`)**: Evaluates all `.cue` files in a directory as a unified package environment with cross-file definition hoisting and import aliasing.
 - [x] **Serde Direct Validation API**: `cue_eval::validate_json(&schema_str, &json_data) -> Result<(), EvalError>`.
 - [x] **Rust Procedural Macro (`cue-derive`)**: `#[derive(CueValidate)]` with `#[cue(schema = "...")]` or `#[cue(file = "...")]`.

@@ -10,15 +10,15 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 
 | Upstream Directory | Approx. Fixture Count | Focus Area | Our Rust Coverage |
 | :--- | :---: | :--- | :---: |
-| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, comprehensions, list comprehensions, lexical scoping, cycle detection | **Core subsets active (35 fixtures)** |
+| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, comprehensions, list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (37 fixtures)** |
 | `cue/testdata/compile/` | ~110 | Lexer, parser, Pratt expressions, AST construction, identifiers, attributes | **High (syntax 100% passing)** |
 | `cue/testdata/fulleval/` | ~85 | End-to-end multi-struct evaluation, closed definitions, exports | **Core subsets active** |
-| `cue/testdata/resolve/` | ~65 | Scoping, aliases, lexical lookup, embeddings, default overrides | **Active** |
+| `cue/testdata/resolve/` | ~65 | Scoping, aliases, lexical lookup, forward references, embeddings, default overrides | **Active** |
 | `cue/testdata/export/` | ~45 | Export to concrete JSON, YAML, text | **JSON & YAML export active** |
 | `cue/testdata/basic/` | ~35 | Primitive types, literals, mixed arithmetic, comparisons, numeric types, hierarchy | **Active** |
 | `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, import aliases | **Active via `PackageLoader`** |
 | `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `list`, `struct`, `time`, `net`, `strconv`, `regexp`, `encoding`, `crypto`, `path`) | **13 core packages active** |
-| **Total** | **~580+ fixtures** | | **35 conformance suites (100% pass)** |
+| **Total** | **~580+ fixtures** | | **37 conformance suites (100% pass)** |
 
 ---
 
@@ -55,6 +55,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **Scalar Unification** | ✅ | **100% Complete** | Type promotions (`number` $\sqcap$ `int` $\to$ `int`), conflict to $\bot$. |
 | **Hierarchical Type Subsumption** | ✅ | **100% Complete** | `number & int & uint & uint16 & 8080` $\to$ `8080`, `number & float & float64` $\to$ `float64`. |
 | **Lexical Scope Isolation** | ✅ | **100% Complete** | Nested struct scopes isolated with parent lookup chaining. |
+| **Multi-Pass Reference Relaxation** | ✅ | **100% Complete** | Order-independent forward references and mutual derivations (`a: b + 1, b: c * 2, c: 10`). |
 | **Mixed Int/Float Arithmetic** | ✅ | **100% Complete** | `10 + 2.5 -> 12.5`, `15.0 / 3 -> 5.0`, `10 < 20 -> true`. |
 | **Open List Ellipsis Unification** | ✅ | **100% Complete** | `[...int] & [1, 2, 3]` and open list schema matching. |
 | **Disjunction Meet Algebra** | ✅ | **100% Complete** | `(A | B) & (C | D)` cross-product branch unification. |
@@ -64,7 +65,6 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **Disjunctions & Defaults** | ✅ | **100% Complete** | Branch selection with default markers (`*default \| other`). |
 | **Two-Pass Hoisting** | ✅ | **100% Complete** | Mutual and recursive schema definitions (`#Tree`). |
 | **Value Cycle Detection** | ✅ | **100% Complete** | Detects and flags arithmetic/value cycles as $\bot$. |
-| **Cross-Struct Reference Graphs** | ✅ | 🟡 **In Progress** | Fixpoint relaxation for deferred references across arbitrary struct fields. |
 | **Structure Memoization** | ✅ | ⚪ **Future** | Hash consing / memoization for large AST subtrees. |
 
 ---

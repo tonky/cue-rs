@@ -1,0 +1,14 @@
+Test multi-step forward reference derivations in structs
+-- in.cue --
+package test
+
+a: b + 1
+b: c * 2
+c: 10
+total: a + b + c
+
+-- out/eval --
+a: 21
+b: 20
+c: 10
+total: 51

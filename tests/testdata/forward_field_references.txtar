@@ -1,0 +1,18 @@
+Test forward field references and order-independence in structs
+-- in.cue --
+package test
+
+server: {
+    url:      "http://\(host):\(port)/\(endpoint)"
+    endpoint: "v1/status"
+    host:     "api.internal"
+    port:     8080
+}
+
+-- out/eval --
+server: {
+    endpoint: "v1/status"
+    host: "api.internal"
+    port: 8080
+    url: "http://api.internal:8080/v1/status"
+}

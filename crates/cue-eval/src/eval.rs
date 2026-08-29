@@ -148,69 +148,127 @@ impl Evaluator {
                         }
         }
 
-        // Pass 2: Evaluate declarations and link placeholders
-        for decl in decls {
-            match decl {
-                Decl::Field(f) => match &f.label {
-                    Label::Pattern(pattern_expr) => {
-                        let pattern_val = self.eval_expr(pattern_expr)?;
-                        let target_val = self.eval_expr(&f.value)?;
-                        target_struct.add_pattern_constraint(pattern_val, target_val);
-                    }
-                    Label::Dynamic(dyn_expr) => {
-                        let label_val_id = self.eval_expr(dyn_expr)?;
-                        if let Some(Value::String(name)) = self.arena.get(label_val_id) {
-                            let name = name.clone();
-                            let val_id = self.eval_expr(&f.value)?;
-                            target_struct.insert_field(name.clone(), val_id, f.optional);
-                            self.insert_binding(&name, val_id);
-                        }
-                    }
-                    _ => {
-                        let val_id = self.eval_expr(&f.value)?;
-                        if let Some(name) = f.label.name() {
-                            if f.label.is_definition() {
-                                if let Some(&placeholder_id) = self.placeholders.get(name)
-                                    && let Some(Value::RecursiveRef { target, .. }) =
-                                        self.arena.get_mut(placeholder_id)
-                                    {
-                                        *target = Some(val_id);
-                                    }
-                                target_struct.insert_def(name.to_string(), val_id, f.optional);
-                                self.insert_binding(name, val_id);
-                            } else if f.label.is_hidden() {
-                                target_struct.insert_hidden(name.to_string(), val_id, f.optional);
-                                self.insert_binding(name, val_id);
-                            } else {
-                                target_struct.insert_field(name.to_string(), val_id, f.optional);
-                                self.insert_binding(name, val_id);
-                            }
-                        }
-                    }
-                },
-                Decl::Alias { ident, expr } => {
-                    let val_id = self.eval_expr(expr)?;
-                    self.insert_binding(ident, val_id);
+        // Multi-pass relaxation loop for forward / order-independent references
+        let mut pending_decls: Vec<&Decl> = decls.iter().collect();
+        let max_iterations = decls.len() + 3;
+        let mut iteration = 0;
+
+        while !pending_decls.is_empty() && iteration < max_iterations {
+            iteration += 1;
+            let mut next_pending = Vec::new();
+            let mut made_progress = false;
+
+            for &decl in &pending_decls {
+                let resolved = self.eval_single_decl(decl, target_struct)?;
+                if resolved {
+                    made_progress = true;
+                } else {
+                    next_pending.push(decl);
                 }
-                Decl::Let { ident, expr } => {
-                    let val_id = self.eval_expr(expr)?;
-                    self.insert_binding(ident, val_id);
-                }
-                Decl::Embedding(expr) => {
-                    let embedded_id = self.eval_expr(expr)?;
-                    let current_id = self.arena.alloc(Value::Struct(target_struct.clone()));
-                    let unified_id = unify(&mut self.arena, current_id, embedded_id);
-                    if let Some(Value::Struct(s)) = self.arena.get(unified_id) {
-                        *target_struct = s.clone();
-                    }
-                }
-                Decl::Comprehension(comp) => {
-                    self.eval_comprehension(comp, target_struct)?;
-                }
-                _ => {}
             }
+
+            if !made_progress {
+                // Saturated / cannot resolve further; final evaluation accepts bottom errors
+                for &decl in &pending_decls {
+                    self.eval_single_decl(decl, target_struct)?;
+                }
+                break;
+            }
+
+            pending_decls = next_pending;
         }
+
         Ok(())
+    }
+
+    fn is_unresolved(&self, val_id: ValueId) -> bool {
+        if let Some(Value::Bottom(reason)) = self.arena.get(val_id) {
+            reason.message.contains("unresolved reference")
+        } else {
+            false
+        }
+    }
+
+    fn eval_single_decl(
+        &mut self,
+        decl: &Decl,
+        target_struct: &mut StructValue,
+    ) -> Result<bool, EvalError> {
+        match decl {
+            Decl::Field(f) => match &f.label {
+                Label::Pattern(pattern_expr) => {
+                    let pattern_val = self.eval_expr(pattern_expr)?;
+                    let target_val = self.eval_expr(&f.value)?;
+                    target_struct.add_pattern_constraint(pattern_val, target_val);
+                    Ok(!self.is_unresolved(target_val))
+                }
+                Label::Dynamic(dyn_expr) => {
+                    let label_val_id = self.eval_expr(dyn_expr)?;
+                    if let Some(Value::String(name)) = self.arena.get(label_val_id) {
+                        let name = name.clone();
+                        let val_id = self.eval_expr(&f.value)?;
+                        let is_unresolved = self.is_unresolved(val_id);
+                        target_struct.insert_field(name.clone(), val_id, f.optional);
+                        self.insert_binding(&name, val_id);
+                        Ok(!is_unresolved)
+                    } else if self.is_unresolved(label_val_id) {
+                        Ok(false)
+                    } else {
+                        Ok(true)
+                    }
+                }
+                _ => {
+                    let val_id = self.eval_expr(&f.value)?;
+                    let is_unresolved = self.is_unresolved(val_id);
+                    if let Some(name) = f.label.name() {
+                        if f.label.is_definition() {
+                            if let Some(&placeholder_id) = self.placeholders.get(name)
+                                && let Some(Value::RecursiveRef { target, .. }) =
+                                    self.arena.get_mut(placeholder_id)
+                            {
+                                *target = Some(val_id);
+                            }
+                            target_struct.insert_def(name.to_string(), val_id, f.optional);
+                            self.insert_binding(name, val_id);
+                        } else if f.label.is_hidden() {
+                            target_struct.insert_hidden(name.to_string(), val_id, f.optional);
+                            self.insert_binding(name, val_id);
+                        } else {
+                            target_struct.insert_field(name.to_string(), val_id, f.optional);
+                            self.insert_binding(name, val_id);
+                        }
+                    }
+                    Ok(!is_unresolved)
+                }
+            },
+            Decl::Alias { ident, expr } => {
+                let val_id = self.eval_expr(expr)?;
+                let is_unresolved = self.is_unresolved(val_id);
+                self.insert_binding(ident, val_id);
+                Ok(!is_unresolved)
+            }
+            Decl::Let { ident, expr } => {
+                let val_id = self.eval_expr(expr)?;
+                let is_unresolved = self.is_unresolved(val_id);
+                self.insert_binding(ident, val_id);
+                Ok(!is_unresolved)
+            }
+            Decl::Embedding(expr) => {
+                let embedded_id = self.eval_expr(expr)?;
+                let is_unresolved = self.is_unresolved(embedded_id);
+                let current_id = self.arena.alloc(Value::Struct(target_struct.clone()));
+                let unified_id = unify(&mut self.arena, current_id, embedded_id);
+                if let Some(Value::Struct(s)) = self.arena.get(unified_id) {
+                    *target_struct = s.clone();
+                }
+                Ok(!is_unresolved)
+            }
+            Decl::Comprehension(comp) => {
+                self.eval_comprehension(comp, target_struct)?;
+                Ok(true)
+            }
+            _ => Ok(true),
+        }
     }
 
     fn eval_comprehension(
@@ -595,6 +653,7 @@ impl Evaluator {
                                 Some(Value::Int(i)) => result_str.push_str(&i.to_string()),
                                 Some(Value::Float(f)) => result_str.push_str(&f.to_string()),
                                 Some(Value::Bool(b)) => result_str.push_str(&b.to_string()),
+                                Some(Value::Bottom(_)) => return Ok(val_id),
                                 _ => {
                                     return Ok(self.arena.bottom(
                                         "string interpolation requires concrete scalar value",
@@ -659,10 +718,12 @@ impl Evaluator {
 
     fn eval_binary_arithmetic(&mut self, op: BinaryOp, left: ValueId, right: ValueId) -> ValueId {
         let l_val = match self.arena.get(left) {
+            Some(Value::Bottom(_)) => return left,
             Some(v) => v.clone(),
             None => return self.arena.bottom("invalid left operand"),
         };
         let r_val = match self.arena.get(right) {
+            Some(Value::Bottom(_)) => return right,
             Some(v) => v.clone(),
             None => return self.arena.bottom("invalid right operand"),
         };
