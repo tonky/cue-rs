@@ -2,7 +2,7 @@
 
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Clippy Clean](https://img.shields.io/badge/clippy-0%20warnings-brightgreen.svg)](https://github.com/rust-lang/rust-clippy)
-[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-62%2F62%20passing-brightgreen.svg)](tests/testdata/)
+[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-64%2F64%20passing-brightgreen.svg)](tests/testdata/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
 
 A high-performance, modular implementation of the [CUE configuration language](https://cuelang.org/) in **Rust (2024 Edition)**.
@@ -25,7 +25,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
 │   └── cue-cli/                # CLI binary (`cue-rs eval`, `cue-rs vet`, `cue-rs fmt`, `cue-rs test-txtar`)
 ├── tests/
-│   └── testdata/               # 62 conformance .txtar suites (100% passing)
+│   └── testdata/               # 64 conformance .txtar suites (100% passing)
 └── examples/                   # Sample CUE schemas and data files
 ```
 
@@ -34,10 +34,12 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 ## 2. Key Features
 
 - **Lattice Unification ($\sqcap$)**: Greatest lower bound calculation over scalar values, recursive structs, bounds (`>1024 & <65535`), regex constraints (`=~ "^[a-z]+$"`), and closed `#Definitions`.
+- **Discriminated Union Disjunctions**: Pattern and tag-based union branch resolution (`#Circle | #Rectangle`).
+- **Mixed Numeric Bounds**: Multi-constraint numeric bounds with seamless int/float comparisons (`number & >0` matching `12.5` and `42`).
 - **Order-Independent Reference Relaxation**: Multi-pass fixpoint evaluation resolving forward field references and mutual dependencies (`a: b + 1, b: c * 2, c: 10`).
 - **Binary, Hex, Octal & SI Number Literals**: `0b1100`, `0x2A`, `0o755`, `4Ki`, `10M`, `2G`.
 - **Raw & Multi-Line Strings**: Single-line raw strings `#"..."#`, multi-line `#"""..."""#`, and raw bytes `#'...'#`.
-- **Dynamic Indexing & Selector Chains & Slicing**: Dynamic struct lookup (`ports[currentEnv]`), deep selector chaining (`cluster.ingress.tls.secret`), and list slicing (`items[1:]`, `items[:3]`, `items[2:5]`).
+- **Nested Dynamic Indexing & Selector Chains**: Dynamic struct & array lookup (`database.environments[targetEnv].pool[tierIndex]`), deep selector chaining (`cluster.ingress.tls.secret`), and list slicing (`items[1:]`, `items[:3]`, `items[2:5]`).
 - **Fixed-Width Numeric Hierarchy**: Full range validation for `uint`, `uint8`, `uint16`, `uint32`, `uint64`, `int8`, `int16`, `int32`, `int64`, `float32`, `float64`.
 - **List & String Arithmetic**: List concatenation (`[1, 2] + [3, 4]`), list repetition (`[0] * 4`), and string repetition (`"=" * 10`).
 - **Open List Ellipsis**: Seamless unification of open lists (`#IntList: [...int]`) with concrete instances.
@@ -74,7 +76,7 @@ cargo test --workspace
 # Run clippy lint verification (0 warnings)
 cargo clippy --workspace --all-targets
 
-# Run the 62 txtar conformance suites (62/62 passing)
+# Run the 64 txtar conformance suites (64/64 passing)
 cargo run -p cue-cli -- test-txtar tests/testdata
 ```
 

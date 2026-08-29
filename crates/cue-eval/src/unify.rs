@@ -330,22 +330,41 @@ fn unify_bounds(
                     return arena.bottom(format!("type mismatch: expected {bt}, found int"));
                 }
             for (op, target_id) in constraints {
-                if let Some(Value::Int(t_val)) = arena.get(target_id) {
-                    let ok = match op {
-                        BoundOp::Less => i_val < t_val,
-                        BoundOp::LessEqual => i_val <= t_val,
-                        BoundOp::Greater => i_val > t_val,
-                        BoundOp::GreaterEqual => i_val >= t_val,
-                        BoundOp::NotEqual => i_val != t_val,
-                        _ => false,
-                    };
-                    if !ok {
-                        return arena.bottom(format!(
-                            "value {i_val} does not satisfy bound {op} {t_val}"
-                        ));
+                match arena.get(target_id) {
+                    Some(Value::Int(t_val)) => {
+                        let ok = match op {
+                            BoundOp::Less => i_val < t_val,
+                            BoundOp::LessEqual => i_val <= t_val,
+                            BoundOp::Greater => i_val > t_val,
+                            BoundOp::GreaterEqual => i_val >= t_val,
+                            BoundOp::NotEqual => i_val != t_val,
+                            _ => false,
+                        };
+                        if !ok {
+                            return arena.bottom(format!(
+                                "value {i_val} does not satisfy bound {op} {t_val}"
+                            ));
+                        }
                     }
-                } else {
-                    return arena.bottom("bound target type mismatch for int");
+                    Some(Value::Float(t_val)) => {
+                        let i_f = i_val.to_f64().unwrap_or(0.0);
+                        let ok = match op {
+                            BoundOp::Less => i_f < *t_val,
+                            BoundOp::LessEqual => i_f <= *t_val,
+                            BoundOp::Greater => i_f > *t_val,
+                            BoundOp::GreaterEqual => i_f >= *t_val,
+                            BoundOp::NotEqual => (i_f - *t_val).abs() > f64::EPSILON,
+                            _ => false,
+                        };
+                        if !ok {
+                            return arena.bottom(format!(
+                                "value {i_val} does not satisfy bound {op} {t_val}"
+                            ));
+                        }
+                    }
+                    _ => {
+                        return arena.bottom("bound target type mismatch for int");
+                    }
                 }
             }
             other_id
@@ -357,13 +376,19 @@ fn unify_bounds(
                     return arena.bottom(format!("type mismatch: expected {bt}, found float"));
                 }
             for (op, target_id) in constraints {
-                if let Some(Value::Float(t_val)) = arena.get(target_id) {
+                let target_f = match arena.get(target_id) {
+                    Some(Value::Float(t_val)) => Some(*t_val),
+                    Some(Value::Int(t_val)) => t_val.to_f64(),
+                    _ => None,
+                };
+
+                if let Some(t_val) = target_f {
                     let ok = match op {
-                        BoundOp::Less => f_val < *t_val,
-                        BoundOp::LessEqual => f_val <= *t_val,
-                        BoundOp::Greater => f_val > *t_val,
-                        BoundOp::GreaterEqual => f_val >= *t_val,
-                        BoundOp::NotEqual => (f_val - *t_val).abs() > f64::EPSILON,
+                        BoundOp::Less => f_val < t_val,
+                        BoundOp::LessEqual => f_val <= t_val,
+                        BoundOp::Greater => f_val > t_val,
+                        BoundOp::GreaterEqual => f_val >= t_val,
+                        BoundOp::NotEqual => (f_val - t_val).abs() > f64::EPSILON,
                         _ => false,
                     };
                     if !ok {

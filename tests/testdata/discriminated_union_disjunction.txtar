@@ -1,0 +1,38 @@
+Test discriminated union struct disjunctions
+-- in.cue --
+package test
+
+#Circle: {
+    kind:   "circle"
+    radius: number & >0
+}
+
+#Rectangle: {
+    kind:   "rect"
+    width:  number & >0
+    height: number & >0
+}
+
+#Shape: #Circle | #Rectangle
+
+shape1: #Shape & {
+    kind:   "circle"
+    radius: 12.5
+}
+
+shape2: #Shape & {
+    kind:   "rect"
+    width:  10
+    height: 20
+}
+
+-- out/eval --
+shape1: {
+    kind: "circle"
+    radius: 12.5
+}
+shape2: {
+    height: 20
+    kind: "rect"
+    width: 10
+}

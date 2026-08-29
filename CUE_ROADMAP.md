@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **26 / 26 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **62 / 62 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **64 / 64 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -43,10 +43,12 @@ This document tracks the technical design, milestone progress, and conformance v
 ┌─────────────────┐
 │    cue-eval     │ ──► SlotMap Arena Allocation with Transactional Trail
 │ (Lattice Engine)│ ──► Greatest Lower Bound Unification (⊓) with Disjunction Rollback
-│ (PackageLoader) │ ──► Multi-Pass Fixpoint Relaxation Loop for Order-Independent Reference Graphs
-└────────┬────────┘ ──► Module Discovery (`cue.mod/module.cue` search and `ModuleInfo` parsing)
+│ (PackageLoader) │ ──► Discriminated Union Struct Disjunctions (`#Circle | #Rectangle`)
+└────────┬────────┘ ──► Multi-Pass Fixpoint Relaxation Loop for Order-Independent Reference Graphs
+         │          ──► Mixed Int/Float Numeric Bounds (`number & >0` matching `12.5` float and `10` int)
+         │          ──► Module Discovery (`cue.mod/module.cue` search and `ModuleInfo` parsing)
          │          ──► Multi-Pattern Simultaneous Constraints (`[=~"^STR_"]: string`, `[=~"^NUM_"]: int & >0`)
-         │          ──► Dynamic Struct Indexing (`ports[env]`) & Nested Selector Chains
+         │          ──► Nested Dynamic Struct & Array Indexing (`database.environments[env].pool[tier]`)
          │          ──► Lexical Scope Isolation for Nested Struct Blocks
          │          ──► Open List Ellipsis Unification (`[...int]` ⊓ `[1, 2, 3]`)
          │          ──► Hierarchical Type Subsumption (`number` ⊓ `int` ⊓ `uint16` ⊓ `8080`)
@@ -119,9 +121,10 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] Type vs. Concrete instances (`int & 42 -> 42`, `string & 42 -> _|_`).
   - [x] Fixed-width numeric types (`uint`, `uint8`, `uint16`, `uint32`, `uint64`, `int8`, `int16`, `int32`, `int64`, `float32`, `float64`).
   - [x] Hierarchical Type Subsumption (`number & int & uint16 & 8080` $\to$ `8080`, `number & float & float64 & 3.14` $\to$ `3.14`).
-  - [x] Multi-constraint Bounds (`int & >1024 & <65535`).
+  - [x] Mixed Int/Float Multi-Constraint Bounds (`number & >0` matching `12.5` and `42`).
   - [x] Regex matching constraints (`=~ "^[a-z]+$"`).
 - [x] **Open List Ellipsis Unification**: `[...T]` schema unification with concrete and subtyped lists (`[...int] & [1, 2, 3]`).
+- [x] **Discriminated Union Disjunctions**: Struct disjunction branches matching discriminated tags (`#Circle | #Rectangle`).
 - [x] **Disjunction Meet Algebra**: `(A | B) & (C | D)` cross-product branch unification with backtracking.
 - [x] **Closed Struct Algebra**: Rejection of unauthorized fields for closed `#Definitions`.
 - [x] **Disjunction Pruning**: Branch selection with defaults (`*true | false`).
@@ -143,6 +146,7 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] Dynamic parenthesized label evaluation inside loops `("k_\(i)"): val`.
 - [x] **List Indexing & Slicing & Operations**:
   - [x] `list[i]` integer indexing and struct dynamic field indexing (`struct[expr]`).
+  - [x] Nested dynamic lookup chains (`database.environments[env].pool[tier]`).
   - [x] `list[low:high]`, `list[low:]`, `list[:high]` range slicing.
   - [x] List concatenation (`l1 + l2`) and repetition (`[0] * 4`).
 - [x] **String Interpolation & Repetition**: `"prefix \(expr) suffix"` and `"x" * 10`.

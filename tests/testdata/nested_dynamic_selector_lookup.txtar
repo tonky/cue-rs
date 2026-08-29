@@ -1,0 +1,52 @@
+Test nested dynamic lookup chaining across maps and arrays
+-- in.cue --
+package test
+
+database: {
+    environments: {
+        staging: {
+            host: "stage.db.internal"
+            port: 5432
+            pool: [10, 20, 30]
+        }
+        production: {
+            host: "prod.db.internal"
+            port: 5432
+            pool: [50, 100, 200]
+        }
+    }
+}
+
+targetEnv: "production"
+tierIndex: 2
+
+activeHost: database.environments[targetEnv].host
+activePool: database.environments[targetEnv].pool[tierIndex]
+
+-- out/eval --
+activeHost: "prod.db.internal"
+activePool: 200
+database: {
+    environments: {
+        production: {
+            host: "prod.db.internal"
+            pool: [
+                50,
+                100,
+                200
+            ]
+            port: 5432
+        }
+        staging: {
+            host: "stage.db.internal"
+            pool: [
+                10,
+                20,
+                30
+            ]
+            port: 5432
+        }
+    }
+}
+targetEnv: "production"
+tierIndex: 2
