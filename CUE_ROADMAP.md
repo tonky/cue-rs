@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **27 / 27 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **79 / 79 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **84 / 84 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -25,7 +25,8 @@ This document tracks the technical design, milestone progress, and conformance v
 ┌─────────────────┐
 │   cue-syntax    │ ──► Logos Lexer + Automatic Semicolon Insertion (ASI)
 │   (AST & CST)   │ ──► Pratt Recursive Descent Parser + String Interpolation
-│   (Formatter)   │ ──► String Literal Escape Processing (`\"`, `\\`, `\n`, `\t`)
+│   (Formatter)   │ ──► Logical Operators (`&&`, `||`) with precedence hierarchy
+│                 │ ──► String Literal Escape Processing (`\"`, `\\`, `\n`, `\t`)
 │                 │ ──► AST Pretty-Printer / Formatter (`cue-rs fmt`)
 │                 │ ──► Binary (`0b1100`), Hex (`0x2A`), Octal (`0o755`) & SI Literals (`4Ki`, `10M`, `2G`)
 │                 │ ──► Raw & Multi-Line Strings (`#"..."#`, `#"""..."""#`, `#'...'#`)
@@ -66,10 +67,10 @@ This document tracks the technical design, milestone progress, and conformance v
          │                • uint, uint8, uint16, uint32, uint64
          │                • int8, int16, int32, int64, float32, float64
          │          ──► Standard Library Packages (24 packages active):
-         │                • strings (MinRunes, MaxRunes, Trim, TrimPrefix, TrimSuffix, Repeat, Replace, Fields, Split, Index, LastIndex, Compare)
-         │                • math (Sqrt, Pow, Log, Log10, Log2, Hypot, Sin, Cos, Tan, Asin, Acos, Atan, Atan2, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, Trunc, Abs)
+         │                • strings (MinRunes, MaxRunes, Trim, TrimPrefix, TrimSuffix, Repeat, Replace, Fields, Split, Index, LastIndex, Compare, Count, Title)
+         │                • math (Sqrt, Pow, Log, Log10, Log2, Hypot, Sin, Cos, Tan, Asin, Acos, Atan, Atan2, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, Trunc, Abs, Sign, Dim, Copysign)
          │                • math/bits (And, Or, Xor, Lsh, Rsh, OnesCount)
-         │                • list (MinItems, MaxItems, UniqueItems, Sort, FlattenN, Concat, Repeat, Range, Take, Drop, Sum, Product, Avg, Min, Max)
+         │                • list (MinItems, MaxItems, UniqueItems, Sort, FlattenN, Concat, Repeat, Range, Take, Drop, Slice, Sum, Product, Avg, Min, Max)
          │                • regexp (Valid, Match, Find, FindAll, ReplaceAll)
          │                • struct (MinFields, MaxFields)
          │                • time (Time RFC3339 validator, Duration parser, Unix, Hour, Minute, Second, Millisecond, Microsecond, Nanosecond)
@@ -90,7 +91,7 @@ This document tracks the technical design, milestone progress, and conformance v
          │                • crypto/md5 (Sum)
          │                • crypto/sha1 (Sum)
          │                • crypto/hmac (SHA512, SHA256, MD5, SHA1)
-         │                • path (Base, Dir, Ext, Join)
+         │                • path (Base, Dir, Ext, Join, Match, Split, IsAbs)
          ▼
 ┌─────────────────┐
 │   cue-derive    │ ──► Rust Proc-Macro `#[derive(CueValidate)]` with Serde
@@ -106,10 +107,10 @@ This document tracks the technical design, milestone progress, and conformance v
 ## 3. Milestone Tracker & Roadmap
 
 ### Phase 1: Lexer, Parser, Formatter & Test Harness
-- [x] **Logos Lexer**: Identifiers, Definitions (`#Def`), Hidden fields (`_hidden`), Bottom (`_|_`), Top (`_`), Numbers (`0b`, `0x`, `0o`, SI suffixes), Strings, and Operators.
+- [x] **Logos Lexer**: Identifiers, Definitions (`#Def`), Hidden fields (`_hidden`), Bottom (`_|_`), Top (`_`), Numbers (`0b`, `0x`, `0o`, SI suffixes), Strings, Logical operators (`&&`, `||`), and Operators.
 - [x] **Raw Strings & Multi-Line Literals**: `#""" ... """#`, `#"..."#`, and `#'...'#`.
 - [x] **String Escape Processing**: Full support for `\"`, `\\`, `\n`, `\t`, `\r`, `\0`, `\f`, `\v` in string literals and interpolations.
-- [x] **Pratt Expression Parser**: Unification (`&`), Disjunction (`|`), Comparison operators (`==`, `!=`, `<`, `<=`, `>`, `>=`, `=~`, `!~`), Mixed integer/float arithmetic (`+`, `-`, `*`, `/`), Unary arithmetic/bounds, and Selectors/Indexing/Slicing.
+- [x] **Pratt Expression Parser**: Logical OR (`||`), Logical AND (`&&`), Unification (`&`), Disjunction (`|`), Comparison operators (`==`, `!=`, `<`, `<=`, `>`, `>=`, `=~`, `!~`), Mixed integer/float arithmetic (`+`, `-`, `*`, `/`), Unary arithmetic/bounds, and Selectors/Indexing/Slicing.
 - [x] **Parenthesized Selector & Index Chaining**: `({ cluster: { id: "p1" } }).cluster.id` and `(["a", "b"])[1]`.
 - [x] **Cartesian & List Comprehensions**: `[ for x in src if x > 1 { x * 10 } ]`, `[ for i, x in s1 for j, y in s2 { ... } ]`, and struct-body mappings `[ for k, v in map { name: k, port: v.port } ]`.
 - [x] **Comprehensions with `let` Bindings & Dynamic Labels**: `for k, v in map let uk = strings.ToUpper(k) if strings.HasPrefix(uk, "P_") { (strings.ToLower(uk)): v }`.
@@ -150,23 +151,23 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] Pattern exemption in closed `#Definitions`.
 - [x] **Comprehensions**:
   - [x] `for k, v in source { ... }` list and struct iterations.
-  - [x] `if condition { ... }` conditional declarations.
+  - [x] `if condition { ... }` conditional declarations with boolean logic (`&&`, `||`).
   - [x] Chained multi-clause comprehensions (`for x in list if x > 2 if x < 6 { ... }`).
   - [x] `let` local bindings inside comprehension clauses.
   - [x] Cartesian product list comprehensions (`for i, x in src1 for j, y in src2 { ... }`).
-  - [x] List comprehensions with stdlib functions in conditions/expressions (`strings.HasPrefix`, `strings.ToUpper`, `strings.Replace`).
+  - [x] List comprehensions with stdlib functions in conditions/expressions (`path.Match`, `strings.HasPrefix`, `strings.ToUpper`, `strings.Replace`).
   - [x] Dynamic parenthesized label evaluation inside loops `("k_\(i)"): val`.
 - [x] **List Indexing & Slicing & Operations**:
   - [x] `list[i]` integer indexing and struct dynamic field indexing (`struct[expr]`).
   - [x] Nested dynamic lookup chains (`database.environments[env].pool[tier]`).
-  - [x] `list[low:high]`, `list[low:]`, `list[:high]` range slicing.
+  - [x] `list[low:high]`, `list[low:]`, `list[:high]` range slicing and `list.Slice(l, low, high)`.
   - [x] List concatenation (`l1 + l2`), repetition (`[0] * 4`), and `list.Concat` / `list.Repeat`.
 - [x] **String Interpolation & Repetition**: `"prefix \(expr) suffix"` and `"x" * 10`.
 - [x] **24 Standard Library Packages**:
-  - [x] `strings`: `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `Repeat`, `Replace`, `Fields`, `Split`, `Index`, `LastIndex`, `Compare`.
-  - [x] `math`: `Sqrt`, `Pow`, `Log`, `Log10`, `Log2`, `Hypot`, `Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Trunc`, `Abs`.
+  - [x] `strings`: `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `Repeat`, `Replace`, `Fields`, `Split`, `Index`, `LastIndex`, `Compare`, `Count`, `Title`.
+  - [x] `math`: `Sqrt`, `Pow`, `Log`, `Log10`, `Log2`, `Hypot`, `Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Trunc`, `Abs`, `Sign`, `Dim`, `Copysign`.
   - [x] `math/bits`: `And`, `Or`, `Xor`, `Lsh`, `Rsh`, `OnesCount`.
-  - [x] `list`: `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `FlattenN`, `Concat`, `Repeat`, `Range`, `Take`, `Drop`, `Sum`, `Product`, `Avg`, `Min`, `Max`.
+  - [x] `list`: `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `FlattenN`, `Concat`, `Repeat`, `Slice`, `Range`, `Take`, `Drop`, `Sum`, `Product`, `Avg`, `Min`, `Max`.
   - [x] `regexp`: `Valid`, `Match`, `Find`, `FindAll`, `ReplaceAll`.
   - [x] `struct`: `MinFields`, `MaxFields`.
   - [x] `time`: `Time` (RFC3339 validator), `Duration` (string duration to nanoseconds), `Unix` (timestamp formatter), `Hour`, `Minute`, `Second`, `Millisecond`, `Microsecond`, `Nanosecond`.
@@ -187,7 +188,7 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `crypto/md5`: `Sum`.
   - [x] `crypto/sha1`: `Sum`.
   - [x] `crypto/hmac`: `SHA512`, `SHA256`, `MD5`, `SHA1`.
-  - [x] `path`: `Base`, `Dir`, `Ext`, `Join`.
+  - [x] `path`: `Base`, `Dir`, `Ext`, `Join`, `Match`, `Split`, `IsAbs`.
 
 ---
 

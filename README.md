@@ -2,7 +2,7 @@
 
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Clippy Clean](https://img.shields.io/badge/clippy-0%20warnings-brightgreen.svg)](https://github.com/rust-lang/rust-clippy)
-[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-79%2F79%20passing-brightgreen.svg)](tests/testdata/)
+[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-84%2F84%20passing-brightgreen.svg)](tests/testdata/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
 
 A high-performance, modular implementation of the [CUE configuration language](https://cuelang.org/) in **Rust (2024 Edition)**.
@@ -25,7 +25,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
 │   └── cue-cli/                # CLI binary (`cue-rs eval`, `cue-rs vet`, `cue-rs fmt`, `cue-rs test-txtar`)
 ├── tests/
-│   └── testdata/               # 79 conformance .txtar suites (100% passing)
+│   └── testdata/               # 84 conformance .txtar suites (100% passing)
 └── examples/                   # Sample CUE schemas and data files
 ```
 
@@ -34,6 +34,9 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 ## 2. Key Features
 
 - **Lattice Unification ($\sqcap$)**: Greatest lower bound calculation over scalar values, recursive structs, bounds (`>1024 & <65535`), regex constraints (`=~ "^[a-z]+$"`), and closed `#Definitions`.
+- **Logical Boolean Operators**: Full `&&` (logical AND) and `||` (logical OR) support across expressions, conditionals, and comprehensions.
+- **Path Matching & Inspection**: `path.Match(pattern, path)`, `path.Split(path)`, `path.IsAbs(path)`, `path.Base`, `path.Dir`, `path.Ext`, `path.Join`.
+- **Extended Strings & Math Functions**: `strings.Count(s, sub)`, `strings.Title(s)`, `math.Sign(x)`, `math.Dim(x, y)`, `math.Copysign(x, y)`, `list.Slice(l, low, high)`.
 - **Module-Aware Package Imports**: Seamless resolution and evaluation of module packages (`import "myorg.com/app/schema"`) and vendored packages (`cue.mod/pkg/...`).
 - **Inter-Arena Deep Value Cloning (`clone_value_into`)**: Recursive value allocation across isolated package evaluation arenas.
 - **Parenthesized Selector & Index Chaining**: `({ cluster: { id: "p1" } }).cluster.id`, `(["alpha", "beta"])[1]`, `(inlineMap["prod"]).ports[1]`.
@@ -45,7 +48,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 - **Time Package Unix Formatter & Constants**: `time.Unix(sec, nsec)`, `time.Hour`, `time.Minute`, `time.Second`, `time.Millisecond`, `time.Microsecond`, `time.Nanosecond`.
 - **Strconv String Escaping & Arbitrary Base Formatting**: `strconv.FormatInt(i, base)`, `strconv.Quote(s)`, `strconv.Unquote(s)`.
 - **Struct Embedding with Disjunction Selection**: Embedded disjunction schemas (`#Prod | #Dev`) resolving via field unification.
-- **Comprehensions with Standard Library Filtering**: Iteration with stdlib functions in conditions (`strings.HasPrefix`) and mapping expressions (`strings.ToUpper`, `strings.TrimPrefix`, `strings.Replace`).
+- **Comprehensions with Standard Library Filtering**: Iteration with stdlib functions in conditions (`strings.HasPrefix`, `path.Match`) and mapping expressions (`strings.ToUpper`, `strings.TrimPrefix`, `strings.Replace`).
 - **Optional Field Validation & Export Filtering**: Validates `field?: type` when present and omits unpopulated optional fields from JSON/YAML export.
 - **Hidden Fields & Definitions Isolation**: Evaluates `_internal` and `#Schema` identifiers in scope while filtering them from output.
 - **Discriminated Union Disjunctions**: Pattern and tag-based union branch resolution (`#Circle | #Rectangle`).
@@ -90,7 +93,7 @@ cargo test --workspace
 # Run clippy lint verification (0 warnings)
 cargo clippy --workspace --all-targets
 
-# Run the 79 txtar conformance suites (79/79 passing)
+# Run the 84 txtar conformance suites (84/84 passing)
 cargo run -p cue-cli -- test-txtar tests/testdata
 ```
 

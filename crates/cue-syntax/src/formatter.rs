@@ -176,6 +176,8 @@ fn format_expr(expr: &Expr, out: &mut String, indent: usize) {
             let op_str = match op {
                 BinaryOp::Unify => " & ",
                 BinaryOp::Disjoin => " | ",
+                BinaryOp::LogicalAnd => " && ",
+                BinaryOp::LogicalOr => " || ",
                 BinaryOp::Add => " + ",
                 BinaryOp::Sub => " - ",
                 BinaryOp::Mul => " * ",

@@ -181,6 +181,8 @@ pub enum UnaryOp {
 pub enum BinaryOp {
     Unify,      // &
     Disjoin,    // |
+    LogicalAnd, // &&
+    LogicalOr,  // ||
     Add,        // +
     Sub,        // -
     Mul,        // *

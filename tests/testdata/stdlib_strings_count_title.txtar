@@ -1,0 +1,19 @@
+Test strings.Count and strings.Title
+-- in.cue --
+package test
+
+import "strings"
+
+countA: strings.Count("banana", "a")
+countAn: strings.Count("banana", "an")
+countZ: strings.Count("banana", "z")
+
+title1: strings.Title("hello world")
+title2: strings.Title("antigravity kepler engine")
+
+-- out/eval --
+countA: 3
+countAn: 2
+countZ: 0
+title1: "Hello World"
+title2: "Antigravity Kepler Engine"

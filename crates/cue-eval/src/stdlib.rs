@@ -461,6 +461,21 @@ pub fn call_stdlib_func(
                 }
             Err("strings.Compare requires (a, b) string arguments".to_string())
         }
+        ("strings", "Count") => {
+            if args.len() >= 2
+                && let (Some(Value::String(s)), Some(Value::String(sub))) = (arena.get(args[0]), arena.get(args[1])) {
+                    let count = s.matches(sub.as_str()).count() as i64;
+                    return Ok(arena.int(count));
+                }
+            Err("strings.Count requires (s, substr) string arguments".to_string())
+        }
+        ("strings", "Title") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    return Ok(arena.string(title_case(s)));
+                }
+            Err("strings.Title requires 1 string argument".to_string())
+        }
         ("strings", "MinRunes") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(i)) = arena.get(arg0)
@@ -527,6 +542,58 @@ pub fn call_stdlib_func(
                 }
             }
             Err("math.Abs requires 1 number argument".to_string())
+        }
+        ("math", "Sign") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    let s = if *f > 0.0 { 1 } else if *f < 0.0 { -1 } else { 0 };
+                    return Ok(arena.int(s));
+                } else if let Some(Value::Int(i)) = arena.get(arg0) {
+                    let s = match i.sign() {
+                        num_bigint::Sign::Plus => 1,
+                        num_bigint::Sign::NoSign => 0,
+                        num_bigint::Sign::Minus => -1,
+                    };
+                    return Ok(arena.int(s));
+                }
+            }
+            Err("math.Sign requires 1 number argument".to_string())
+        }
+        ("math", "Dim") => {
+            if args.len() >= 2 {
+                let x = match arena.get(args[0]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                let y = match arena.get(args[1]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let (Some(x_val), Some(y_val)) = (x, y) {
+                    return Ok(arena.float((x_val - y_val).max(0.0)));
+                }
+            }
+            Err("math.Dim requires 2 number arguments (x, y)".to_string())
+        }
+        ("math", "Copysign") => {
+            if args.len() >= 2 {
+                let x = match arena.get(args[0]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                let y = match arena.get(args[1]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let (Some(x_val), Some(y_val)) = (x, y) {
+                    return Ok(arena.float(x_val.copysign(y_val)));
+                }
+            }
+            Err("math.Copysign requires 2 number arguments (x, y)".to_string())
         }
         ("math", "Tan") => {
             if let Some(&arg0) = args.first() {
@@ -946,6 +1013,21 @@ pub fn call_stdlib_func(
                 }
             Err("list.Repeat requires (elem, count) arguments".to_string())
         }
+        ("list", "Slice") => {
+            if args.len() >= 3
+                && let (Some(Value::List { elements, .. }), Some(Value::Int(low_val)), Some(Value::Int(high_val))) =
+                    (arena.get(args[0]), arena.get(args[1]), arena.get(args[2]))
+                {
+                    let low = low_val.to_usize().unwrap_or(0).min(elements.len());
+                    let high = high_val.to_usize().unwrap_or(elements.len()).min(elements.len());
+                    let sliced = if low <= high { elements[low..high].to_vec() } else { Vec::new() };
+                    return Ok(arena.alloc(Value::List {
+                        elements: sliced,
+                        ellipsis: None,
+                    }));
+                }
+            Err("list.Slice requires (list, low, high) arguments".to_string())
+        }
         ("list", "Sum") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::List { elements, .. }) = arena.get(arg0) {
@@ -1208,6 +1290,42 @@ pub fn call_stdlib_func(
                     return Ok(arena.string(ext));
                 }
             Err("path.Ext requires 1 path string argument".to_string())
+        }
+        ("path", "Match") => {
+            if args.len() >= 2
+                && let (Some(Value::String(pattern)), Some(Value::String(name))) = (arena.get(args[0]), arena.get(args[1])) {
+                    return Ok(arena.bool(glob_match(pattern, name)));
+                }
+            Err("path.Match requires (pattern, name) string arguments".to_string())
+        }
+        ("path", "Split") => {
+            let parts_opt = if let Some(&arg0) = args.first()
+                && let Some(Value::String(p)) = arena.get(arg0) {
+                    let (dir, file) = if let Some(pos) = p.rfind('/') {
+                        (p[..=pos].to_string(), p[pos + 1..].to_string())
+                    } else {
+                        (String::new(), p.clone())
+                    };
+                    Some((dir, file))
+                } else {
+                    None
+                };
+            if let Some((dir, file)) = parts_opt {
+                let dir_val = arena.string(dir);
+                let file_val = arena.string(file);
+                return Ok(arena.alloc(Value::List {
+                    elements: vec![dir_val, file_val],
+                    ellipsis: None,
+                }));
+            }
+            Err("path.Split requires 1 path string argument".to_string())
+        }
+        ("path", "IsAbs") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(p)) = arena.get(arg0) {
+                    return Ok(arena.bool(p.starts_with('/')));
+                }
+            Err("path.IsAbs requires 1 path string argument".to_string())
         }
         ("path", "Join") => {
             if let Some(&arg0) = args.first()
@@ -2502,4 +2620,48 @@ fn format_unix_rfc3339(sec: i64) -> String {
     let y_adj = if m <= 2 { y + 1 } else { y };
 
     format!("{y_adj:04}-{m:02}-{d:02}T{hour:02}:{min:02}:{s:02}Z")
+}
+
+fn glob_match(pattern: &str, name: &str) -> bool {
+    let mut regex_str = String::from("^");
+    for ch in pattern.chars() {
+        match ch {
+            '*' => regex_str.push_str("[^/]*"),
+            '?' => regex_str.push_str("[^/]"),
+            '.' => regex_str.push_str("\\."),
+            '+' => regex_str.push_str("\\+"),
+            '(' => regex_str.push_str("\\("),
+            ')' => regex_str.push_str("\\)"),
+            '[' => regex_str.push('['),
+            ']' => regex_str.push(']'),
+            '{' => regex_str.push_str("\\{"),
+            '}' => regex_str.push_str("\\}"),
+            c => regex_str.push(c),
+        }
+    }
+    regex_str.push('$');
+    regex::Regex::new(&regex_str).map(|r| r.is_match(name)).unwrap_or(false)
+}
+
+fn title_case(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut capitalize_next = true;
+    for c in s.chars() {
+        if c.is_alphanumeric() {
+            if capitalize_next {
+                for u in c.to_uppercase() {
+                    result.push(u);
+                }
+                capitalize_next = false;
+            } else {
+                for l in c.to_lowercase() {
+                    result.push(l);
+                }
+            }
+        } else {
+            capitalize_next = true;
+            result.push(c);
+        }
+    }
+    result
 }

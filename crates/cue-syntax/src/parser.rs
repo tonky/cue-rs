@@ -651,7 +651,33 @@ impl<'a> Parser<'a> {
     // --- Expressions (Pratt Precedence) ---
 
     pub fn parse_expr(&mut self) -> Result<Expr, ParseError> {
-        self.parse_disjunction()
+        self.parse_logical_or()
+    }
+
+    fn parse_logical_or(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_logical_and()?;
+        while self.match_token(&Token::PipePipe) {
+            let right = self.parse_logical_and()?;
+            left = Expr::Binary {
+                op: BinaryOp::LogicalOr,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+        Ok(left)
+    }
+
+    fn parse_logical_and(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_disjunction()?;
+        while self.match_token(&Token::AndAnd) {
+            let right = self.parse_disjunction()?;
+            left = Expr::Binary {
+                op: BinaryOp::LogicalAnd,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+        Ok(left)
     }
 
     fn parse_disjunction(&mut self) -> Result<Expr, ParseError> {

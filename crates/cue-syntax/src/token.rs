@@ -84,8 +84,14 @@ pub enum Token {
     #[token("&")]
     Ampersand,
 
+    #[token("&&")]
+    AndAnd,
+
     #[token("|")]
     Pipe,
+
+    #[token("||")]
+    PipePipe,
 
     #[token("*")]
     Star,
@@ -216,7 +222,9 @@ impl fmt::Display for Token {
             Token::Question => write!(f, "?"),
             Token::Bang => write!(f, "!"),
             Token::Ampersand => write!(f, "&"),
+            Token::AndAnd => write!(f, "&&"),
             Token::Pipe => write!(f, "|"),
+            Token::PipePipe => write!(f, "||"),
             Token::Star => write!(f, "*"),
             Token::Plus => write!(f, "+"),
             Token::Minus => write!(f, "-"),

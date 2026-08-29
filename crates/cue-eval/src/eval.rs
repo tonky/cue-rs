@@ -925,6 +925,8 @@ impl Evaluator {
             (BinaryOp::NotEqual, Value::String(a), Value::String(b)) => self.arena.bool(a != b),
             (BinaryOp::Equal, Value::Bool(a), Value::Bool(b)) => self.arena.bool(a == b),
             (BinaryOp::NotEqual, Value::Bool(a), Value::Bool(b)) => self.arena.bool(a != b),
+            (BinaryOp::LogicalAnd, Value::Bool(a), Value::Bool(b)) => self.arena.bool(a && b),
+            (BinaryOp::LogicalOr, Value::Bool(a), Value::Bool(b)) => self.arena.bool(a || b),
 
             _ => self.arena.bottom("unsupported binary operation"),
         }

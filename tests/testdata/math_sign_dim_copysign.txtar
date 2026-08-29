@@ -1,0 +1,24 @@
+Test math.Sign, Dim, and Copysign
+-- in.cue --
+package test
+
+import "math"
+
+signPos: math.Sign(42.5)
+signZero: math.Sign(0)
+signNeg: math.Sign(-100)
+
+dim1: math.Dim(10.0, 4.0)
+dim2: math.Dim(4.0, 10.0)
+
+copyPos: math.Copysign(10.5, 1.0)
+copyNeg: math.Copysign(10.5, -1.0)
+
+-- out/eval --
+copyNeg: -10.5
+copyPos: 10.5
+dim1: 6.0
+dim2: 0.0
+signNeg: -1
+signPos: 1
+signZero: 0

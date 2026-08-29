@@ -1,0 +1,30 @@
+Test path.Match, Split, and IsAbs
+-- in.cue --
+package test
+
+import "path"
+
+isCue:   path.Match("*.cue", "module.cue")
+isGo:    path.Match("*.go", "module.cue")
+isSub:   path.Match("pkg/*/*.cue", "pkg/schema/app.cue")
+
+split1:  path.Split("/usr/local/bin/cue-rs")
+split2:  path.Split("config.cue")
+
+absTrue: path.IsAbs("/etc/antigravity")
+absFalse: path.IsAbs("relative/path/config.cue")
+
+-- out/eval --
+absFalse: false
+absTrue: true
+isCue: true
+isGo: false
+isSub: true
+split1: [
+    "/usr/local/bin/",
+    "cue-rs"
+]
+split2: [
+    "",
+    "config.cue"
+]

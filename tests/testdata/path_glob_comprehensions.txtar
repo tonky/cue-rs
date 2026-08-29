@@ -1,0 +1,35 @@
+Test path glob filtering in comprehensions
+-- in.cue --
+package test
+
+import "path"
+
+rawFiles: [
+    "src/parser.cue",
+    "src/eval.rs",
+    "tests/test_01.cue",
+    "README.md",
+    "cue.mod/module.cue",
+]
+
+cueFileNames: [
+    for f in rawFiles
+    if path.Match("*.cue", f) || path.Match("*/*.cue", f)
+    {
+        path.Split(f)[1]
+    }
+]
+
+-- out/eval --
+cueFileNames: [
+    "parser.cue",
+    "test_01.cue",
+    "module.cue",
+]
+rawFiles: [
+    "src/parser.cue",
+    "src/eval.rs",
+    "tests/test_01.cue",
+    "README.md",
+    "cue.mod/module.cue",
+]

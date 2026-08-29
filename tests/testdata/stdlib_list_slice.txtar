@@ -1,0 +1,30 @@
+Test list.Slice
+-- in.cue --
+package test
+
+import "list"
+
+items: [10, 20, 30, 40, 50]
+
+mid:   list.Slice(items, 1, 4)
+first: list.Slice(items, 0, 2)
+empty: list.Slice(items, 3, 3)
+
+-- out/eval --
+empty: []
+first: [
+    10,
+    20
+]
+items: [
+    10,
+    20,
+    30,
+    40,
+    50
+]
+mid: [
+    20,
+    30,
+    40
+]
