@@ -1,0 +1,24 @@
+Test list.Compact
+-- in.cue --
+package test
+
+import "list"
+
+raw: [1, 2, 3, 4, 5]
+compacted: list.Compact(raw)
+
+-- out/eval --
+compacted: [
+    1,
+    2,
+    3,
+    4,
+    5
+]
+raw: [
+    1,
+    2,
+    3,
+    4,
+    5
+]

@@ -503,6 +503,28 @@ pub fn call_stdlib_func(
                 }
             Err("strings.Title requires 1 string argument".to_string())
         }
+        ("strings", "ContainsAny") => {
+            if args.len() >= 2
+                && let (Some(Value::String(s)), Some(Value::String(chars))) = (arena.get(args[0]), arena.get(args[1])) {
+                    let result = s.chars().any(|c| chars.contains(c));
+                    return Ok(arena.bool(result));
+                }
+            Err("strings.ContainsAny requires (string, chars) arguments".to_string())
+        }
+        ("strings", "EqualFold") => {
+            if args.len() >= 2
+                && let (Some(Value::String(a)), Some(Value::String(b))) = (arena.get(args[0]), arena.get(args[1])) {
+                    return Ok(arena.bool(a.eq_ignore_ascii_case(b)));
+                }
+            Err("strings.EqualFold requires 2 string arguments".to_string())
+        }
+        ("strings", "RuneCount") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    return Ok(arena.int(s.chars().count() as i64));
+                }
+            Err("strings.RuneCount requires 1 string argument".to_string())
+        }
         ("strings", "ByteAt") => {
             if args.len() >= 2
                 && let (Some(Value::String(s)), Some(Value::Int(idx))) = (arena.get(args[0]), arena.get(args[1]))
@@ -899,6 +921,61 @@ pub fn call_stdlib_func(
             }
             Err("math.Remainder requires 2 number arguments".to_string())
         }
+        ("math", "Mod") => {
+            if args.len() >= 2 {
+                let x = match arena.get(args[0]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                let y = match arena.get(args[1]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let (Some(xv), Some(yv)) = (x, y) {
+                    return Ok(arena.float(xv % yv));
+                }
+            }
+            Err("math.Mod requires 2 number arguments".to_string())
+        }
+        ("math", "Ldexp") => {
+            if args.len() >= 2 {
+                let frac = match arena.get(args[0]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                let exp = match arena.get(args[1]) {
+                    Some(Value::Int(i)) => i.to_i32(),
+                    _ => None,
+                };
+                if let (Some(f), Some(e)) = (frac, exp) {
+                    return Ok(arena.float(f * 2f64.powi(e)));
+                }
+            }
+            Err("math.Ldexp requires (frac float, exp int) arguments".to_string())
+        }
+        ("math", "IsNaN") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.bool(f.is_nan()));
+                } else if let Some(Value::Int(_)) = arena.get(arg0) {
+                    return Ok(arena.bool(false));
+                }
+            }
+            Err("math.IsNaN requires 1 number argument".to_string())
+        }
+        ("math", "IsInf") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.bool(f.is_infinite()));
+                } else if let Some(Value::Int(_)) = arena.get(arg0) {
+                    return Ok(arena.bool(false));
+                }
+            }
+            Err("math.IsInf requires 1 number argument".to_string())
+        }
         ("math", "Sin") => {
             if let Some(&arg0) = args.first() {
                 if let Some(Value::Float(f)) = arena.get(arg0) {
@@ -1289,6 +1366,21 @@ pub fn call_stdlib_func(
                     }));
                 }
             Err("list.Reverse requires 1 list argument".to_string())
+        }
+        ("list", "Compact") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::List { elements, ellipsis }) = arena.get(arg0) {
+                    let elems = elements.clone();
+                    let el = *ellipsis;
+                    let compacted: Vec<ValueId> = elems.into_iter().filter(|&e| {
+                        !matches!(arena.get(e), Some(Value::Null) | Some(Value::Bottom(_)) | None)
+                    }).collect();
+                    return Ok(arena.alloc(Value::List {
+                        elements: compacted,
+                        ellipsis: el,
+                    }));
+                }
+            Err("list.Compact requires 1 list argument".to_string())
         }
         ("list", "FlattenN") => {
             if args.len() >= 2
@@ -1813,6 +1905,47 @@ pub fn call_stdlib_func(
                 }
             Err("regexp.ReplaceAll requires 1 pattern, 1 target string, and 1 replacement".to_string())
         }
+        ("regexp", "QuoteMeta") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    return Ok(arena.string(regex::escape(s)));
+                }
+            Err("regexp.QuoteMeta requires 1 string argument".to_string())
+        }
+        ("regexp", "FindSubmatch") => {
+            let extracted = if args.len() >= 2
+                && let (Some(Value::String(pat)), Some(Value::String(s))) =
+                    (arena.get(args[0]), arena.get(args[1]))
+                {
+                    Some((pat.clone(), s.clone()))
+                } else {
+                    None
+                };
+            if let Some((pat, s)) = extracted {
+                if let Ok(re) = Regex::new(&pat) {
+                    if let Some(caps) = re.captures(&s) {
+                        let match_strs: Vec<String> = caps.iter()
+                            .map(|m| m.map(|v| v.as_str().to_string()).unwrap_or_default())
+                            .collect();
+                        let matches: Vec<ValueId> = match_strs.into_iter()
+                            .map(|ms| arena.string(ms))
+                            .collect();
+                        return Ok(arena.alloc(Value::List {
+                            elements: matches,
+                            ellipsis: None,
+                        }));
+                    } else {
+                        return Ok(arena.alloc(Value::List {
+                            elements: vec![],
+                            ellipsis: None,
+                        }));
+                    }
+                } else {
+                    return Err(format!("invalid regular expression: {pat}"));
+                }
+            }
+            Err("regexp.FindSubmatch requires (pattern, string) arguments".to_string())
+        }
 
         // --- encoding/base64 package ---
         ("base64" | "encoding/base64", "Encode") => {
@@ -2123,6 +2256,25 @@ pub fn call_stdlib_func(
                     return Ok(arena.string(result));
                 }
             Err("net.JoinHostPort requires (host, port) string arguments".to_string())
+        }
+        ("net", "FQDN") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    let domain = s.strip_suffix('.').unwrap_or(s);
+                    // RFC 1035: labels separated by dots, each 1-63 chars, total <= 253
+                    let valid = !domain.is_empty()
+                        && domain.len() <= 253
+                        && domain.split('.').all(|label| {
+                            !label.is_empty()
+                                && label.len() <= 63
+                                && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+                                && !label.starts_with('-')
+                                && !label.ends_with('-')
+                        })
+                        && domain.contains('.');
+                    return Ok(arena.bool(valid));
+                }
+            Err("net.FQDN requires 1 string argument".to_string())
         }
 
         // --- strconv package ---

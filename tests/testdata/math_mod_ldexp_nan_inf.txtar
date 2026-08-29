@@ -1,0 +1,20 @@
+Test math.Mod, math.Ldexp, math.IsNaN, and math.IsInf
+-- in.cue --
+package test
+
+import "math"
+
+mod1:    math.Mod(10.0, 3.0)
+mod2:    math.Mod(7, 2)
+ldexp1:  math.Ldexp(1.0, 10)
+ldexp2:  math.Ldexp(0.5, 3)
+nanInt:  math.IsNaN(42)
+infInt:  math.IsInf(100)
+
+-- out/eval --
+infInt: false
+ldexp1: 1024.0
+ldexp2: 4.0
+mod1: 1.0
+mod2: 1.0
+nanInt: false

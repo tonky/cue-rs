@@ -1,0 +1,20 @@
+Test net.FQDN
+-- in.cue --
+package test
+
+import "net"
+
+valid1: net.FQDN("example.com")
+valid2: net.FQDN("sub.domain.example.co.uk")
+valid3: net.FQDN("example.com.")
+invalid1: net.FQDN("localhost")
+invalid2: net.FQDN("-bad.com")
+invalid3: net.FQDN("")
+
+-- out/eval --
+invalid1: false
+invalid2: false
+invalid3: false
+valid1: true
+valid2: true
+valid3: true

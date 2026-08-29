@@ -1,0 +1,22 @@
+Test strings.ContainsAny, strings.EqualFold, and strings.RuneCount
+-- in.cue --
+package test
+
+import "strings"
+
+hasVowel:  strings.ContainsAny("rhythm", "aeiou")
+hasDigit:  strings.ContainsAny("hello123", "0123456789")
+noMatch:   strings.ContainsAny("xyz", "aeiou")
+foldTrue:  strings.EqualFold("Hello", "hELLO")
+foldFalse: strings.EqualFold("abc", "xyz")
+runeCount: strings.RuneCount("Hello!")
+emptyCount: strings.RuneCount("")
+
+-- out/eval --
+emptyCount: 0
+foldFalse: false
+foldTrue: true
+hasDigit: true
+hasVowel: false
+noMatch: false
+runeCount: 6

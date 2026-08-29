@@ -1,0 +1,16 @@
+Test regexp.QuoteMeta and regexp.FindSubmatch
+-- in.cue --
+package test
+
+import "regexp"
+
+escaped: regexp.QuoteMeta("hello.world+foo[bar]")
+submatch: regexp.FindSubmatch("(\\w+)@(\\w+\\.\\w+)", "user@example.com")
+
+-- out/eval --
+escaped: "hello\\.world\\+foo\\[bar\\]"
+submatch: [
+    "user@example.com",
+    "user",
+    "example.com"
+]
