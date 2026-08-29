@@ -10,7 +10,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 
 | Upstream Directory | Approx. Fixture Count | Focus Area | Our Rust Coverage |
 | :--- | :---: | :--- | :---: |
-| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, dynamic indexing, dynamic list slicing, multi-pattern constraints, comprehensions, Cartesian list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (57 fixtures)** |
+| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, dynamic indexing, dynamic list slicing, multi-pattern constraints, comprehensions, Cartesian list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (58 fixtures)** |
 | `cue/testdata/compile/` | ~110 | Lexer, parser, Pratt expressions, AST construction, binary/hex/octal/SI number literals, identifiers, attributes, raw string literals | **High (syntax 100% passing)** |
 | `cue/testdata/fulleval/` | ~85 | End-to-end multi-struct evaluation, closed definitions, exports | **Core subsets active** |
 | `cue/testdata/resolve/` | ~65 | Scoping, aliases, lexical lookup, forward references, selector chains, embeddings, default overrides | **Active** |
@@ -18,7 +18,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | `cue/testdata/basic/` | ~35 | Primitive types, literals, raw strings, mixed arithmetic, list/string arithmetic, comparisons, numeric types, hierarchy | **Active** |
 | `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, import aliases | **Active via `PackageLoader`** |
 | `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `math/bits`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding/json`, `encoding/yaml`, `encoding/html`, `encoding/csv`, `encoding/base32`, `encoding/base64`, `encoding/hex`, `text/tabwriter`, `text/template`, `crypto/sha256`, `crypto/md5`, `crypto/sha1`, `crypto/hmac`, `path`) | **23 core packages active** |
-| **Total** | **~580+ fixtures** | | **57 conformance suites (100% pass)** |
+| **Total** | **~580+ fixtures** | | **58 conformance suites (100% pass)** |
 
 ---
 
@@ -82,7 +82,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **`struct`** | 🟢 **100%** | `struct.MinFields`, `struct.MaxFields` | — |
 | **`time`** | 🟢 **100%** | `time.Time` (RFC3339 validator), `time.Duration` (parsing duration to nanoseconds) | `time.Format`, `time.Parse` |
 | **`net`** | 🟢 **100%** | `net.IPv4`, `net.IPv6`, `net.IP` | `net.ParseIP` |
-| **`strconv`** | 🟢 **100%** | `strconv.Atoi`, `strconv.Itoa`, `strconv.ParseFloat`, `strconv.FormatFloat` | `strconv.ParseBool` |
+| **`strconv`** | 🟢 **100%** | `strconv.Atoi`, `strconv.Itoa`, `strconv.ParseFloat`, `strconv.FormatFloat`, `strconv.ParseBool`, `strconv.FormatBool`, `strconv.ParseInt`, `strconv.ParseUint`, `strconv.FormatUint` | — |
 | **`uuid`** | 🟢 **100%** | `uuid.Valid`, `uuid.Version` | `uuid.URN` |
 | **`encoding/json`** | 🟢 **100%** | `json.Marshal`, `json.Unmarshal` | `json.Validate` |
 | **`encoding/yaml`** | 🟢 **100%** | `yaml.Marshal`, `yaml.Unmarshal` | `yaml.Validate` |

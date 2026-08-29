@@ -1228,6 +1228,68 @@ pub fn call_stdlib_func(
             }
             Err("strconv.FormatFloat requires 1 float argument".to_string())
         }
+        ("strconv", "ParseBool") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    match s.trim().to_lowercase().as_str() {
+                        "1" | "t" | "true" | "TRUE" | "True" => return Ok(arena.bool(true)),
+                        "0" | "f" | "false" | "FALSE" | "False" => return Ok(arena.bool(false)),
+                        _ => return Err(format!("strconv.ParseBool: parsing \"{s}\": invalid syntax")),
+                    }
+                }
+            Err("strconv.ParseBool requires 1 boolean string argument".to_string())
+        }
+        ("strconv", "FormatBool") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::Bool(b)) = arena.get(arg0) {
+                    return Ok(arena.string(b.to_string()));
+                }
+            Err("strconv.FormatBool requires 1 boolean argument".to_string())
+        }
+        ("strconv", "ParseInt") => {
+            if args.len() >= 2
+                && let (Some(Value::String(s)), Some(Value::Int(base_int))) = (arena.get(args[0]), arena.get(args[1])) {
+                    let base = base_int.to_u32().unwrap_or(10);
+                    let cleaned = s.trim();
+                    if let Some(i) = num_bigint::BigInt::parse_bytes(cleaned.as_bytes(), base) {
+                        return Ok(arena.int(i));
+                    } else {
+                        return Err(format!("strconv.ParseInt: parsing \"{s}\": invalid syntax"));
+                    }
+                }
+            Err("strconv.ParseInt requires (string, base) arguments".to_string())
+        }
+        ("strconv", "ParseUint") => {
+            if args.len() >= 2
+                && let (Some(Value::String(s)), Some(Value::Int(base_int))) = (arena.get(args[0]), arena.get(args[1])) {
+                    let base = base_int.to_u32().unwrap_or(10);
+                    let cleaned = s.trim();
+                    if let Some(i) = num_bigint::BigInt::parse_bytes(cleaned.as_bytes(), base)
+                        && i.sign() != num_bigint::Sign::Minus {
+                            return Ok(arena.int(i));
+                        } else {
+                            return Err(format!("strconv.ParseUint: parsing \"{s}\": invalid syntax"));
+                        }
+                }
+            Err("strconv.ParseUint requires (string, base) arguments".to_string())
+        }
+        ("strconv", "FormatUint") => {
+            if args.len() >= 2
+                && let (Some(Value::Int(i)), Some(Value::Int(base_int))) = (arena.get(args[0]), arena.get(args[1])) {
+                    let base = base_int.to_u8().unwrap_or(10);
+                    if i.sign() != num_bigint::Sign::Minus {
+                        match base {
+                            2 => return Ok(arena.string(format!("{i:b}"))),
+                            8 => return Ok(arena.string(format!("{i:o}"))),
+                            16 => return Ok(arena.string(format!("{i:x}"))),
+                            _ => return Ok(arena.string(i.to_string())),
+                        }
+                    } else {
+                        return Err("strconv.FormatUint requires a non-negative integer".to_string());
+                    }
+                }
+            Err("strconv.FormatUint requires (uint, base) arguments".to_string())
+        }
 
         // --- uuid package ---
         ("uuid", "Valid") => {

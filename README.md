@@ -2,7 +2,7 @@
 
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Clippy Clean](https://img.shields.io/badge/clippy-0%20warnings-brightgreen.svg)](https://github.com/rust-lang/rust-clippy)
-[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-57%2F57%20passing-brightgreen.svg)](tests/testdata/)
+[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-58%2F58%20passing-brightgreen.svg)](tests/testdata/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
 
 A high-performance, modular implementation of the [CUE configuration language](https://cuelang.org/) in **Rust (2024 Edition)**.
@@ -17,6 +17,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 ├── Cargo.toml                  # Workspace manifest (Rust 2024 Edition)
 ├── CUE_CONFORMANCE_TRACKER.md  # Upstream test suite inventory & parity tracker
 ├── CUE_ROADMAP.md              # Milestone progress and architectural design
+├── CUE_RUST_LEARNINGS.md       # Comparative architecture & design trade-offs
 ├── crates/
 │   ├── cue-syntax/             # Lexer (logos), ASI, Pratt parser, AST pretty-printer (`fmt`)
 │   ├── cue-eval/               # Arena-based lattice unification (⊓) engine & 23 stdlib packages
@@ -24,7 +25,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
 │   └── cue-cli/                # CLI binary (`cue-rs eval`, `cue-rs vet`, `cue-rs fmt`, `cue-rs test-txtar`)
 ├── tests/
-│   └── testdata/               # 57 conformance .txtar suites (100% passing)
+│   └── testdata/               # 58 conformance .txtar suites (100% passing)
 └── examples/                   # Sample CUE schemas and data files
 ```
 
@@ -72,7 +73,7 @@ cargo test --workspace
 # Run clippy lint verification (0 warnings)
 cargo clippy --workspace --all-targets
 
-# Run the 57 txtar conformance suites (57/57 passing)
+# Run the 58 txtar conformance suites (58/58 passing)
 cargo run -p cue-cli -- test-txtar tests/testdata
 ```
 
@@ -99,3 +100,4 @@ cargo run -p cue-cli -- test-txtar tests/testdata
 
 - [`CUE_CONFORMANCE_TRACKER.md`](CUE_CONFORMANCE_TRACKER.md): Upstream CUE test inventory, feature comparison, and conformance tracking.
 - [`CUE_ROADMAP.md`](CUE_ROADMAP.md): Detailed phase breakdown, memory model, and milestone progress.
+- [`CUE_RUST_LEARNINGS.md`](CUE_RUST_LEARNINGS.md): Comparative architecture analysis and design trade-offs.

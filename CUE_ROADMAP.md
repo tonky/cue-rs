@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **25 / 25 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **57 / 57 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **58 / 58 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -63,7 +63,7 @@ This document tracks the technical design, milestone progress, and conformance v
          │                • struct (MinFields, MaxFields)
          │                • time (Time RFC3339 validator, Duration parser)
          │                • net (IPv4, IPv6, IP validators)
-         │                • strconv (Atoi, Itoa, ParseFloat, FormatFloat)
+         │                • strconv (Atoi, Itoa, ParseFloat, FormatFloat, ParseBool, FormatBool, ParseInt, ParseUint, FormatUint)
          │                • uuid (Valid, Version)
          │                • encoding/json (Marshal, Unmarshal)
          │                • encoding/yaml (Marshal, Unmarshal)
@@ -151,7 +151,7 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `struct`: `MinFields`, `MaxFields`.
   - [x] `time`: `Time` (RFC3339 validator), `Duration` (string duration to nanoseconds).
   - [x] `net`: `IPv4`, `IPv6`, `IP` address validators.
-  - [x] `strconv`: `Atoi`, `Itoa`, `ParseFloat`, `FormatFloat`.
+  - [x] `strconv`: `Atoi`, `Itoa`, `ParseFloat`, `FormatFloat`, `ParseBool`, `FormatBool`, `ParseInt`, `ParseUint`, `FormatUint`.
   - [x] `uuid`: `Valid`, `Version`.
   - [x] `encoding/json`: `Marshal`, `Unmarshal`.
   - [x] `encoding/yaml`: `Marshal`, `Unmarshal`.

@@ -1,0 +1,26 @@
+Test extended strconv package functions
+-- in.cue --
+package test
+
+boolTrue:   strconv.ParseBool("true")
+boolFalse:  strconv.ParseBool("0")
+strTrue:    strconv.FormatBool(true)
+strFalse:   strconv.FormatBool(false)
+
+parsedHex:  strconv.ParseInt("2a", 16)
+parsedBin:  strconv.ParseUint("1101", 2)
+
+formattedHex: strconv.FormatUint(255, 16)
+formattedBin: strconv.FormatUint(42, 2)
+formattedOct: strconv.FormatUint(511, 8)
+
+-- out/eval --
+boolFalse: false
+boolTrue: true
+formattedBin: "101010"
+formattedHex: "ff"
+formattedOct: "777"
+parsedBin: 13
+parsedHex: 42
+strFalse: "false"
+strTrue: "true"
