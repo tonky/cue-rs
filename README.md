@@ -2,7 +2,7 @@
 
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Clippy Clean](https://img.shields.io/badge/clippy-0%20warnings-brightgreen.svg)](https://github.com/rust-lang/rust-clippy)
-[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-72%2F72%20passing-brightgreen.svg)](tests/testdata/)
+[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-74%2F74%20passing-brightgreen.svg)](tests/testdata/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
 
 A high-performance, modular implementation of the [CUE configuration language](https://cuelang.org/) in **Rust (2024 Edition)**.
@@ -25,7 +25,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
 │   └── cue-cli/                # CLI binary (`cue-rs eval`, `cue-rs vet`, `cue-rs fmt`, `cue-rs test-txtar`)
 ├── tests/
-│   └── testdata/               # 72 conformance .txtar suites (100% passing)
+│   └── testdata/               # 74 conformance .txtar suites (100% passing)
 └── examples/                   # Sample CUE schemas and data files
 ```
 
@@ -36,8 +36,11 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 - **Lattice Unification ($\sqcap$)**: Greatest lower bound calculation over scalar values, recursive structs, bounds (`>1024 & <65535`), regex constraints (`=~ "^[a-z]+$"`), and closed `#Definitions`.
 - **Module-Aware Package Imports**: Seamless resolution and evaluation of module packages (`import "myorg.com/app/schema"`) and vendored packages (`cue.mod/pkg/...`).
 - **Inter-Arena Deep Value Cloning (`clone_value_into`)**: Recursive value allocation across isolated package evaluation arenas.
+- **Parenthesized Selector & Index Chaining**: `({ cluster: { id: "p1" } }).cluster.id`, `(["alpha", "beta"])[1]`, `(inlineMap["prod"]).ports[1]`.
+- **Comprehensions with `let` Bindings & Dynamic Labels**: `for k, v in map let uk = strings.ToUpper(k) if strings.HasPrefix(uk, "P_") { (strings.ToLower(uk)): v }`.
 - **Time Package Unix Formatter & Constants**: `time.Unix(sec, nsec)`, `time.Hour`, `time.Minute`, `time.Second`, `time.Millisecond`, `time.Microsecond`, `time.Nanosecond`.
 - **Strconv String Escaping & Arbitrary Base Formatting**: `strconv.FormatInt(i, base)`, `strconv.Quote(s)`, `strconv.Unquote(s)`.
+- **Math Package Functions**: `math.Trunc(f)`, `math.Round(f)`, `math.Floor(f)`, `math.Ceil(f)`, `math.MultipleOf(n)`, `math.Sqrt(x)`, `math.Pow(x, y)`.
 - **Struct Embedding with Disjunction Selection**: Embedded disjunction schemas (`#Prod | #Dev`) resolving via field unification.
 - **Comprehensions with Standard Library Filtering**: Iteration with stdlib functions in conditions (`strings.HasPrefix`) and mapping expressions (`strings.ToUpper`, `strings.TrimPrefix`, `strings.Replace`).
 - **Optional Field Validation & Export Filtering**: Validates `field?: type` when present and omits unpopulated optional fields from JSON/YAML export.
@@ -52,7 +55,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 - **List & String Arithmetic**: List concatenation (`[1, 2] + [3, 4]`), list repetition (`[0] * 4`), and string repetition (`"=" * 10`).
 - **Open List Ellipsis**: Seamless unification of open lists (`#IntList: [...int]`) with concrete instances.
 - **Disjunction Meet Algebra**: Cross-product branch unification with transactional backtracking (`checkpoint()` / `rollback()`).
-- **Comprehensions & `let` Bindings**: Chained multi-clause comprehensions (`for`, `if`, `let`), Cartesian product list comprehensions with index unpacking (`[ for i, x in s1 for j, y in s2 { ... } ]`), struct-body list comprehensions (`[ for k, v in map { name: k, port: v.port } ]`), and dynamic interpolated labels (`(key): val`, `"\(k)_env": val`, `("item_\(i)"): val`).
+- **Cartesian Product List Comprehensions**: Index unpacking (`[ for i, x in s1 for j, y in s2 { ... } ]`) and struct-body list comprehensions (`[ for k, v in map { name: k, port: v.port } ]`).
 - **Multi-Pattern Constraints**: Simultaneous regex pattern constraints on structs (`[=~"^STR_"]: string`, `[=~"^NUM_"]: int & >0`, `[=~"^FLAG_"]: bool`).
 - **Module Discovery (`cue.mod/module.cue`)**: Upward directory traversal extracting module name and language version into `ModuleInfo`.
 - **Rust Derive Macro (`cue-derive`)**: Automatic deserialization-time schema validation on Rust structs via Serde:
@@ -84,7 +87,7 @@ cargo test --workspace
 # Run clippy lint verification (0 warnings)
 cargo clippy --workspace --all-targets
 
-# Run the 72 txtar conformance suites (72/72 passing)
+# Run the 74 txtar conformance suites (74/74 passing)
 cargo run -p cue-cli -- test-txtar tests/testdata
 ```
 

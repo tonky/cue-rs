@@ -1,0 +1,33 @@
+Test dynamic selector chaining on parenthesized expressions and literals
+-- in.cue --
+package test
+
+val1: ({
+    cluster: {
+        id: "prod-cluster-01"
+        size: 16
+    }
+}).cluster.id
+
+val2: (["first", "second", "third"])[1]
+
+inlineMap: {
+    prod: {
+        ports: [80, 443]
+    }
+}
+
+activeTlsPort: (inlineMap["prod"]).ports[1]
+
+-- out/eval --
+activeTlsPort: 443
+inlineMap: {
+    prod: {
+        ports: [
+            80,
+            443
+        ]
+    }
+}
+val1: "prod-cluster-01"
+val2: "second"

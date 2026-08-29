@@ -1,0 +1,36 @@
+Test comprehensions with let bindings, dynamic labels, and math.Trunc
+-- in.cue --
+package test
+
+import (
+    "strings"
+    "math"
+)
+
+rawMetrics: {
+    "prod_cpu": 85.75
+    "dev_cpu":  20.12
+    "prod_mem": 92.40
+    "dev_mem":  33.50
+}
+
+prodMetricsTruncated: {
+    for k, v in rawMetrics
+    let upperKey = strings.ToUpper(k)
+    let truncVal = math.Trunc(v)
+    if strings.HasPrefix(upperKey, "PROD_") {
+        (strings.ToLower(upperKey)): truncVal
+    }
+}
+
+-- out/eval --
+prodMetricsTruncated: {
+    prod_cpu: 85.0
+    prod_mem: 92.0
+}
+rawMetrics: {
+    dev_cpu: 20.12
+    dev_mem: 33.5
+    prod_cpu: 85.75
+    prod_mem: 92.4
+}

@@ -448,6 +448,16 @@ pub fn call_stdlib_func(
                 }
             Err("math.Round requires 1 float argument".to_string())
         }
+        ("math", "Trunc") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.trunc()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0) {
+                    return Ok(arena.int(i.clone()));
+                }
+            }
+            Err("math.Trunc requires 1 number argument".to_string())
+        }
         ("math", "Abs") => {
             if let Some(&arg0) = args.first() {
                 if let Some(Value::Float(f)) = arena.get(arg0) {

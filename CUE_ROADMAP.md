@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **27 / 27 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **72 / 72 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **74 / 74 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -29,9 +29,10 @@ This document tracks the technical design, milestone progress, and conformance v
 │                 │ ──► Binary (`0b1100`), Hex (`0x2A`), Octal (`0o755`) & SI Literals (`4Ki`, `10M`, `2G`)
 │                 │ ──► Raw & Multi-Line Strings (`#"..."#`, `#"""..."""#`, `#'...'#`)
 │                 │ ──► Dynamic Slicing (`items[1:]`, `items[:3]`, `items[2:5]`)
+│                 │ ──► Dynamic Selector Chaining on Parenthesized Literals (`({ a: 1 }).a`)
 │                 │ ──► Cartesian Multi-Clause List Comprehensions (`[ for x in s1 for y in s2 { ... } ]`)
 │                 │ ──► Cartesian Indexed Loop Unpacking (`[ for i, x in s1 for j, y in s2 { ... } ]`)
-│                 │ ──► Comprehensions with `let` Bindings (`[ for x in src let y = x * 2 if y > 5 { y } ]`)
+│                 │ ──► Comprehensions with `let` Bindings & Dynamic Labels (`(cleanKey): v`)
 │                 │ ──► Struct Body Comprehensions (`[ for k, v in map { name: k, val: v } ]`)
 │                 │ ──► Field Attributes Parser (`@protobuf`, `@json`, `@tag`)
 │                 │ ──► Single & Multi-Import Statements (`import s "strings"`)
@@ -65,7 +66,7 @@ This document tracks the technical design, milestone progress, and conformance v
          │                • int8, int16, int32, int64, float32, float64
          │          ──► Standard Library Packages (24 packages active):
          │                • strings (MinRunes, MaxRunes, Trim, TrimPrefix, TrimSuffix, Repeat, Replace)
-         │                • math (Sqrt, Pow, Log, Sin, Cos, Tan, Asin, Acos, Atan, Atan2, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, Abs)
+         │                • math (Sqrt, Pow, Log, Sin, Cos, Tan, Asin, Acos, Atan, Atan2, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, Trunc, Abs)
          │                • math/bits (And, Or, Xor, Lsh, Rsh, OnesCount)
          │                • list (MinItems, MaxItems, UniqueItems, Sort, FlattenN, Range, Take, Drop, Sum, Product, Avg, Min, Max)
          │                • regexp (Valid, Match, Find, FindAll, ReplaceAll)
@@ -107,8 +108,9 @@ This document tracks the technical design, milestone progress, and conformance v
 - [x] **Logos Lexer**: Identifiers, Definitions (`#Def`), Hidden fields (`_hidden`), Bottom (`_|_`), Top (`_`), Numbers (`0b`, `0x`, `0o`, SI suffixes), Strings, and Operators.
 - [x] **Raw Strings & Multi-Line Literals**: `#""" ... """#`, `#"..."#`, and `#'...'#`.
 - [x] **Pratt Expression Parser**: Unification (`&`), Disjunction (`|`), Comparison operators (`==`, `!=`, `<`, `<=`, `>`, `>=`, `=~`, `!~`), Mixed integer/float arithmetic (`+`, `-`, `*`, `/`), Unary arithmetic/bounds, and Selectors/Indexing/Slicing.
+- [x] **Parenthesized Selector & Index Chaining**: `({ cluster: { id: "p1" } }).cluster.id` and `(["a", "b"])[1]`.
 - [x] **Cartesian & List Comprehensions**: `[ for x in src if x > 1 { x * 10 } ]`, `[ for i, x in s1 for j, y in s2 { ... } ]`, and struct-body mappings `[ for k, v in map { name: k, port: v.port } ]`.
-- [x] **Comprehensions with `let` Bindings**: `[ for x in src let y = x * 2 if y > 5 { y } ]` and struct-comprehension `let` bindings.
+- [x] **Comprehensions with `let` Bindings & Dynamic Labels**: `for k, v in map let uk = strings.ToUpper(k) if strings.HasPrefix(uk, "P_") { (strings.ToLower(uk)): v }`.
 - [x] **Import Declarations & Aliases**: Single and multi-import blocks (`import ( s "strings", json "encoding/json" )`).
 - [x] **Dynamic & Interpolated Field Labels**: `(expr): val` and `"\(expr)_suffix": val`.
 - [x] **Field Aliases & Let Bindings**: `let Identifier = Expr` and `Alias = Expr`.
@@ -160,7 +162,7 @@ This document tracks the technical design, milestone progress, and conformance v
 - [x] **String Interpolation & Repetition**: `"prefix \(expr) suffix"` and `"x" * 10`.
 - [x] **24 Standard Library Packages**:
   - [x] `strings`: `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `Repeat`, `Replace`.
-  - [x] `math`: `Sqrt`, `Pow`, `Log`, `Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Abs`.
+  - [x] `math`: `Sqrt`, `Pow`, `Log`, `Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Trunc`, `Abs`.
   - [x] `math/bits`: `And`, `Or`, `Xor`, `Lsh`, `Rsh`, `OnesCount`.
   - [x] `list`: `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `FlattenN`, `Range`, `Take`, `Drop`, `Sum`, `Product`, `Avg`, `Min`, `Max`.
   - [x] `regexp`: `Valid`, `Match`, `Find`, `FindAll`, `ReplaceAll`.
