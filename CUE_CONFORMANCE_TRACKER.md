@@ -10,15 +10,15 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 
 | Upstream Directory | Approx. Fixture Count | Focus Area | Our Rust Coverage |
 | :--- | :---: | :--- | :---: |
-| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, dynamic indexing, dynamic list slicing, comprehensions, Cartesian list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (53 fixtures)** |
+| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, dynamic indexing, dynamic list slicing, multi-pattern constraints, comprehensions, Cartesian list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (55 fixtures)** |
 | `cue/testdata/compile/` | ~110 | Lexer, parser, Pratt expressions, AST construction, binary/hex/octal/SI number literals, identifiers, attributes, raw string literals | **High (syntax 100% passing)** |
 | `cue/testdata/fulleval/` | ~85 | End-to-end multi-struct evaluation, closed definitions, exports | **Core subsets active** |
 | `cue/testdata/resolve/` | ~65 | Scoping, aliases, lexical lookup, forward references, selector chains, embeddings, default overrides | **Active** |
 | `cue/testdata/export/` | ~45 | Export to concrete JSON, YAML, text | **JSON & YAML export active** |
 | `cue/testdata/basic/` | ~35 | Primitive types, literals, raw strings, mixed arithmetic, list/string arithmetic, comparisons, numeric types, hierarchy | **Active** |
 | `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, import aliases | **Active via `PackageLoader`** |
-| `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `math/bits`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding/json`, `encoding/yaml`, `encoding/html`, `encoding/csv`, `encoding/base32`, `crypto/sha256`, `crypto/md5`, `crypto/sha1`, `crypto/hmac`, `path`) | **21 core packages active** |
-| **Total** | **~580+ fixtures** | | **53 conformance suites (100% pass)** |
+| `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `math/bits`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding/json`, `encoding/yaml`, `encoding/html`, `encoding/csv`, `encoding/base32`, `encoding/base64`, `crypto/sha256`, `crypto/md5`, `crypto/sha1`, `crypto/hmac`, `path`) | **21 core packages active** |
+| **Total** | **~580+ fixtures** | | **55 conformance suites (100% pass)** |
 
 ---
 
@@ -62,7 +62,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **Disjunction Meet Algebra** | ✅ | **100% Complete** | `(A | B) & (C | D)` cross-product branch unification. |
 | **Multi-Constraint Bounds** | ✅ | **100% Complete** | `int & >0 & <65535 & !=8080`, regex bounds `=~ "^app\\."`. |
 | **Closed Definition Algebra** | ✅ | **100% Complete** | Closed `#Def` structs reject unrecognized fields. |
-| **Pattern Constraints** | ✅ | **100% Complete** | `[=~"^PORT_"]: int` pattern fields exempted in closed structs. |
+| **Multi-Pattern Constraints** | ✅ | **100% Complete** | Multiple simultaneous pattern fields (`[=~"^STR_"]: string`, `[=~"^NUM_"]: int`). |
 | **Disjunctions & Defaults** | ✅ | **100% Complete** | Branch selection with default markers (`*default \| other`). |
 | **Two-Pass Hoisting** | ✅ | **100% Complete** | Mutual and recursive schema definitions (`#Tree`). |
 | **Value Cycle Detection** | ✅ | **100% Complete** | Detects and flags arithmetic/value cycles as $\bot$. |
@@ -89,7 +89,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **`encoding/html`** | 🟢 **100%** | `html.Escape`, `html.Unescape` | — |
 | **`encoding/csv`** | 🟢 **100%** | `csv.Decode`, `csv.Encode` | — |
 | **`encoding/base32`** | 🟢 **100%** | `base32.Encode`, `base32.Decode` | — |
-| **`encoding/base64`** | 🟢 **100%** | `base64.Encode`, `base64.Decode` | — |
+| **`encoding/base64`** | 🟢 **100%** | `base64.Encode`, `base64.Decode`, `base64.RawURLEncode`, `base64.RawURLDecode`, `base64.URLEncode`, `base64.URLDecode` | — |
 | **`encoding/hex`** | 🟢 **100%** | `hex.Encode`, `hex.Decode` | — |
 | **`crypto/sha256`** | 🟢 **100%** | `sha256.Sum` | — |
 | **`crypto/md5`** | 🟢 **100%** | `md5.Sum` | — |

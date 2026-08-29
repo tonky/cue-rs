@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **25 / 25 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **53 / 53 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **55 / 55 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -43,7 +43,8 @@ This document tracks the technical design, milestone progress, and conformance v
 │    cue-eval     │ ──► SlotMap Arena Allocation with Transactional Trail
 │ (Lattice Engine)│ ──► Greatest Lower Bound Unification (⊓) with Disjunction Rollback
 │ (PackageLoader) │ ──► Multi-Pass Fixpoint Relaxation Loop for Order-Independent Reference Graphs
-└────────┬────────┘ ──► Dynamic Struct Indexing (`ports[env]`) & Nested Selector Chains
+└────────┬────────┘ ──► Multi-Pattern Simultaneous Constraints (`[=~"^STR_"]: string`, `[=~"^NUM_"]: int & >0`)
+         │          ──► Dynamic Struct Indexing (`ports[env]`) & Nested Selector Chains
          │          ──► Lexical Scope Isolation for Nested Struct Blocks
          │          ──► Open List Ellipsis Unification (`[...int]` ⊓ `[1, 2, 3]`)
          │          ──► Hierarchical Type Subsumption (`number` ⊓ `int` ⊓ `uint16` ⊓ `8080`)
@@ -69,7 +70,7 @@ This document tracks the technical design, milestone progress, and conformance v
          │                • encoding/html (Escape, Unescape)
          │                • encoding/csv (Decode, Encode)
          │                • encoding/base32 (Encode, Decode)
-         │                • encoding/base64 (Encode, Decode)
+         │                • encoding/base64 (Encode, Decode, RawURLEncode, RawURLDecode, URLEncode, URLDecode)
          │                • encoding/hex (Encode, Decode)
          │                • crypto/sha256 (Sum)
          │                • crypto/md5 (Sum)
@@ -125,7 +126,7 @@ This document tracks the technical design, milestone progress, and conformance v
 
 ### Phase 3: Advanced Language Features & 21 Standard Library Packages
 - [x] **Pattern Constraints on Structs**:
-  - [x] Support `[Expr]: Type` constraint evaluation (e.g. `[=~"^app\\.kubernetes\\.io/"]: string`).
+  - [x] Support multiple simultaneous pattern constraints (`[=~"^STR_"]: string`, `[=~"^NUM_"]: int`).
   - [x] Pattern exemption in closed `#Definitions`.
 - [x] **Comprehensions**:
   - [x] `for k, v in source { ... }` list and struct iterations.
@@ -155,7 +156,7 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `encoding/html`: `Escape`, `Unescape`.
   - [x] `encoding/csv`: `Decode`, `Encode`.
   - [x] `encoding/base32`: `Encode`, `Decode`.
-  - [x] `encoding/base64`: `Encode`, `Decode`.
+  - [x] `encoding/base64`: `Encode`, `Decode`, `RawURLEncode`, `RawURLDecode`, `URLEncode`, `URLDecode`.
   - [x] `encoding/hex`: `Encode`, `Decode`.
   - [x] `crypto/sha256`: `Sum`.
   - [x] `crypto/md5`: `Sum`.

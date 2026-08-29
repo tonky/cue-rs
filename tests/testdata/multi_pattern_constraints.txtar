@@ -1,0 +1,22 @@
+Test multiple simultaneous pattern constraints on a single struct
+-- in.cue --
+package test
+
+#ConfigSchema: {
+    [=~"^STR_"]: string
+    [=~"^NUM_"]: int & >0
+    [=~"^FLAG_"]: bool
+}
+
+myConfig: #ConfigSchema & {
+    STR_appName: "KeplerEngine"
+    NUM_workers: 8
+    FLAG_enabled: true
+}
+
+-- out/eval --
+myConfig: {
+    FLAG_enabled: true
+    NUM_workers: 8
+    STR_appName: "KeplerEngine"
+}

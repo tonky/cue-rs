@@ -1,0 +1,18 @@
+Test base64 URL-safe encoding and decoding functions
+-- in.cue --
+package test
+
+plain: "hello?world&query=1+2"
+
+rawUrlEnc: base64.RawURLEncode(plain)
+rawUrlDec: base64.RawURLDecode(rawUrlEnc)
+
+urlEnc: base64.URLEncode(plain)
+urlDec: base64.URLDecode(urlEnc)
+
+-- out/eval --
+plain: "hello?world&query=1+2"
+rawUrlDec: "hello?world&query=1+2"
+rawUrlEnc: "aGVsbG8/d29ybGQmcXVlcnk9MSsy"
+urlDec: "hello?world&query=1+2"
+urlEnc: "aGVsbG8/d29ybGQmcXVlcnk9MSsy"

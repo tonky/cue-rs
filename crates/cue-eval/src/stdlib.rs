@@ -964,6 +964,42 @@ pub fn call_stdlib_func(
                 }
             Err("base64.Decode requires 1 base64 string argument".to_string())
         }
+        ("base64" | "encoding/base64", "RawURLEncode") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    return Ok(arena.string(base64_url_encode(s.as_bytes(), false)));
+                }
+            Err("base64.RawURLEncode requires 1 string argument".to_string())
+        }
+        ("base64" | "encoding/base64", "RawURLDecode") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    if let Ok(bytes) = base64_url_decode(s) {
+                        return Ok(arena.string(String::from_utf8_lossy(&bytes).to_string()));
+                    } else {
+                        return Err("invalid base64 raw URL string".to_string());
+                    }
+                }
+            Err("base64.RawURLDecode requires 1 string argument".to_string())
+        }
+        ("base64" | "encoding/base64", "URLEncode") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    return Ok(arena.string(base64_url_encode(s.as_bytes(), true)));
+                }
+            Err("base64.URLEncode requires 1 string argument".to_string())
+        }
+        ("base64" | "encoding/base64", "URLDecode") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    if let Ok(bytes) = base64_url_decode(s) {
+                        return Ok(arena.string(String::from_utf8_lossy(&bytes).to_string()));
+                    } else {
+                        return Err("invalid base64 URL string".to_string());
+                    }
+                }
+            Err("base64.URLDecode requires 1 string argument".to_string())
+        }
 
         // --- encoding/base32 package ---
         ("base32" | "encoding/base32", "Encode") => {
@@ -1244,6 +1280,63 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
             '+' => 62,
             '/' => 63,
             _ => return Err("invalid base64 char".to_string()),
+        };
+        buffer = (buffer << 6) | val;
+        bits += 6;
+
+        if bits >= 8 {
+            bits -= 8;
+            bytes.push((buffer >> bits) as u8);
+            buffer &= (1 << bits) - 1;
+        }
+    }
+
+    Ok(bytes)
+}
+
+const B64_URL_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+fn base64_url_encode(input: &[u8], pad: bool) -> String {
+    let mut out = String::new();
+    let mut i = 0;
+    while i < input.len() {
+        let b0 = input[i];
+        let b1 = if i + 1 < input.len() { input[i + 1] } else { 0 };
+        let b2 = if i + 2 < input.len() { input[i + 2] } else { 0 };
+
+        out.push(B64_URL_CHARS[(b0 >> 2) as usize] as char);
+        out.push(B64_URL_CHARS[(((b0 & 3) << 4) | (b1 >> 4)) as usize] as char);
+
+        if i + 1 < input.len() {
+            out.push(B64_URL_CHARS[(((b1 & 15) << 2) | (b2 >> 6)) as usize] as char);
+        } else if pad {
+            out.push('=');
+        }
+
+        if i + 2 < input.len() {
+            out.push(B64_URL_CHARS[(b2 & 63) as usize] as char);
+        } else if pad {
+            out.push('=');
+        }
+
+        i += 3;
+    }
+    out
+}
+
+fn base64_url_decode(input: &str) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    let mut buffer = 0u32;
+    let mut bits = 0;
+
+    for ch in input.trim().trim_end_matches('=').chars() {
+        let val = match ch {
+            'A'..='Z' => ch as u32 - 'A' as u32,
+            'a'..='z' => ch as u32 - 'a' as u32 + 26,
+            '0'..='9' => ch as u32 - '0' as u32 + 52,
+            '-' => 62,
+            '_' => 63,
+            _ => return Err("invalid base64 url char".to_string()),
         };
         buffer = (buffer << 6) | val;
         bits += 6;

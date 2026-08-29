@@ -2,7 +2,7 @@
 
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Clippy Clean](https://img.shields.io/badge/clippy-0%20warnings-brightgreen.svg)](https://github.com/rust-lang/rust-clippy)
-[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-53%2F53%20passing-brightgreen.svg)](tests/testdata/)
+[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-55%2F55%20passing-brightgreen.svg)](tests/testdata/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
 
 A high-performance, modular implementation of the [CUE configuration language](https://cuelang.org/) in **Rust (2024 Edition)**.
@@ -24,7 +24,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
 │   └── cue-cli/                # CLI binary (`cue-rs eval`, `cue-rs vet`, `cue-rs fmt`, `cue-rs test-txtar`)
 ├── tests/
-│   └── testdata/               # 53 conformance .txtar suites (100% passing)
+│   └── testdata/               # 55 conformance .txtar suites (100% passing)
 └── examples/                   # Sample CUE schemas and data files
 ```
 
@@ -42,6 +42,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 - **Open List Ellipsis**: Seamless unification of open lists (`#IntList: [...int]`) with concrete instances.
 - **Disjunction Meet Algebra**: Cross-product branch unification with transactional backtracking (`checkpoint()` / `rollback()`).
 - **Comprehensions & Dynamic Keys**: Chained multi-clause comprehensions (`for`, `if`, `let`), Cartesian product list comprehensions with index unpacking (`[ for i, x in s1 for j, y in s2 { ... } ]`), struct-body list comprehensions (`[ for k, v in map { name: k, port: v.port } ]`), and dynamic interpolated labels (`(key): val`, `"\(k)_env": val`, `("item_\(i)"): val`).
+- **Multi-Pattern Constraints**: Simultaneous regex pattern constraints on structs (`[=~"^STR_"]: string`, `[=~"^NUM_"]: int & >0`, `[=~"^FLAG_"]: bool`).
 - **Rust Derive Macro (`cue-derive`)**: Automatic deserialization-time schema validation on Rust structs via Serde:
   ```rust
   #[derive(Deserialize, CueValidate)]
@@ -71,7 +72,7 @@ cargo test --workspace
 # Run clippy lint verification (0 warnings)
 cargo clippy --workspace --all-targets
 
-# Run the 53 txtar conformance suites (53/53 passing)
+# Run the 55 txtar conformance suites (55/55 passing)
 cargo run -p cue-cli -- test-txtar tests/testdata
 ```
 
