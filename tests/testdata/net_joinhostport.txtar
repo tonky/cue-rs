@@ -1,0 +1,14 @@
+Test net.JoinHostPort
+-- in.cue --
+package test
+
+import "net"
+
+joined4: net.JoinHostPort("192.168.1.1", "8080")
+joined6: net.JoinHostPort("::1", "443")
+joinedHost: net.JoinHostPort("example.com", "3000")
+
+-- out/eval --
+joined4: "192.168.1.1:8080"
+joined6: "[::1]:443"
+joinedHost: "example.com:3000"

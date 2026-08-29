@@ -542,6 +542,29 @@ pub fn call_stdlib_func(
                 }
             Err("strings.Runes requires 1 string argument".to_string())
         }
+        ("strings", "SliceRunes") => {
+            if args.len() >= 3
+                && let (Some(Value::String(s)), Some(Value::Int(start_val)), Some(Value::Int(end_val))) =
+                    (arena.get(args[0]), arena.get(args[1]), arena.get(args[2]))
+                && let (Some(start), Some(end)) = (start_val.to_usize(), end_val.to_usize()) {
+                    let chars: Vec<char> = s.chars().collect();
+                    let end_clamped = end.min(chars.len());
+                    let start_clamped = start.min(end_clamped);
+                    let result: String = chars[start_clamped..end_clamped].iter().collect();
+                    return Ok(arena.string(result));
+                }
+            Err("strings.SliceRunes requires (string, start, end) arguments".to_string())
+        }
+        ("strings", "ToValidUTF8") => {
+            if args.len() >= 2
+                && let (Some(Value::String(s)), Some(Value::String(repl))) =
+                    (arena.get(args[0]), arena.get(args[1])) {
+                    // Rust strings are always valid UTF-8, so just return the original
+                    let _ = repl; // acknowledge replacement param
+                    return Ok(arena.string(s.to_string()));
+                }
+            Err("strings.ToValidUTF8 requires (string, replacement) arguments".to_string())
+        }
         ("strings", "MinRunes") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(i)) = arena.get(arg0)
@@ -857,6 +880,24 @@ pub fn call_stdlib_func(
                     }
             }
             Err("math.Log1p requires 1 number argument".to_string())
+        }
+        ("math", "Remainder") => {
+            if args.len() >= 2 {
+                let x = match arena.get(args[0]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                let y = match arena.get(args[1]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let (Some(xv), Some(yv)) = (x, y) {
+                    return Ok(arena.float(xv % yv));
+                }
+            }
+            Err("math.Remainder requires 2 number arguments".to_string())
         }
         ("math", "Sin") => {
             if let Some(&arg0) = args.first() {
@@ -1235,6 +1276,19 @@ pub fn call_stdlib_func(
                     return Ok(arena.bool(sorted));
                 }
             Err("list.IsSortedStrings requires 1 list of strings argument".to_string())
+        }
+        ("list", "Reverse") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::List { elements, ellipsis }) = arena.get(arg0) {
+                    let mut elems = elements.clone();
+                    let el = *ellipsis;
+                    elems.reverse();
+                    return Ok(arena.alloc(Value::List {
+                        elements: elems,
+                        ellipsis: el,
+                    }));
+                }
+            Err("list.Reverse requires 1 list argument".to_string())
         }
         ("list", "FlattenN") => {
             if args.len() >= 2
@@ -2055,6 +2109,20 @@ pub fn call_stdlib_func(
                     }));
                 }
             Err("net.SplitHostPort requires 1 string argument".to_string())
+        }
+        ("net", "JoinHostPort") => {
+            if args.len() >= 2
+                && let (Some(Value::String(host)), Some(Value::String(port))) =
+                    (arena.get(args[0]), arena.get(args[1])) {
+                    let result = if host.contains(':') {
+                        // IPv6: wrap in brackets
+                        format!("[{host}]:{port}")
+                    } else {
+                        format!("{host}:{port}")
+                    };
+                    return Ok(arena.string(result));
+                }
+            Err("net.JoinHostPort requires (host, port) string arguments".to_string())
         }
 
         // --- strconv package ---

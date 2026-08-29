@@ -1,0 +1,14 @@
+Test strings.SliceRunes and strings.ToValidUTF8
+-- in.cue --
+package test
+
+import "strings"
+
+sliced: strings.SliceRunes("Hello, World!", 0, 5)
+mid: strings.SliceRunes("antigravity", 4, 11)
+valid: strings.ToValidUTF8("clean text", "?")
+
+-- out/eval --
+mid: "gravity"
+sliced: "Hello"
+valid: "clean text"

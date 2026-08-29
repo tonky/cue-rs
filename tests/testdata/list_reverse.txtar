@@ -1,0 +1,38 @@
+Test list.Reverse
+-- in.cue --
+package test
+
+import "list"
+
+nums: [1, 2, 3, 4, 5]
+reversed: list.Reverse(nums)
+strs: ["alpha", "beta", "gamma"]
+reversedStrs: list.Reverse(strs)
+empty: list.Reverse([])
+
+-- out/eval --
+empty: []
+nums: [
+    1,
+    2,
+    3,
+    4,
+    5
+]
+reversed: [
+    5,
+    4,
+    3,
+    2,
+    1
+]
+reversedStrs: [
+    "gamma",
+    "beta",
+    "alpha"
+]
+strs: [
+    "alpha",
+    "beta",
+    "gamma"
+]

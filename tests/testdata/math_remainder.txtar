@@ -1,0 +1,14 @@
+Test math.Remainder
+-- in.cue --
+package test
+
+import "math"
+
+rem1: math.Remainder(10.0, 3.0)
+rem2: math.Remainder(7, 2)
+rem3: math.Remainder(5.5, 2.5)
+
+-- out/eval --
+rem1: 1.0
+rem2: 1.0
+rem3: 0.5
