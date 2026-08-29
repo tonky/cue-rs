@@ -1,0 +1,22 @@
+Test net standard library package (IPv4, IPv6, IP validators)
+-- in.cue --
+package test
+
+#HostInfo: {
+    ipv4: string & net.IPv4
+    ipv6: string & net.IPv6
+    anyIp: string & net.IP
+}
+
+host: #HostInfo & {
+    ipv4:  "127.0.0.1"
+    ipv6:  "::1"
+    anyIp: "192.168.1.1"
+}
+
+-- out/eval --
+host: {
+    anyIp: "192.168.1.1"
+    ipv4: "127.0.0.1"
+    ipv6: "::1"
+}

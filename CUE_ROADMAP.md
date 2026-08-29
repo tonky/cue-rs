@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **25 / 25 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **32 / 32 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **35 / 35 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -26,6 +26,7 @@ This document tracks the technical design, milestone progress, and conformance v
 │   cue-syntax    │ ──► Logos Lexer + Automatic Semicolon Insertion (ASI)
 │   (AST & CST)   │ ──► Pratt Recursive Descent Parser + String Interpolation
 │   (Formatter)   │ ──► AST Pretty-Printer / Formatter (`cue-rs fmt`)
+│                 │ ──► List Comprehensions (`[ for x in src if x > 1 { x * 10 } ]`)
 │                 │ ──► Field Attributes Parser (`@protobuf`, `@json`, `@tag`)
 │                 │ ──► Single & Multi-Import Statements (`import s "strings"`)
 │                 │ ──► Dynamic & Interpolated Field Labels (`(key): val`, `"\(k)_env": val`)
@@ -44,13 +45,15 @@ This document tracks the technical design, milestone progress, and conformance v
          │          ──► Numeric Type Constraints:
          │                • uint, uint8, uint16, uint32, uint64
          │                • int8, int16, int32, int64, float32, float64
-         │          ──► Standard Library Packages (11 packages active):
+         │          ──► Standard Library Packages (13 packages active):
          │                • strings (MinRunes, MaxRunes, Trim, TrimPrefix, Repeat)
          │                • math (Sqrt, Pow, Log, Sin, Cos, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, Abs)
          │                • list (MinItems, MaxItems, UniqueItems, Sort, FlattenN, Range, Take, Drop)
          │                • regexp (Valid, Match, Find, FindAll, ReplaceAll)
          │                • struct (MinFields, MaxFields)
          │                • time (Time RFC3339 validator, Duration parser)
+         │                • net (IPv4, IPv6, IP validators)
+         │                • strconv (Atoi, Itoa, ParseFloat, FormatFloat)
          │                • encoding/json (Marshal, Unmarshal)
          │                • encoding/yaml (Marshal, Unmarshal)
          │                • encoding/base64 (Encode, Decode)
@@ -74,12 +77,13 @@ This document tracks the technical design, milestone progress, and conformance v
 ### Phase 1: Lexer, Parser, Formatter & Test Harness
 - [x] **Logos Lexer**: Identifiers, Definitions (`#Def`), Hidden fields (`_hidden`), Bottom (`_|_`), Top (`_`), Numbers, Strings, and Operators.
 - [x] **Pratt Expression Parser**: Unification (`&`), Disjunction (`|`), Comparison operators (`==`, `!=`, `<`, `<=`, `>`, `>=`, `=~`, `!~`), Mixed integer/float arithmetic (`+`, `-`, `*`, `/`), Unary arithmetic/bounds, and Selectors/Indexing.
+- [x] **List Comprehensions**: `[ for x in src if x > 1 { x * 10 } ]` and `[ for i, x in src { i + x } ]`.
 - [x] **Import Declarations & Aliases**: Single and multi-import blocks (`import ( s "strings", json "encoding/json" )`).
 - [x] **Dynamic & Interpolated Field Labels**: `(expr): val` and `"\(expr)_suffix": val`.
 - [x] **Field Aliases & Let Bindings**: `let Identifier = Expr` and `Alias = Expr`.
 - [x] **Field Attributes (`@tag`)**: Parsing `@protobuf(1, int64)` and `@json(name)` annotations into AST.
 - [x] **Automatic Semicolon / Statement Insertion (ASI)**: Newline-aware statement separator insertion to prevent multi-line parsing ambiguities.
-- [x] **Code Formatter (`cue-rs fmt`)**: AST pretty-printer formatting CUE source files with indentation, field attributes, and canonical operator spacing.
+- [x] **Code Formatter (`cue-rs fmt`)**: AST pretty-printer formatting CUE source files with indentation, list comprehensions, field attributes, and canonical operator spacing.
 - [x] **Txtar Test Runner**: Full parser for Go `.txtar` test fixtures to enable test-driven development against upstream test cases.
 - [x] **CLI Tool (`cue-rs`)**: `eval` (with `--format json/yaml`), `vet` (schema validation), `fmt` (code formatting), and `test-txtar` commands.
 
@@ -102,7 +106,7 @@ This document tracks the technical design, milestone progress, and conformance v
 
 ---
 
-### Phase 3: Advanced Language Features & 11 Standard Library Packages
+### Phase 3: Advanced Language Features & 13 Standard Library Packages
 - [x] **Pattern Constraints on Structs**:
   - [x] Support `[Expr]: Type` constraint evaluation (e.g. `[=~"^app\\.kubernetes\\.io/"]: string`).
   - [x] Pattern exemption in closed `#Definitions`.
@@ -110,18 +114,21 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `for k, v in source { ... }` list and struct iterations.
   - [x] `if condition { ... }` conditional declarations.
   - [x] Chained multi-clause comprehensions (`for x in list if x > 2 if x < 6 { ... }`).
+  - [x] List comprehensions producing evaluated lists (`[ for x in raw if x > 2 { x * 10 } ]`).
   - [x] Dynamic parenthesized label evaluation `(expr): value`.
 - [x] **List Indexing & Slicing**:
   - [x] `list[i]` integer indexing and struct dynamic field indexing.
   - [x] `list[low:high]` range slicing.
 - [x] **String Interpolation**: Full parsing and evaluation of `"prefix \(expr) suffix"`.
-- [x] **11 Standard Library Packages**:
+- [x] **13 Standard Library Packages**:
   - [x] `strings`: `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `Repeat`.
   - [x] `math`: `Sqrt`, `Pow`, `Log`, `Sin`, `Cos`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Abs`.
   - [x] `list`: `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `FlattenN`, `Range`, `Take`, `Drop`.
   - [x] `regexp`: `Valid`, `Match`, `Find`, `FindAll`, `ReplaceAll`.
   - [x] `struct`: `MinFields`, `MaxFields`.
   - [x] `time`: `Time` (RFC3339 validator), `Duration` (string duration to nanoseconds).
+  - [x] `net`: `IPv4`, `IPv6`, `IP` address validators.
+  - [x] `strconv`: `Atoi`, `Itoa`, `ParseFloat`, `FormatFloat`.
   - [x] `encoding/json`: `Marshal`, `Unmarshal`.
   - [x] `encoding/yaml`: `Marshal`, `Unmarshal`.
   - [x] `encoding/base64`: `Encode`, `Decode`.

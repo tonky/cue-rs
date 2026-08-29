@@ -268,5 +268,38 @@ fn format_expr(expr: &Expr, out: &mut String, indent: usize) {
             }
             out.push('"');
         }
+        Expr::ListComp(comp) => {
+            out.push_str("[ ");
+            for clause in &comp.clauses {
+                match clause {
+                    ComprehensionClause::For { key, value, source } => {
+                        out.push_str("for ");
+                        if let Some(k) = key {
+                            out.push_str(k);
+                            out.push_str(", ");
+                        }
+                        out.push_str(value);
+                        out.push_str(" in ");
+                        format_expr(source, out, indent);
+                        out.push(' ');
+                    }
+                    ComprehensionClause::If { condition } => {
+                        out.push_str("if ");
+                        format_expr(condition, out, indent);
+                        out.push(' ');
+                    }
+                    ComprehensionClause::Let { ident, expr } => {
+                        out.push_str("let ");
+                        out.push_str(ident);
+                        out.push_str(" = ");
+                        format_expr(expr, out, indent);
+                        out.push(' ');
+                    }
+                }
+            }
+            out.push_str("{ ");
+            format_expr(&comp.expr, out, indent);
+            out.push_str(" } ]");
+        }
     }
 }

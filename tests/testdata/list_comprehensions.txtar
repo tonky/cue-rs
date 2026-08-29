@@ -1,0 +1,39 @@
+Test list comprehensions in expressions
+-- in.cue --
+package test
+
+raw: [1, 2, 3, 4, 5]
+
+doubled: [ for x in raw { x * 2 } ]
+
+filtered: [ for x in raw if x > 2 { x * 10 } ]
+
+indexed: [ for i, x in raw { i + x } ]
+
+-- out/eval --
+doubled: [
+    2,
+    4,
+    6,
+    8,
+    10
+]
+filtered: [
+    30,
+    40,
+    50
+]
+indexed: [
+    1,
+    3,
+    5,
+    7,
+    9
+]
+raw: [
+    1,
+    2,
+    3,
+    4,
+    5
+]

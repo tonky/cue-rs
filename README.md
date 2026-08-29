@@ -2,7 +2,7 @@
 
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Clippy Clean](https://img.shields.io/badge/clippy-0%20warnings-brightgreen.svg)](https://github.com/rust-lang/rust-clippy)
-[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-30%2F30%20passing-brightgreen.svg)](tests/testdata/)
+[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-35%2F35%20passing-brightgreen.svg)](tests/testdata/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
 
 A high-performance, modular implementation of the [CUE configuration language](https://cuelang.org/) in **Rust (2024 Edition)**.
@@ -19,12 +19,12 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 ├── CUE_ROADMAP.md              # Milestone progress and architectural design
 ├── crates/
 │   ├── cue-syntax/             # Lexer (logos), ASI, Pratt parser, AST pretty-printer (`fmt`)
-│   ├── cue-eval/               # Arena-based lattice unification (⊓) engine & 11 stdlib packages
+│   ├── cue-eval/               # Arena-based lattice unification (⊓) engine & 13 stdlib packages
 │   ├── cue-derive/             # Procedural macro `#[derive(CueValidate)]` with Serde
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
 │   └── cue-cli/                # CLI binary (`cue-rs eval`, `cue-rs vet`, `cue-rs fmt`, `cue-rs test-txtar`)
 ├── tests/
-│   └── testdata/               # 30 conformance .txtar suites (100% passing)
+│   └── testdata/               # 35 conformance .txtar suites (100% passing)
 └── examples/                   # Sample CUE schemas and data files
 ```
 
@@ -36,7 +36,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 - **Fixed-Width Numeric Hierarchy**: Full range validation for `uint`, `uint8`, `uint16`, `uint32`, `uint64`, `int8`, `int16`, `int32`, `int64`, `float32`, `float64`.
 - **Open List Ellipsis**: Seamless unification of open lists (`#IntList: [...int]`) with concrete instances.
 - **Disjunction Meet Algebra**: Cross-product branch unification with transactional backtracking (`checkpoint()` / `rollback()`).
-- **Comprehensions & Dynamic Keys**: Chained multi-clause comprehensions (`for`, `if`, `let`) and dynamic interpolated labels (`(key): val`, `"\(k)_env": val`).
+- **Comprehensions & Dynamic Keys**: Chained multi-clause comprehensions (`for`, `if`, `let`), list comprehensions (`[ for x in src if x > 1 { x * 10 } ]`), and dynamic interpolated labels (`(key): val`, `"\(k)_env": val`).
 - **Rust Derive Macro (`cue-derive`)**: Automatic deserialization-time schema validation on Rust structs via Serde:
   ```rust
   #[derive(Deserialize, CueValidate)]
@@ -47,8 +47,8 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
       email: String,
   }
   ```
-- **11 Built-in Standard Library Packages**:
-  - `strings`, `math`, `list`, `regexp`, `struct`, `time`, `encoding/json`, `encoding/yaml`, `encoding/base64`, `encoding/hex`, `crypto/sha256`, `path`.
+- **13 Built-in Standard Library Packages**:
+  - `strings`, `math`, `list`, `regexp`, `struct`, `time`, `net`, `strconv`, `encoding/json`, `encoding/yaml`, `encoding/base64`, `encoding/hex`, `crypto/sha256`, `path`.
 
 ---
 
@@ -66,7 +66,7 @@ cargo test --workspace
 # Run clippy lint verification (0 warnings)
 cargo clippy --workspace --all-targets
 
-# Run the 30 txtar conformance suites (30/30 passing)
+# Run the 35 txtar conformance suites (35/35 passing)
 cargo run -p cue-cli -- test-txtar tests/testdata
 ```
 

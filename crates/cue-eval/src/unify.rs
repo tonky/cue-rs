@@ -828,6 +828,24 @@ fn unify_validator(
                     } else {
                         return arena.bottom(format!("string \"{s}\" is not a valid RFC3339 timestamp"));
                     }
+                } else if name == "net.IPv4" {
+                    if s.parse::<std::net::Ipv4Addr>().is_ok() {
+                        return candidate_id;
+                    } else {
+                        return arena.bottom(format!("string \"{s}\" is not a valid IPv4 address"));
+                    }
+                } else if name == "net.IPv6" {
+                    if s.parse::<std::net::Ipv6Addr>().is_ok() {
+                        return candidate_id;
+                    } else {
+                        return arena.bottom(format!("string \"{s}\" is not a valid IPv6 address"));
+                    }
+                } else if name == "net.IP" {
+                    if s.parse::<std::net::IpAddr>().is_ok() {
+                        return candidate_id;
+                    } else {
+                        return arena.bottom(format!("string \"{s}\" is not a valid IP address"));
+                    }
                 }
             arena.bottom(format!("validator '{name}' failed on string \"{s}\""))
         }

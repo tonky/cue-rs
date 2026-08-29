@@ -10,15 +10,15 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 
 | Upstream Directory | Approx. Fixture Count | Focus Area | Our Rust Coverage |
 | :--- | :---: | :--- | :---: |
-| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, comprehensions, lexical scoping, cycle detection | **Core subsets active (32 fixtures)** |
+| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, comprehensions, list comprehensions, lexical scoping, cycle detection | **Core subsets active (35 fixtures)** |
 | `cue/testdata/compile/` | ~110 | Lexer, parser, Pratt expressions, AST construction, identifiers, attributes | **High (syntax 100% passing)** |
 | `cue/testdata/fulleval/` | ~85 | End-to-end multi-struct evaluation, closed definitions, exports | **Core subsets active** |
 | `cue/testdata/resolve/` | ~65 | Scoping, aliases, lexical lookup, embeddings, default overrides | **Active** |
 | `cue/testdata/export/` | ~45 | Export to concrete JSON, YAML, text | **JSON & YAML export active** |
 | `cue/testdata/basic/` | ~35 | Primitive types, literals, mixed arithmetic, comparisons, numeric types, hierarchy | **Active** |
 | `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, import aliases | **Active via `PackageLoader`** |
-| `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `list`, `struct`, `time`, `regexp`, `encoding`, `crypto`, `path`) | **11 core packages active** |
-| **Total** | **~580+ fixtures** | | **32 conformance suites (100% pass)** |
+| `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `list`, `struct`, `time`, `net`, `strconv`, `regexp`, `encoding`, `crypto`, `path`) | **13 core packages active** |
+| **Total** | **~580+ fixtures** | | **35 conformance suites (100% pass)** |
 
 ---
 
@@ -31,6 +31,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **Lexer & Tokens** | ✅ | **100% Complete** | Definitions (`#Def`), hidden (`_foo`), bottom (`_|_`), top (`_`), bounds, literals. |
 | **Automatic Semicolon Insertion (ASI)** | ✅ | **100% Complete** | Newline-aware virtual comma insertion for multi-line expressions and pattern constraints. |
 | **Pratt Expression Parser** | ✅ | **100% Complete** | `\|` $\to$ `&` $\to$ comparisons $\to$ mixed arithmetic $\to$ unary (including `-x` and `!b`) $\to$ postfix calls/indexing/slicing. |
+| **List Comprehensions** | ✅ | **100% Complete** | `[ for x in src if x > 1 { x * 10 } ]` and `[ for i, x in src { i + x } ]`. |
 | **Import Declarations & Aliases** | ✅ | **100% Complete** | Single/multi imports with aliases: `import ( s "strings", json "encoding/json" )`. |
 | **Dynamic & Interpolated Field Labels** | ✅ | **100% Complete** | `(key): val` and `"\(key)_suffix": val`. |
 | **Field Aliases & Let Declarations** | ✅ | **100% Complete** | `let Identifier = Expr` and `Alias = Expr`. |
@@ -39,7 +40,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **List Indexing & Slicing** | ✅ | **100% Complete** | `list[0]`, `list[1:4]`, `struct["key"]`. |
 | **Chained Comprehensions** | ✅ | **100% Complete** | `for x in list if x > 2 if x < 6 { ... }`. |
 | **Field Attributes (`@tag()`)** | ✅ | **100% Complete** | Parsing `@protobuf(...)` / `@json(...)` attributes into AST and pretty-printing in formatter. |
-| **AST Formatter (`fmt`)** | ✅ | **100% Complete** | Canonical pretty-printer with indentation and operator spacing. |
+| **AST Formatter (`fmt`)** | ✅ | **100% Complete** | Canonical pretty-printer with indentation, list comprehensions, and operator spacing. |
 | **Doc Comments & Positions** | ✅ | 🟡 **Next Up** | Attaching AST doc comments and source byte-span tracking for LSP. |
 
 ---
@@ -78,6 +79,8 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **`regexp`** | 🟢 **100%** | `Valid`, `Match`, `Find`, `FindAll`, `ReplaceAll` | — |
 | **`struct`** | 🟢 **100%** | `struct.MinFields`, `struct.MaxFields` | — |
 | **`time`** | 🟢 **100%** | `time.Time` (RFC3339 validator), `time.Duration` (parsing duration to nanoseconds) | `time.Format`, `time.Parse` |
+| **`net`** | 🟢 **100%** | `net.IPv4`, `net.IPv6`, `net.IP` | `net.ParseIP` |
+| **`strconv`** | 🟢 **100%** | `strconv.Atoi`, `strconv.Itoa`, `strconv.ParseFloat`, `strconv.FormatFloat` | `strconv.ParseBool` |
 | **`encoding/json`** | 🟢 **100%** | `json.Marshal`, `json.Unmarshal` | `json.Validate` |
 | **`encoding/yaml`** | 🟢 **100%** | `yaml.Marshal`, `yaml.Unmarshal` | `yaml.Validate` |
 | **`encoding/base64`** | 🟢 **100%** | `base64.Encode`, `base64.Decode` | — |

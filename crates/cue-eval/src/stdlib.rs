@@ -3,6 +3,7 @@ use num_traits::{Signed, ToPrimitive};
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::Path;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StdlibValidator {
@@ -15,6 +16,9 @@ pub enum StdlibValidator {
     StructMinFields(usize),
     StructMaxFields(usize),
     TimeRFC3339,
+    NetIPv4,
+    NetIPv6,
+    NetIP,
 }
 
 impl StdlibValidator {
@@ -145,6 +149,36 @@ impl StdlibValidator {
                     }
                 }
                 _ => Err("time.Time validator expects a string value".to_string()),
+            },
+            StdlibValidator::NetIPv4 => match val {
+                Value::String(s) => {
+                    if s.parse::<std::net::Ipv4Addr>().is_ok() {
+                        Ok(())
+                    } else {
+                        Err(format!("string \"{s}\" is not a valid IPv4 address"))
+                    }
+                }
+                _ => Err("net.IPv4 validator expects a string value".to_string()),
+            },
+            StdlibValidator::NetIPv6 => match val {
+                Value::String(s) => {
+                    if s.parse::<std::net::Ipv6Addr>().is_ok() {
+                        Ok(())
+                    } else {
+                        Err(format!("string \"{s}\" is not a valid IPv6 address"))
+                    }
+                }
+                _ => Err("net.IPv6 validator expects a string value".to_string()),
+            },
+            StdlibValidator::NetIP => match val {
+                Value::String(s) => {
+                    if s.parse::<std::net::IpAddr>().is_ok() {
+                        Ok(())
+                    } else {
+                        Err(format!("string \"{s}\" is not a valid IP address"))
+                    }
+                }
+                _ => Err("net.IP validator expects a string value".to_string()),
             },
         }
     }
@@ -879,6 +913,72 @@ pub fn call_stdlib_func(
                     return Ok(arena.string(sha256_digest(s.as_bytes())));
                 }
             Err("sha256.Sum requires 1 string argument".to_string())
+        }
+
+        // --- net package ---
+        ("net", "IPv4") => {
+            let dummy = arena.alloc(Value::Top);
+            Ok(arena.alloc(Value::BuiltinValidator {
+                name: "net.IPv4".to_string(),
+                target: dummy,
+            }))
+        }
+        ("net", "IPv6") => {
+            let dummy = arena.alloc(Value::Top);
+            Ok(arena.alloc(Value::BuiltinValidator {
+                name: "net.IPv6".to_string(),
+                target: dummy,
+            }))
+        }
+        ("net", "IP") => {
+            let dummy = arena.alloc(Value::Top);
+            Ok(arena.alloc(Value::BuiltinValidator {
+                name: "net.IP".to_string(),
+                target: dummy,
+            }))
+        }
+
+        // --- strconv package ---
+        ("strconv", "Atoi") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    let cleaned = s.trim();
+                    if let Ok(i) = num_bigint::BigInt::from_str(cleaned) {
+                        return Ok(arena.int(i));
+                    } else {
+                        return Err(format!("strconv.Atoi: parsing \"{s}\": invalid syntax"));
+                    }
+                }
+            Err("strconv.Atoi requires 1 string argument".to_string())
+        }
+        ("strconv", "Itoa") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::Int(i)) = arena.get(arg0) {
+                    return Ok(arena.string(i.to_string()));
+                }
+            Err("strconv.Itoa requires 1 integer argument".to_string())
+        }
+        ("strconv", "ParseFloat") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    let cleaned = s.trim();
+                    if let Ok(f) = cleaned.parse::<f64>() {
+                        return Ok(arena.float(f));
+                    } else {
+                        return Err(format!("strconv.ParseFloat: parsing \"{s}\": invalid syntax"));
+                    }
+                }
+            Err("strconv.ParseFloat requires 1 float string argument".to_string())
+        }
+        ("strconv", "FormatFloat") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.string(f.to_string()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0) {
+                    return Ok(arena.string(format!("{i}.0")));
+                }
+            }
+            Err("strconv.FormatFloat requires 1 float argument".to_string())
         }
 
         _ => Err(format!("unknown stdlib function: {pkg}.{func_name}")),

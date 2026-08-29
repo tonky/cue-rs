@@ -291,6 +291,74 @@ impl Evaluator {
         Ok(())
     }
 
+    fn eval_list_comprehension_clause(
+        &mut self,
+        clause_idx: usize,
+        comp: &cue_syntax::ast::ListComprehension,
+        elements: &mut Vec<ValueId>,
+    ) -> Result<(), EvalError> {
+        if clause_idx >= comp.clauses.len() {
+            let val_id = self.eval_expr(&comp.expr)?;
+            elements.push(val_id);
+            return Ok(());
+        }
+
+        match &comp.clauses[clause_idx] {
+            ComprehensionClause::If { condition } => {
+                let cond_val = self.eval_expr(condition)?;
+                if let Some(Value::Bool(true)) = self.arena.get(cond_val) {
+                    self.eval_list_comprehension_clause(clause_idx + 1, comp, elements)?;
+                }
+            }
+            ComprehensionClause::Let { ident, expr } => {
+                let val_id = self.eval_expr(expr)?;
+                self.push_scope();
+                self.insert_binding(ident, val_id);
+                self.eval_list_comprehension_clause(clause_idx + 1, comp, elements)?;
+                self.pop_scope();
+            }
+            ComprehensionClause::For { key, value, source } => {
+                let src_id = self.eval_expr(source)?;
+                let src_val = match self.arena.get(src_id) {
+                    Some(v) => v.clone(),
+                    None => return Ok(()),
+                };
+
+                match src_val {
+                    Value::List {
+                        elements: src_elems,
+                        ..
+                    } => {
+                        for (idx, &elem_id) in src_elems.iter().enumerate() {
+                            self.push_scope();
+                            self.insert_binding(value, elem_id);
+                            if let Some(k_name) = key {
+                                let k_id = self.arena.int(idx as i64);
+                                self.insert_binding(k_name, k_id);
+                            }
+                            self.eval_list_comprehension_clause(clause_idx + 1, comp, elements)?;
+                            self.pop_scope();
+                        }
+                    }
+                    Value::Struct(s) => {
+                        for (k, entry) in &s.fields {
+                            self.push_scope();
+                            self.insert_binding(value, entry.val);
+                            if let Some(k_name) = key {
+                                let k_id = self.arena.string(k.clone());
+                                self.insert_binding(k_name, k_id);
+                            }
+                            self.eval_list_comprehension_clause(clause_idx + 1, comp, elements)?;
+                            self.pop_scope();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Evaluate an AST Expression.
     pub fn eval_expr(&mut self, expr: &Expr) -> Result<ValueId, EvalError> {
         match expr {
@@ -537,6 +605,14 @@ impl Evaluator {
                     }
                 }
                 Ok(self.arena.string(result_str))
+            }
+            Expr::ListComp(comp) => {
+                let mut elements = Vec::new();
+                self.eval_list_comprehension_clause(0, comp, &mut elements)?;
+                Ok(self.arena.alloc(Value::List {
+                    elements,
+                    ellipsis: None,
+                }))
             }
         }
     }

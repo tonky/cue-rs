@@ -146,6 +146,13 @@ pub enum Expr {
     Interpolation {
         parts: Vec<InterpolationPart>,
     },
+    ListComp(ListComprehension),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ListComprehension {
+    pub clauses: Vec<ComprehensionClause>,
+    pub expr: Box<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

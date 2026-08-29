@@ -1,0 +1,14 @@
+Test strconv standard library package (Atoi, Itoa, ParseFloat, FormatFloat)
+-- in.cue --
+package test
+
+parsedInt:   strconv.Atoi("4242")
+parsedFloat: strconv.ParseFloat("3.14159", 64)
+strInt:      strconv.Itoa(1234)
+strFloat:    strconv.FormatFloat(2.718, 'f', 3, 64)
+
+-- out/eval --
+parsedFloat: 3.14159
+parsedInt: 4242
+strFloat: "2.718"
+strInt: "1234"
