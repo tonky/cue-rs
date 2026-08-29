@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **26 / 26 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **68 / 68 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **70 / 70 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -61,11 +61,11 @@ This document tracks the technical design, milestone progress, and conformance v
          │          ──► Numeric Type Constraints:
          │                • uint, uint8, uint16, uint32, uint64
          │                • int8, int16, int32, int64, float32, float64
-         │          ──► Standard Library Packages (23 packages active):
-         │                • strings (MinRunes, MaxRunes, Trim, TrimPrefix, Repeat)
-         │                • math (Sqrt, Pow, Log, Sin, Cos, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, Abs)
+         │          ──► Standard Library Packages (24 packages active):
+         │                • strings (MinRunes, MaxRunes, Trim, TrimPrefix, TrimSuffix, Repeat, Replace)
+         │                • math (Sqrt, Pow, Log, Sin, Cos, Tan, Asin, Acos, Atan, Atan2, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, Abs)
          │                • math/bits (And, Or, Xor, Lsh, Rsh, OnesCount)
-         │                • list (MinItems, MaxItems, UniqueItems, Sort, FlattenN, Range, Take, Drop)
+         │                • list (MinItems, MaxItems, UniqueItems, Sort, FlattenN, Range, Take, Drop, Sum, Product, Avg, Min, Max)
          │                • regexp (Valid, Match, Find, FindAll, ReplaceAll)
          │                • struct (MinFields, MaxFields)
          │                • time (Time RFC3339 validator, Duration parser)
@@ -81,10 +81,11 @@ This document tracks the technical design, milestone progress, and conformance v
          │                • encoding/hex (Encode, Decode)
          │                • text/tabwriter (Write)
          │                • text/template (Execute)
+         │                • crypto/sha512 (Sum)
          │                • crypto/sha256 (Sum)
          │                • crypto/md5 (Sum)
          │                • crypto/sha1 (Sum)
-         │                • crypto/hmac (SHA256, MD5, SHA1)
+         │                • crypto/hmac (SHA512, SHA256, MD5, SHA1)
          │                • path (Base, Dir, Ext, Join)
          ▼
 ┌─────────────────┐
@@ -137,7 +138,7 @@ This document tracks the technical design, milestone progress, and conformance v
 
 ---
 
-### Phase 3: Advanced Language Features & 23 Standard Library Packages
+### Phase 3: Advanced Language Features & 24 Standard Library Packages
 - [x] **Pattern Constraints on Structs**:
   - [x] Support multiple simultaneous pattern constraints (`[=~"^STR_"]: string`, `[=~"^NUM_"]: int`).
   - [x] Pattern exemption in closed `#Definitions`.
@@ -155,11 +156,11 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `list[low:high]`, `list[low:]`, `list[:high]` range slicing.
   - [x] List concatenation (`l1 + l2`) and repetition (`[0] * 4`).
 - [x] **String Interpolation & Repetition**: `"prefix \(expr) suffix"` and `"x" * 10`.
-- [x] **23 Standard Library Packages**:
-  - [x] `strings`: `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `Repeat`.
-  - [x] `math`: `Sqrt`, `Pow`, `Log`, `Sin`, `Cos`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Abs`.
+- [x] **24 Standard Library Packages**:
+  - [x] `strings`: `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `Repeat`, `Replace`.
+  - [x] `math`: `Sqrt`, `Pow`, `Log`, `Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Abs`.
   - [x] `math/bits`: `And`, `Or`, `Xor`, `Lsh`, `Rsh`, `OnesCount`.
-  - [x] `list`: `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `FlattenN`, `Range`, `Take`, `Drop`.
+  - [x] `list`: `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `FlattenN`, `Range`, `Take`, `Drop`, `Sum`, `Product`, `Avg`, `Min`, `Max`.
   - [x] `regexp`: `Valid`, `Match`, `Find`, `FindAll`, `ReplaceAll`.
   - [x] `struct`: `MinFields`, `MaxFields`.
   - [x] `time`: `Time` (RFC3339 validator), `Duration` (string duration to nanoseconds).
@@ -175,10 +176,11 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `encoding/hex`: `Encode`, `Decode`.
   - [x] `text/tabwriter`: `Write`.
   - [x] `text/template`: `Execute`.
+  - [x] `crypto/sha512`: `Sum`.
   - [x] `crypto/sha256`: `Sum`.
   - [x] `crypto/md5`: `Sum`.
   - [x] `crypto/sha1`: `Sum`.
-  - [x] `crypto/hmac`: `SHA256`, `MD5`, `SHA1`.
+  - [x] `crypto/hmac`: `SHA512`, `SHA256`, `MD5`, `SHA1`.
   - [x] `path`: `Base`, `Dir`, `Ext`, `Join`.
 
 ---

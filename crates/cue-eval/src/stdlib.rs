@@ -386,6 +386,21 @@ pub fn call_stdlib_func(
                     }
             Err("strings.Repeat requires 1 string and 1 positive integer argument".to_string())
         }
+        ("strings", "Replace") => {
+            if args.len() >= 4
+                && let (Some(Value::String(s)), Some(Value::String(old)), Some(Value::String(new)), Some(Value::Int(n_val))) =
+                    (arena.get(args[0]), arena.get(args[1]), arena.get(args[2]), arena.get(args[3]))
+                {
+                    let count = n_val.to_isize().unwrap_or(-1);
+                    let res = if count < 0 {
+                        s.replace(old, new)
+                    } else {
+                        s.replacen(old, new, count as usize)
+                    };
+                    return Ok(arena.string(res));
+                }
+            Err("strings.Replace requires (s, old, new, n) arguments".to_string())
+        }
         ("strings", "MinRunes") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(i)) = arena.get(arg0)
@@ -442,6 +457,68 @@ pub fn call_stdlib_func(
                 }
             }
             Err("math.Abs requires 1 number argument".to_string())
+        }
+        ("math", "Tan") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.tan()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(f) = i.to_f64() {
+                        return Ok(arena.float(f.tan()));
+                    }
+            }
+            Err("math.Tan requires 1 number argument".to_string())
+        }
+        ("math", "Asin") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.asin()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(f) = i.to_f64() {
+                        return Ok(arena.float(f.asin()));
+                    }
+            }
+            Err("math.Asin requires 1 number argument".to_string())
+        }
+        ("math", "Acos") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.acos()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(f) = i.to_f64() {
+                        return Ok(arena.float(f.acos()));
+                    }
+            }
+            Err("math.Acos requires 1 number argument".to_string())
+        }
+        ("math", "Atan") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.atan()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(f) = i.to_f64() {
+                        return Ok(arena.float(f.atan()));
+                    }
+            }
+            Err("math.Atan requires 1 number argument".to_string())
+        }
+        ("math", "Atan2") => {
+            if args.len() >= 2 {
+                let y = match arena.get(args[0]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                let x = match arena.get(args[1]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let (Some(y_val), Some(x_val)) = (y, x) {
+                    return Ok(arena.float(y_val.atan2(x_val)));
+                }
+            }
+            Err("math.Atan2 requires 2 number arguments (y, x)".to_string())
         }
         ("math", "Sqrt") => {
             if let Some(&arg0) = args.first() {
@@ -724,9 +801,117 @@ pub fn call_stdlib_func(
                     return Ok(arena.alloc(Value::List {
                         elements: flattened,
                         ellipsis: None,
-                    }));
+                        }));
                 }
             Err("list.FlattenN requires 1 list and 1 depth integer argument".to_string())
+        }
+        ("list", "Sum") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::List { elements, .. }) = arena.get(arg0) {
+                    let mut sum_int = num_bigint::BigInt::from(0);
+                    let mut is_float = false;
+                    let mut sum_float = 0.0;
+                    for &elem in elements {
+                        match arena.get(elem) {
+                            Some(Value::Int(i)) => {
+                                sum_int += i;
+                                sum_float += i.to_f64().unwrap_or(0.0);
+                            }
+                            Some(Value::Float(f)) => {
+                                is_float = true;
+                                sum_float += f;
+                            }
+                            _ => return Err("list.Sum requires a list of numbers".to_string()),
+                        }
+                    }
+                    if is_float {
+                        return Ok(arena.float(sum_float));
+                    } else {
+                        return Ok(arena.int(sum_int));
+                    }
+                }
+            Err("list.Sum requires 1 list argument".to_string())
+        }
+        ("list", "Product") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::List { elements, .. }) = arena.get(arg0) {
+                    let mut prod_int = num_bigint::BigInt::from(1);
+                    let mut is_float = false;
+                    let mut prod_float = 1.0;
+                    for &elem in elements {
+                        match arena.get(elem) {
+                            Some(Value::Int(i)) => {
+                                prod_int *= i;
+                                prod_float *= i.to_f64().unwrap_or(1.0);
+                            }
+                            Some(Value::Float(f)) => {
+                                is_float = true;
+                                prod_float *= f;
+                            }
+                            _ => return Err("list.Product requires a list of numbers".to_string()),
+                        }
+                    }
+                    if is_float {
+                        return Ok(arena.float(prod_float));
+                    } else {
+                        return Ok(arena.int(prod_int));
+                    }
+                }
+            Err("list.Product requires 1 list argument".to_string())
+        }
+        ("list", "Avg") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::List { elements, .. }) = arena.get(arg0) {
+                    if elements.is_empty() {
+                        return Ok(arena.float(0.0));
+                    }
+                    let mut sum_float = 0.0;
+                    for &elem in elements {
+                        match arena.get(elem) {
+                            Some(Value::Int(i)) => sum_float += i.to_f64().unwrap_or(0.0),
+                            Some(Value::Float(f)) => sum_float += f,
+                            _ => return Err("list.Avg requires a list of numbers".to_string()),
+                        }
+                    }
+                    return Ok(arena.float(sum_float / elements.len() as f64));
+                }
+            Err("list.Avg requires 1 list argument".to_string())
+        }
+        ("list", "Min") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::List { elements, .. }) = arena.get(arg0) {
+                    if elements.is_empty() {
+                        return Ok(arena.bottom("list.Min: empty list"));
+                    }
+                    let mut min_val = elements[0];
+                    for &elem in &elements[1..] {
+                        match (arena.get(min_val), arena.get(elem)) {
+                            (Some(Value::Int(a)), Some(Value::Int(b))) if b < a => min_val = elem,
+                            (Some(Value::Float(a)), Some(Value::Float(b))) if b < a => min_val = elem,
+                            _ => {}
+                        }
+                    }
+                    return Ok(min_val);
+                }
+            Err("list.Min requires 1 list argument".to_string())
+        }
+        ("list", "Max") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::List { elements, .. }) = arena.get(arg0) {
+                    if elements.is_empty() {
+                        return Ok(arena.bottom("list.Max: empty list"));
+                    }
+                    let mut max_val = elements[0];
+                    for &elem in &elements[1..] {
+                        match (arena.get(max_val), arena.get(elem)) {
+                            (Some(Value::Int(a)), Some(Value::Int(b))) if b > a => max_val = elem,
+                            (Some(Value::Float(a)), Some(Value::Float(b))) if b > a => max_val = elem,
+                            _ => {}
+                        }
+                    }
+                    return Ok(max_val);
+                }
+            Err("list.Max requires 1 list argument".to_string())
         }
 
         // --- struct package ---
@@ -1140,6 +1325,15 @@ pub fn call_stdlib_func(
             Err("sha1.Sum requires 1 string argument".to_string())
         }
 
+        // --- crypto/sha512 package ---
+        ("sha512" | "crypto/sha512", "Sum") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    return Ok(arena.string(sha512_digest(s.as_bytes())));
+                }
+            Err("sha512.Sum requires 1 string argument".to_string())
+        }
+
         // --- crypto/hmac package ---
         ("hmac" | "crypto/hmac", "SHA256") => {
             if args.len() >= 2
@@ -1147,6 +1341,13 @@ pub fn call_stdlib_func(
                     return Ok(arena.string(hmac(key.as_bytes(), msg.as_bytes(), sha256_bytes, 64)));
                 }
             Err("hmac.SHA256 requires (message, key) string arguments".to_string())
+        }
+        ("hmac" | "crypto/hmac", "SHA512") => {
+            if args.len() >= 2
+                && let (Some(Value::String(msg)), Some(Value::String(key))) = (arena.get(args[0]), arena.get(args[1])) {
+                    return Ok(arena.string(hmac(key.as_bytes(), msg.as_bytes(), sha512_bytes, 128)));
+                }
+            Err("hmac.SHA512 requires (message, key) string arguments".to_string())
         }
         ("hmac" | "crypto/hmac", "MD5") => {
             if args.len() >= 2
@@ -1965,4 +2166,107 @@ fn template_execute(arena: &ValueArena, templ: &str, data_id: ValueId) -> Result
         result = result.replace(&tag1, &val_str).replace(&tag2, &val_str);
     }
     Ok(result)
+}
+
+fn sha512_bytes(input: &[u8]) -> Vec<u8> {
+    let mut h = [
+        0x6a09e667f3bcc908u64,
+        0xbb67ae8584caa73bu64,
+        0x3c6ef372fe94f82bu64,
+        0xa54ff53a5f1d36f1u64,
+        0x510e527fade682d1u64,
+        0x9b05688c2b3e6c1fu64,
+        0x1f83d9abfb41bd6bu64,
+        0x5be0cd19137e2179u64,
+    ];
+
+    let k: [u64; 80] = [
+        0x428a2f98d728ae22, 0x7137449123ef65cd, 0xb5c0fbcfec4d3b2f, 0xe9b5dba58189dbbc,
+        0x3956c25bf348b538, 0x59f111f1b605d019, 0x923f82a4af194f9b, 0xab1c5ed5da6d8118,
+        0xd807aa98a3030242, 0x12835b0145706fbe, 0x243185be4ee4b28c, 0x550c7dc3d5ffb4e2,
+        0x72be5d74f27b896f, 0x80deb1fe3b1696b1, 0x9bdc06a725c71235, 0xc19bf174cf692694,
+        0xe49b69c19ef14ad2, 0xefbe4786384f25e3, 0x0fc19dc68b8cd5b5, 0x240ca1cc77ac9c65,
+        0x2de92c6f592b0275, 0x4a7484aa6ea6e483, 0x5cb0a9dcbd41fbd4, 0x76f988da831153b5,
+        0x983e5152ee66dfab, 0xa831c66d2db43210, 0xb00327c898fb213f, 0xbf597fc7beef0ee4,
+        0xc6e00bf33da88fc2, 0xd5a79147930aa725, 0x06ca6351e003826f, 0x142929670a0e6e70,
+        0x27b70a8546d22ffc, 0x2e1b21385c26c926, 0x4d2c6dfc5ac42aed, 0x53380d139d95b3df,
+        0x650a73548baf63de, 0x766a0abb3c77b2a8, 0x81c2c92e47edaee6, 0x92722c851482353b,
+        0xa2bfe8a14cf10364, 0xa81a664bbc423001, 0xc24b8b70d0f89791, 0xc76c51a30654be30,
+        0xd192e819d6ef5218, 0xd69906245565a910, 0xf40e35855771202a, 0x106aa07032bbd1b8,
+        0x19a4c116b8d2d0c8, 0x1e376c085141ab53, 0x2748774cdf8eeb99, 0x34b0bcb5e19b48a8,
+        0x391c0cb3c5c95a63, 0x4ed8aa4ae3418acb, 0x5b9cca4f7763e373, 0x682e6ff3d6b2b8a3,
+        0x748f82ee5defb2fc, 0x78a5636f43172f60, 0x84c87814a1f0ab72, 0x8cc702081a6439ec,
+        0x90befffa23631e28, 0xa4506cebde82bde9, 0xbef9a3f7b2c67915, 0xc67178f2e372532b,
+        0xca273eceea26619c, 0xd186b8c721c0c207, 0xeada7dd6cde0eb1e, 0xf57d4f7fee6ed178,
+        0x06f067aa72176fba, 0x0a637dc5a2c898a6, 0x113f9804bef90dae, 0x1b710b35131c471b,
+        0x28db77f523047d84, 0x32caab7b40c72493, 0x3c9ebe0a15c9bebc, 0x431d67c49c100d4c,
+        0x4cc5d4becb3e42b6, 0x597f299cfc657e2a, 0x5fcb6fab3ad6faec, 0x6c44198c4a475817,
+    ];
+
+    let mut msg = input.to_vec();
+    let bit_len = (input.len() as u128) * 8;
+    msg.push(0x80);
+    while (msg.len() % 128) != 112 {
+        msg.push(0);
+    }
+    msg.extend_from_slice(&bit_len.to_be_bytes());
+
+    for chunk in msg.chunks(128) {
+        let mut w = [0u64; 80];
+        for i in 0..16 {
+            w[i] = u64::from_be_bytes(chunk[i * 8..i * 8 + 8].try_into().unwrap());
+        }
+        for i in 16..80 {
+            let s0 = w[i - 15].rotate_right(1) ^ w[i - 15].rotate_right(8) ^ (w[i - 15] >> 7);
+            let s1 = w[i - 2].rotate_right(19) ^ w[i - 2].rotate_right(61) ^ (w[i - 2] >> 6);
+            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+        }
+
+        let mut a = h[0];
+        let mut b = h[1];
+        let mut c = h[2];
+        let mut d = h[3];
+        let mut e = h[4];
+        let mut f = h[5];
+        let mut g = h[6];
+        let mut hh = h[7];
+
+        for (i, &w_i) in w.iter().enumerate() {
+            let s1 = e.rotate_right(14) ^ e.rotate_right(18) ^ e.rotate_right(41);
+            let ch = (e & f) ^ ((!e) & g);
+            let temp1 = hh.wrapping_add(s1).wrapping_add(ch).wrapping_add(k[i]).wrapping_add(w_i);
+            let s0 = a.rotate_right(28) ^ a.rotate_right(34) ^ a.rotate_right(39);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let temp2 = s0.wrapping_add(maj);
+
+            hh = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(temp1);
+            d = c;
+            c = b;
+            b = a;
+            a = temp1.wrapping_add(temp2);
+        }
+
+        h[0] = h[0].wrapping_add(a);
+        h[1] = h[1].wrapping_add(b);
+        h[2] = h[2].wrapping_add(c);
+        h[3] = h[3].wrapping_add(d);
+        h[4] = h[4].wrapping_add(e);
+        h[5] = h[5].wrapping_add(f);
+        h[6] = h[6].wrapping_add(g);
+        h[7] = h[7].wrapping_add(hh);
+    }
+
+    let mut out = Vec::with_capacity(64);
+    for word in h {
+        out.extend_from_slice(&word.to_be_bytes());
+    }
+    out
+}
+
+fn sha512_digest(input: &[u8]) -> String {
+    let bytes = sha512_bytes(input);
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }

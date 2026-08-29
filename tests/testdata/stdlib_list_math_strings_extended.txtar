@@ -1,0 +1,41 @@
+Test strings.Replace, list aggregates (Sum, Product, Avg, Min, Max), and math trig functions
+-- in.cue --
+package test
+
+import (
+    "strings"
+    "list"
+    "math"
+)
+
+rawStr: "foo-bar-foo-baz"
+replacedAll: strings.Replace(rawStr, "foo", "qux", -1)
+replacedOne: strings.Replace(rawStr, "foo", "qux", 1)
+
+numbers: [10, 20, 30, 40]
+sumVal:  list.Sum(numbers)
+prodVal: list.Product(numbers)
+avgVal:  list.Avg(numbers)
+minVal:  list.Min(numbers)
+maxVal:  list.Max(numbers)
+
+trigTan: math.Round(math.Tan(0.0) * 100) / 100
+trigAtan2: math.Round(math.Atan2(0.0, 1.0) * 100) / 100
+
+-- out/eval --
+avgVal: 25.0
+maxVal: 40
+minVal: 10
+numbers: [
+    10,
+    20,
+    30,
+    40
+]
+prodVal: 240000
+replacedAll: "qux-bar-qux-baz"
+replacedOne: "qux-bar-foo-baz"
+rawStr: "foo-bar-foo-baz"
+sumVal: 100
+trigAtan2: 0.0
+trigTan: 0.0

@@ -2,7 +2,7 @@
 
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Clippy Clean](https://img.shields.io/badge/clippy-0%20warnings-brightgreen.svg)](https://github.com/rust-lang/rust-clippy)
-[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-68%2F68%20passing-brightgreen.svg)](tests/testdata/)
+[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-70%2F70%20passing-brightgreen.svg)](tests/testdata/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
 
 A high-performance, modular implementation of the [CUE configuration language](https://cuelang.org/) in **Rust (2024 Edition)**.
@@ -20,12 +20,12 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 ├── CUE_RUST_LEARNINGS.md       # Comparative architecture & design trade-offs
 ├── crates/
 │   ├── cue-syntax/             # Lexer (logos), ASI, Pratt parser, AST pretty-printer (`fmt`)
-│   ├── cue-eval/               # Arena-based lattice unification (⊓) engine & 23 stdlib packages
+│   ├── cue-eval/               # Arena-based lattice unification (⊓) engine & 24 stdlib packages
 │   ├── cue-derive/             # Procedural macro `#[derive(CueValidate)]` with Serde
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
 │   └── cue-cli/                # CLI binary (`cue-rs eval`, `cue-rs vet`, `cue-rs fmt`, `cue-rs test-txtar`)
 ├── tests/
-│   └── testdata/               # 68 conformance .txtar suites (100% passing)
+│   └── testdata/               # 70 conformance .txtar suites (100% passing)
 └── examples/                   # Sample CUE schemas and data files
 ```
 
@@ -35,7 +35,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 
 - **Lattice Unification ($\sqcap$)**: Greatest lower bound calculation over scalar values, recursive structs, bounds (`>1024 & <65535`), regex constraints (`=~ "^[a-z]+$"`), and closed `#Definitions`.
 - **Struct Embedding with Disjunction Selection**: Embedded disjunction schemas (`#Prod | #Dev`) resolving via field unification.
-- **Comprehensions with Standard Library Filtering**: Iteration with stdlib functions in conditions (`strings.HasPrefix`) and mapping expressions (`strings.ToUpper`, `strings.TrimPrefix`).
+- **Comprehensions with Standard Library Filtering**: Iteration with stdlib functions in conditions (`strings.HasPrefix`) and mapping expressions (`strings.ToUpper`, `strings.TrimPrefix`, `strings.Replace`).
 - **Optional Field Validation & Export Filtering**: Validates `field?: type` when present and omits unpopulated optional fields from JSON/YAML export.
 - **Hidden Fields & Definitions Isolation**: Evaluates `_internal` and `#Schema` identifiers in scope while filtering them from output.
 - **Discriminated Union Disjunctions**: Pattern and tag-based union branch resolution (`#Circle | #Rectangle`).
@@ -61,8 +61,8 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
       email: String,
   }
   ```
-- **23 Built-in Standard Library Packages**:
-  - `strings`, `math`, `math/bits`, `list`, `regexp`, `struct`, `time`, `net`, `strconv`, `uuid`, `encoding/json`, `encoding/yaml`, `encoding/html`, `encoding/csv`, `encoding/base32`, `encoding/base64`, `encoding/hex`, `text/tabwriter`, `text/template`, `crypto/sha256`, `crypto/md5`, `crypto/sha1`, `crypto/hmac`, `path`.
+- **24 Built-in Standard Library Packages**:
+  - `strings`, `math`, `math/bits`, `list`, `regexp`, `struct`, `time`, `net`, `strconv`, `uuid`, `encoding/json`, `encoding/yaml`, `encoding/html`, `encoding/csv`, `encoding/base32`, `encoding/base64`, `encoding/hex`, `text/tabwriter`, `text/template`, `crypto/sha512`, `crypto/sha256`, `crypto/md5`, `crypto/sha1`, `crypto/hmac`, `path`.
 
 ---
 
@@ -80,7 +80,7 @@ cargo test --workspace
 # Run clippy lint verification (0 warnings)
 cargo clippy --workspace --all-targets
 
-# Run the 68 txtar conformance suites (68/68 passing)
+# Run the 70 txtar conformance suites (70/70 passing)
 cargo run -p cue-cli -- test-txtar tests/testdata
 ```
 

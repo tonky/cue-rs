@@ -1,0 +1,20 @@
+Test crypto/sha512 and hmac.SHA512
+-- in.cue --
+package test
+
+import (
+    "crypto/sha512"
+    "crypto/hmac"
+)
+
+msg: "Hello Kepler"
+key: "secret-key"
+
+sha512Digest: sha512.Sum(msg)
+hmac512:      hmac.SHA512(msg, key)
+
+-- out/eval --
+hmac512: "323fa0a4bc037fdfc9725f82c478673f417f781df5718dfd17a3a9bf8546b5a3243282eb11019623e6027a858ff49eec26f1c4bb7c89fbf575d5069eb85848bb"
+key: "secret-key"
+msg: "Hello Kepler"
+sha512Digest: "b0df43ff54ae20c8f185cbbd79cf1d520df94aa2b8b92b67f10b77e8fb146522c074be24c478db10a30b427cbffdbcbdd242e20ff9a7c36a461158d839659b66"
