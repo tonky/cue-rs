@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **25 / 25 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **51 / 51 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **53 / 53 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -28,6 +28,7 @@ This document tracks the technical design, milestone progress, and conformance v
 │   (Formatter)   │ ──► AST Pretty-Printer / Formatter (`cue-rs fmt`)
 │                 │ ──► Binary (`0b1100`), Hex (`0x2A`), Octal (`0o755`) & SI Literals (`4Ki`, `10M`, `2G`)
 │                 │ ──► Raw & Multi-Line Strings (`#"..."#`, `#"""..."""#`, `#'...'#`)
+│                 │ ──► Dynamic Slicing (`items[1:]`, `items[:3]`, `items[2:5]`)
 │                 │ ──► Cartesian Multi-Clause List Comprehensions (`[ for x in s1 for y in s2 { ... } ]`)
 │                 │ ──► Cartesian Indexed Loop Unpacking (`[ for i, x in s1 for j, y in s2 { ... } ]`)
 │                 │ ──► Struct Body Comprehensions (`[ for k, v in map { name: k, val: v } ]`)
@@ -52,7 +53,7 @@ This document tracks the technical design, milestone progress, and conformance v
          │          ──► Numeric Type Constraints:
          │                • uint, uint8, uint16, uint32, uint64
          │                • int8, int16, int32, int64, float32, float64
-         │          ──► Standard Library Packages (20 packages active):
+         │          ──► Standard Library Packages (21 packages active):
          │                • strings (MinRunes, MaxRunes, Trim, TrimPrefix, Repeat)
          │                • math (Sqrt, Pow, Log, Sin, Cos, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, Abs)
          │                • math/bits (And, Or, Xor, Lsh, Rsh, OnesCount)
@@ -73,6 +74,7 @@ This document tracks the technical design, milestone progress, and conformance v
          │                • crypto/sha256 (Sum)
          │                • crypto/md5 (Sum)
          │                • crypto/sha1 (Sum)
+         │                • crypto/hmac (SHA256, MD5, SHA1)
          │                • path (Base, Dir, Ext, Join)
          ▼
 ┌─────────────────┐
@@ -91,7 +93,7 @@ This document tracks the technical design, milestone progress, and conformance v
 ### Phase 1: Lexer, Parser, Formatter & Test Harness
 - [x] **Logos Lexer**: Identifiers, Definitions (`#Def`), Hidden fields (`_hidden`), Bottom (`_|_`), Top (`_`), Numbers (`0b`, `0x`, `0o`, SI suffixes), Strings, and Operators.
 - [x] **Raw Strings & Multi-Line Literals**: `#""" ... """#`, `#"..."#`, and `#'...'#`.
-- [x] **Pratt Expression Parser**: Unification (`&`), Disjunction (`|`), Comparison operators (`==`, `!=`, `<`, `<=`, `>`, `>=`, `=~`, `!~`), Mixed integer/float arithmetic (`+`, `-`, `*`, `/`), Unary arithmetic/bounds, and Selectors/Indexing.
+- [x] **Pratt Expression Parser**: Unification (`&`), Disjunction (`|`), Comparison operators (`==`, `!=`, `<`, `<=`, `>`, `>=`, `=~`, `!~`), Mixed integer/float arithmetic (`+`, `-`, `*`, `/`), Unary arithmetic/bounds, and Selectors/Indexing/Slicing.
 - [x] **Cartesian & List Comprehensions**: `[ for x in src if x > 1 { x * 10 } ]`, `[ for i, x in s1 for j, y in s2 { ... } ]`, and struct-body mappings `[ for k, v in map { name: k, port: v.port } ]`.
 - [x] **Import Declarations & Aliases**: Single and multi-import blocks (`import ( s "strings", json "encoding/json" )`).
 - [x] **Dynamic & Interpolated Field Labels**: `(expr): val` and `"\(expr)_suffix": val`.
@@ -121,7 +123,7 @@ This document tracks the technical design, milestone progress, and conformance v
 
 ---
 
-### Phase 3: Advanced Language Features & 20 Standard Library Packages
+### Phase 3: Advanced Language Features & 21 Standard Library Packages
 - [x] **Pattern Constraints on Structs**:
   - [x] Support `[Expr]: Type` constraint evaluation (e.g. `[=~"^app\\.kubernetes\\.io/"]: string`).
   - [x] Pattern exemption in closed `#Definitions`.
@@ -134,10 +136,10 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] Dynamic parenthesized label evaluation inside loops `("k_\(i)"): val`.
 - [x] **List Indexing & Slicing & Operations**:
   - [x] `list[i]` integer indexing and struct dynamic field indexing (`struct[expr]`).
-  - [x] `list[low:high]` range slicing.
+  - [x] `list[low:high]`, `list[low:]`, `list[:high]` range slicing.
   - [x] List concatenation (`l1 + l2`) and repetition (`[0] * 4`).
 - [x] **String Interpolation & Repetition**: `"prefix \(expr) suffix"` and `"x" * 10`.
-- [x] **20 Standard Library Packages**:
+- [x] **21 Standard Library Packages**:
   - [x] `strings`: `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `Repeat`.
   - [x] `math`: `Sqrt`, `Pow`, `Log`, `Sin`, `Cos`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Abs`.
   - [x] `math/bits`: `And`, `Or`, `Xor`, `Lsh`, `Rsh`, `OnesCount`.
@@ -158,6 +160,7 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `crypto/sha256`: `Sum`.
   - [x] `crypto/md5`: `Sum`.
   - [x] `crypto/sha1`: `Sum`.
+  - [x] `crypto/hmac`: `SHA256`, `MD5`, `SHA1`.
   - [x] `path`: `Base`, `Dir`, `Ext`, `Join`.
 
 ---

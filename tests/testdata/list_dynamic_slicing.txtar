@@ -1,0 +1,36 @@
+Test list slicing with expressions
+-- in.cue --
+package test
+
+items: [10, 20, 30, 40, 50, 60]
+
+fromSecond: items[1:]
+firstThree: items[:3]
+subSlice:   items[2:5]
+
+-- out/eval --
+firstThree: [
+    10,
+    20,
+    30
+]
+fromSecond: [
+    20,
+    30,
+    40,
+    50,
+    60
+]
+items: [
+    10,
+    20,
+    30,
+    40,
+    50,
+    60
+]
+subSlice: [
+    30,
+    40,
+    50
+]

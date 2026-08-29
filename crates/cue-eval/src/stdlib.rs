@@ -1085,6 +1085,29 @@ pub fn call_stdlib_func(
             Err("sha1.Sum requires 1 string argument".to_string())
         }
 
+        // --- crypto/hmac package ---
+        ("hmac" | "crypto/hmac", "SHA256") => {
+            if args.len() >= 2
+                && let (Some(Value::String(msg)), Some(Value::String(key))) = (arena.get(args[0]), arena.get(args[1])) {
+                    return Ok(arena.string(hmac(key.as_bytes(), msg.as_bytes(), sha256_bytes, 64)));
+                }
+            Err("hmac.SHA256 requires (message, key) string arguments".to_string())
+        }
+        ("hmac" | "crypto/hmac", "MD5") => {
+            if args.len() >= 2
+                && let (Some(Value::String(msg)), Some(Value::String(key))) = (arena.get(args[0]), arena.get(args[1])) {
+                    return Ok(arena.string(hmac(key.as_bytes(), msg.as_bytes(), md5_bytes, 64)));
+                }
+            Err("hmac.MD5 requires (message, key) string arguments".to_string())
+        }
+        ("hmac" | "crypto/hmac", "SHA1") => {
+            if args.len() >= 2
+                && let (Some(Value::String(msg)), Some(Value::String(key))) = (arena.get(args[0]), arena.get(args[1])) {
+                    return Ok(arena.string(hmac(key.as_bytes(), msg.as_bytes(), sha1_bytes, 64)));
+                }
+            Err("hmac.SHA1 requires (message, key) string arguments".to_string())
+        }
+
         // --- net package ---
         ("net", "IPv4") => {
             let dummy = arena.alloc(Value::Top);
@@ -1313,7 +1336,7 @@ fn hex_decode(input: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn sha256_digest(input: &[u8]) -> String {
+fn sha256_bytes(input: &[u8]) -> Vec<u8> {
     // Pure Rust SHA-256 implementation
     let mut h: [u32; 8] = [
         0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
@@ -1387,7 +1410,50 @@ fn sha256_digest(input: &[u8]) -> String {
         h[7] = h[7].wrapping_add(h_var);
     }
 
-    h.iter().map(|x| format!("{x:08x}")).collect::<Vec<_>>().join("")
+    let mut out = Vec::with_capacity(32);
+    for val in h {
+        out.extend_from_slice(&val.to_be_bytes());
+    }
+    out
+}
+
+fn sha256_digest(input: &[u8]) -> String {
+    let bytes = sha256_bytes(input);
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn hmac(
+    key: &[u8],
+    msg: &[u8],
+    hash_fn: fn(&[u8]) -> Vec<u8>,
+    block_size: usize,
+) -> String {
+    let mut k = if key.len() > block_size {
+        hash_fn(key)
+    } else {
+        key.to_vec()
+    };
+    while k.len() < block_size {
+        k.push(0);
+    }
+
+    let mut ipad = vec![0x36u8; block_size];
+    let mut opad = vec![0x5cu8; block_size];
+
+    for i in 0..block_size {
+        ipad[i] ^= k[i];
+        opad[i] ^= k[i];
+    }
+
+    let mut inner_input = ipad;
+    inner_input.extend_from_slice(msg);
+    let inner_hash = hash_fn(&inner_input);
+
+    let mut outer_input = opad;
+    outer_input.extend_from_slice(&inner_hash);
+    let outer_hash = hash_fn(&outer_input);
+
+    outer_hash.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn flatten_list(arena: &ValueArena, elements: &[ValueId], depth: usize) -> Vec<ValueId> {
@@ -1469,7 +1535,7 @@ fn parse_duration_nanos(mut s: &str) -> Result<i64, String> {
     Ok(total_nanos)
 }
 
-fn md5_digest(input: &[u8]) -> String {
+fn md5_bytes(input: &[u8]) -> Vec<u8> {
     let mut a: u32 = 0x67452301;
     let mut b: u32 = 0xefcdab89;
     let mut c: u32 = 0x98badcfe;
@@ -1531,16 +1597,21 @@ fn md5_digest(input: &[u8]) -> String {
         d = d.wrapping_add(dd);
     }
 
-    let mut result = String::with_capacity(32);
+    let mut out = Vec::with_capacity(16);
     for word in [a, b, c, d] {
         for byte in word.to_le_bytes() {
-            result.push_str(&format!("{byte:02x}"));
+            out.push(byte);
         }
     }
-    result
+    out
 }
 
-fn sha1_digest(input: &[u8]) -> String {
+fn md5_digest(input: &[u8]) -> String {
+    let bytes = md5_bytes(input);
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn sha1_bytes(input: &[u8]) -> Vec<u8> {
     let mut h0: u32 = 0x67452301;
     let mut h1: u32 = 0xEFCDAB89;
     let mut h2: u32 = 0x98BADCFE;
@@ -1592,11 +1663,16 @@ fn sha1_digest(input: &[u8]) -> String {
         h4 = h4.wrapping_add(e);
     }
 
-    let mut result = String::with_capacity(40);
+    let mut out = Vec::with_capacity(20);
     for word in [h0, h1, h2, h3, h4] {
-        result.push_str(&format!("{word:08x}"));
+        out.extend_from_slice(&word.to_be_bytes());
     }
-    result
+    out
+}
+
+fn sha1_digest(input: &[u8]) -> String {
+    let bytes = sha1_bytes(input);
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn csv_decode(arena: &mut ValueArena, input: &str) -> ValueId {

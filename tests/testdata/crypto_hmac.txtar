@@ -1,0 +1,17 @@
+Test crypto/hmac standard package
+-- in.cue --
+package test
+
+msg: "antigravity secret message"
+key: "topsecretkey"
+
+hmacSha256: hmac.SHA256(msg, key)
+hmacMd5:    hmac.MD5(msg, key)
+hmacSha1:   hmac.SHA1(msg, key)
+
+-- out/eval --
+hmacMd5: "40d2ecdd8ba56ee9bc6551b9e836df86"
+hmacSha1: "29f3d53ba5cb19e8cf1940989f6d14ea1723f5fb"
+hmacSha256: "b0b9a38f3cb5e839e552086e7a2b0e998762ba0f8d951ce32e1850125434cebe"
+key: "topsecretkey"
+msg: "antigravity secret message"

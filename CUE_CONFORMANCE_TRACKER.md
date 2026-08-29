@@ -10,15 +10,15 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 
 | Upstream Directory | Approx. Fixture Count | Focus Area | Our Rust Coverage |
 | :--- | :---: | :--- | :---: |
-| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, dynamic indexing, comprehensions, Cartesian list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (51 fixtures)** |
+| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, dynamic indexing, dynamic list slicing, comprehensions, Cartesian list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (53 fixtures)** |
 | `cue/testdata/compile/` | ~110 | Lexer, parser, Pratt expressions, AST construction, binary/hex/octal/SI number literals, identifiers, attributes, raw string literals | **High (syntax 100% passing)** |
 | `cue/testdata/fulleval/` | ~85 | End-to-end multi-struct evaluation, closed definitions, exports | **Core subsets active** |
 | `cue/testdata/resolve/` | ~65 | Scoping, aliases, lexical lookup, forward references, selector chains, embeddings, default overrides | **Active** |
 | `cue/testdata/export/` | ~45 | Export to concrete JSON, YAML, text | **JSON & YAML export active** |
 | `cue/testdata/basic/` | ~35 | Primitive types, literals, raw strings, mixed arithmetic, list/string arithmetic, comparisons, numeric types, hierarchy | **Active** |
 | `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, import aliases | **Active via `PackageLoader`** |
-| `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `math/bits`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding/json`, `encoding/yaml`, `encoding/html`, `encoding/csv`, `encoding/base32`, `crypto`, `path`) | **20 core packages active** |
-| **Total** | **~580+ fixtures** | | **51 conformance suites (100% pass)** |
+| `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `math/bits`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding/json`, `encoding/yaml`, `encoding/html`, `encoding/csv`, `encoding/base32`, `crypto/sha256`, `crypto/md5`, `crypto/sha1`, `crypto/hmac`, `path`) | **21 core packages active** |
+| **Total** | **~580+ fixtures** | | **53 conformance suites (100% pass)** |
 
 ---
 
@@ -37,7 +37,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **Dynamic & Interpolated Field Labels** | ✅ | **100% Complete** | `(key): val`, `"\(key)_suffix": val`, and dynamic keys in loops. |
 | **Field Aliases & Let Declarations** | ✅ | **100% Complete** | `let Identifier = Expr` and `Alias = Expr`. |
 | **String Interpolation** | ✅ | **100% Complete** | Dynamic expressions: `"https://\(host):\(port)/\(path)"`. |
-| **List Indexing & Slicing** | ✅ | **100% Complete** | `list[0]`, `list[1:4]`, `struct["key"]`, `struct[expr]`. |
+| **List Indexing & Slicing** | ✅ | **100% Complete** | `list[0]`, `list[1:4]`, `list[1:]`, `list[:3]`, `struct["key"]`, `struct[expr]`. |
 | **Chained Comprehensions** | ✅ | **100% Complete** | `for x in list if x > 2 if x < 6 { ... }`. |
 | **Field Attributes (`@tag()`)** | ✅ | **100% Complete** | Parsing `@protobuf(...)` / `@json(...)` attributes into AST and pretty-printing in formatter. |
 | **AST Formatter (`fmt`)** | ✅ | **100% Complete** | Canonical pretty-printer with indentation, list comprehensions, and operator spacing. |
@@ -94,6 +94,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **`crypto/sha256`** | 🟢 **100%** | `sha256.Sum` | — |
 | **`crypto/md5`** | 🟢 **100%** | `md5.Sum` | — |
 | **`crypto/sha1`** | 🟢 **100%** | `sha1.Sum` | — |
+| **`crypto/hmac`** | 🟢 **100%** | `hmac.SHA256`, `hmac.MD5`, `hmac.SHA1` | — |
 | **`path`** | 🟢 **100%** | `path.Base`, `path.Dir`, `path.Join`, `path.Ext` | — |
 
 ---

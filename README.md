@@ -2,7 +2,7 @@
 
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Clippy Clean](https://img.shields.io/badge/clippy-0%20warnings-brightgreen.svg)](https://github.com/rust-lang/rust-clippy)
-[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-51%2F51%20passing-brightgreen.svg)](tests/testdata/)
+[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-53%2F53%20passing-brightgreen.svg)](tests/testdata/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
 
 A high-performance, modular implementation of the [CUE configuration language](https://cuelang.org/) in **Rust (2024 Edition)**.
@@ -19,12 +19,12 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 ├── CUE_ROADMAP.md              # Milestone progress and architectural design
 ├── crates/
 │   ├── cue-syntax/             # Lexer (logos), ASI, Pratt parser, AST pretty-printer (`fmt`)
-│   ├── cue-eval/               # Arena-based lattice unification (⊓) engine & 20 stdlib packages
+│   ├── cue-eval/               # Arena-based lattice unification (⊓) engine & 21 stdlib packages
 │   ├── cue-derive/             # Procedural macro `#[derive(CueValidate)]` with Serde
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
 │   └── cue-cli/                # CLI binary (`cue-rs eval`, `cue-rs vet`, `cue-rs fmt`, `cue-rs test-txtar`)
 ├── tests/
-│   └── testdata/               # 51 conformance .txtar suites (100% passing)
+│   └── testdata/               # 53 conformance .txtar suites (100% passing)
 └── examples/                   # Sample CUE schemas and data files
 ```
 
@@ -36,7 +36,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 - **Order-Independent Reference Relaxation**: Multi-pass fixpoint evaluation resolving forward field references and mutual dependencies (`a: b + 1, b: c * 2, c: 10`).
 - **Binary, Hex, Octal & SI Number Literals**: `0b1100`, `0x2A`, `0o755`, `4Ki`, `10M`, `2G`.
 - **Raw & Multi-Line Strings**: Single-line raw strings `#"..."#`, multi-line `#"""..."""#`, and raw bytes `#'...'#`.
-- **Dynamic Indexing & Selector Chains**: Dynamic struct lookup (`ports[currentEnv]`) and deep selector chaining (`cluster.ingress.tls.secret`).
+- **Dynamic Indexing & Selector Chains & Slicing**: Dynamic struct lookup (`ports[currentEnv]`), deep selector chaining (`cluster.ingress.tls.secret`), and list slicing (`items[1:]`, `items[:3]`, `items[2:5]`).
 - **Fixed-Width Numeric Hierarchy**: Full range validation for `uint`, `uint8`, `uint16`, `uint32`, `uint64`, `int8`, `int16`, `int32`, `int64`, `float32`, `float64`.
 - **List & String Arithmetic**: List concatenation (`[1, 2] + [3, 4]`), list repetition (`[0] * 4`), and string repetition (`"=" * 10`).
 - **Open List Ellipsis**: Seamless unification of open lists (`#IntList: [...int]`) with concrete instances.
@@ -52,8 +52,8 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
       email: String,
   }
   ```
-- **20 Built-in Standard Library Packages**:
-  - `strings`, `math`, `math/bits`, `list`, `regexp`, `struct`, `time`, `net`, `strconv`, `uuid`, `encoding/json`, `encoding/yaml`, `encoding/html`, `encoding/csv`, `encoding/base32`, `encoding/base64`, `encoding/hex`, `crypto/sha256`, `crypto/md5`, `crypto/sha1`, `path`.
+- **21 Built-in Standard Library Packages**:
+  - `strings`, `math`, `math/bits`, `list`, `regexp`, `struct`, `time`, `net`, `strconv`, `uuid`, `encoding/json`, `encoding/yaml`, `encoding/html`, `encoding/csv`, `encoding/base32`, `encoding/base64`, `encoding/hex`, `crypto/sha256`, `crypto/md5`, `crypto/sha1`, `crypto/hmac`, `path`.
 
 ---
 
@@ -71,7 +71,7 @@ cargo test --workspace
 # Run clippy lint verification (0 warnings)
 cargo clippy --workspace --all-targets
 
-# Run the 51 txtar conformance suites (51/51 passing)
+# Run the 53 txtar conformance suites (53/53 passing)
 cargo run -p cue-cli -- test-txtar tests/testdata
 ```
 
