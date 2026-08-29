@@ -23,6 +23,7 @@ pub struct Evaluator {
     resolving_symbols: HashSet<String>,
     pub placeholders: HashMap<String, ValueId>,
     pub import_aliases: HashMap<String, String>,
+    pub imported_packages: HashMap<String, ValueId>,
 }
 
 impl Default for Evaluator {
@@ -39,6 +40,7 @@ impl Evaluator {
             resolving_symbols: HashSet::new(),
             placeholders: HashMap::new(),
             import_aliases: HashMap::new(),
+            imported_packages: HashMap::new(),
         };
         evaluator.register_builtins();
         evaluator
@@ -555,6 +557,11 @@ impl Evaluator {
                         .get(pkg_name)
                         .map(|s| s.as_str())
                         .unwrap_or(pkg_name.as_str());
+                    if let Some(&pkg_struct_id) = self.imported_packages.get(canonical_pkg)
+                        && let Some(Value::Struct(s)) = self.arena.get(pkg_struct_id)
+                            && let Some(f) = s.fields.get(field).or_else(|| s.definitions.get(field)) {
+                                return Ok(f.val);
+                            }
                     if let Ok(res) = crate::stdlib::call_stdlib_func(&mut self.arena, canonical_pkg, field, &[]) {
                         return Ok(res);
                     }

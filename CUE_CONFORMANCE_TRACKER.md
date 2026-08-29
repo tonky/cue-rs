@@ -16,7 +16,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | `cue/testdata/resolve/` | ~65 | Scoping, aliases, lexical lookup, forward references, selector chains, embeddings, default overrides | **Active** |
 | `cue/testdata/export/` | ~45 | Export to concrete JSON, YAML, text | **JSON & YAML export active** |
 | `cue/testdata/basic/` | ~35 | Primitive types, literals, raw strings, mixed arithmetic, list/string arithmetic, comparisons, numeric types, hierarchy | **Active** |
-| `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, module discovery (`cue.mod/module.cue`), import aliases | **Active via `PackageLoader`** |
+| `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, module discovery (`cue.mod/module.cue`), module-aware package import resolution (`import "myorg.com/app/sub"`), vendored packages (`cue.mod/pkg/...`) | **Active via `PackageLoader`** |
 | `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `math/bits`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding/json`, `encoding/yaml`, `encoding/html`, `encoding/csv`, `encoding/base32`, `encoding/base64`, `encoding/hex`, `text/tabwriter`, `text/template`, `crypto/sha512`, `crypto/sha256`, `crypto/md5`, `crypto/sha1`, `crypto/hmac`, `path`) | **24 core packages active** |
 | **Total** | **~580+ fixtures** | | **70 conformance suites (100% pass)** |
 
@@ -114,6 +114,8 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | :--- | :---: | :---: | :--- |
 | **Package Loader** | ✅ | **100% Complete** | `PackageLoader` aggregates `.cue` files in a directory with cross-file definition hoisting and import aliasing. |
 | **Module Root Discovery** | ✅ | **100% Complete** | Discovers `cue.mod/module.cue` and parses `ModuleInfo` (module path & language version). |
+| **Module Import Resolution** | ✅ | **100% Complete** | Resolves inter-module package imports (`import "example.com/mod/schema"`) and vendored packages (`cue.mod/pkg/...`). |
+| **Deep Arena Value Cloning** | ✅ | **100% Complete** | `clone_value_into` transfers evaluated package ASTs/structs across isolated module arenas. |
 | **Rust Derive Macro (`cue-derive`)** | ✅ | **100% Complete** | `#[derive(CueValidate)]` derive macro with `#[cue(schema = "...")]` & Serde integration. |
 | **CUE CLI (`cue-rs`)** | 🟢 | **100% Complete** | `eval` (JSON & YAML), `vet`, `fmt`, `test-txtar`. |
 | **WebAssembly Target (WASM)** | ⏸️ | **Postponed** | Postponed to the end per user instructions. |

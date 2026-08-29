@@ -11,7 +11,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Rust Edition** | **2024** | 2024 |
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
-| **Unit Test Coverage** | **26 / 26 passing (100%)** | 100% |
+| **Unit Test Coverage** | **27 / 27 passing (100%)** | 100% |
 | **Txtar Fixture Pass Rate** | **70 / 70 passing (100%)** | >95% upstream parity |
 
 ---
@@ -44,7 +44,9 @@ This document tracks the technical design, milestone progress, and conformance v
 │    cue-eval     │ ──► SlotMap Arena Allocation with Transactional Trail
 │ (Lattice Engine)│ ──► Greatest Lower Bound Unification (⊓) with Disjunction Rollback
 │ (PackageLoader) │ ──► Struct Embedding with Disjunction Schema Selection (`#Prod | #Dev`)
-└────────┬────────┘ ──► Optional Field Validation (`field?: type`) & Export Filtering
+└────────┬────────┘ ──► Module-Aware Package Import Resolution (`import "myorg.com/mod/schema"`)
+         │          ──► Inter-Arena Deep Value Cloning (`clone_value_into`)
+         │          ──► Optional Field Validation (`field?: type`) & Export Filtering
          │          ──► Hidden Field (`_secret`) & Definition (`#Schema`) Export Filtering
          │          ──► Discriminated Union Struct Disjunctions (`#Circle | #Rectangle`)
          │          ──► Multi-Pass Fixpoint Relaxation Loop for Order-Independent Reference Graphs
@@ -191,6 +193,8 @@ This document tracks the technical design, milestone progress, and conformance v
 - [x] **Multi-Pass Reference Relaxation**: Fixpoint loop for forward and mutually derived struct fields (`a: b + 1, b: c * 2, c: 10`).
 - [x] **Multi-File Package Loader (`PackageLoader`)**: Evaluates all `.cue` files in a directory as a unified package environment with cross-file definition hoisting and import aliasing.
 - [x] **Module Root Discovery (`cue.mod/module.cue`)**: Upward directory traversal extracting module name and language version into `ModuleInfo`.
+- [x] **Module-Aware Package Import Resolution**: Seamless resolution and evaluation of module packages (`import "myorg.com/app/schema"`) and vendored packages (`cue.mod/pkg/...`).
+- [x] **Inter-Arena Deep Value Cloning (`clone_value_into`)**: Recursive value allocation across independent package evaluation arenas.
 - [x] **Serde Direct Validation API**: `cue_eval::validate_json(&schema_str, &json_data) -> Result<(), EvalError>`.
 - [x] **Rust Procedural Macro (`cue-derive`)**: `#[derive(CueValidate)]` with `#[cue(schema = "...")]` or `#[cue(file = "...")]`.
 

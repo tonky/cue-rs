@@ -34,6 +34,8 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 ## 2. Key Features
 
 - **Lattice Unification ($\sqcap$)**: Greatest lower bound calculation over scalar values, recursive structs, bounds (`>1024 & <65535`), regex constraints (`=~ "^[a-z]+$"`), and closed `#Definitions`.
+- **Module-Aware Package Imports**: Seamless resolution and evaluation of module packages (`import "myorg.com/app/schema"`) and vendored packages (`cue.mod/pkg/...`).
+- **Inter-Arena Deep Value Cloning (`clone_value_into`)**: Recursive value allocation across isolated package evaluation arenas.
 - **Struct Embedding with Disjunction Selection**: Embedded disjunction schemas (`#Prod | #Dev`) resolving via field unification.
 - **Comprehensions with Standard Library Filtering**: Iteration with stdlib functions in conditions (`strings.HasPrefix`) and mapping expressions (`strings.ToUpper`, `strings.TrimPrefix`, `strings.Replace`).
 - **Optional Field Validation & Export Filtering**: Validates `field?: type` when present and omits unpopulated optional fields from JSON/YAML export.
@@ -74,7 +76,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 # Build the entire workspace
 cargo build
 
-# Run all workspace unit tests (26/26 passing)
+# Run all workspace unit tests (27/27 passing)
 cargo test --workspace
 
 # Run clippy lint verification (0 warnings)

@@ -324,4 +324,47 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(temp_dir);
     }
+
+    #[test]
+    fn test_module_package_import_resolution() {
+        let temp_dir = std::env::temp_dir().join(format!("cue_test_pkg_{}", std::process::id()));
+        let mod_dir = temp_dir.join("cue.mod");
+        let schema_dir = temp_dir.join("schema");
+        let app_dir = temp_dir.join("app");
+        std::fs::create_dir_all(&mod_dir).unwrap();
+        std::fs::create_dir_all(&schema_dir).unwrap();
+        std::fs::create_dir_all(&app_dir).unwrap();
+
+        let mod_cue = r#"module: "example.com/myapp""#;
+        std::fs::write(mod_dir.join("module.cue"), mod_cue).unwrap();
+
+        let schema_cue = r#"
+            package schema
+            #Config: {
+                name: string
+                port: int & >0
+            }
+        "#;
+        std::fs::write(schema_dir.join("schema.cue"), schema_cue).unwrap();
+
+        let app_cue = r#"
+            package app
+            import "example.com/myapp/schema"
+
+            server: schema.#Config & {
+                name: "api-server"
+                port: 8080
+            }
+        "#;
+        std::fs::write(app_dir.join("app.cue"), app_cue).unwrap();
+
+        let loaded = crate::package::PackageLoader::load_dir(&app_dir);
+        assert!(loaded.is_ok());
+        let (eval, root_id) = loaded.unwrap();
+        let json_val = eval.to_json(root_id).unwrap();
+        assert_eq!(json_val["server"]["name"], "api-server");
+        assert_eq!(json_val["server"]["port"], 8080);
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
 }

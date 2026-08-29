@@ -1,6 +1,6 @@
 use cue_syntax::ast::Decl;
 use crate::eval::{EvalError, Evaluator};
-use crate::value::{StructValue, Value, ValueId};
+use crate::value::{DisjunctionBranch, FieldEntry, PatternConstraint, StructValue, Value, ValueArena, ValueId};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,7 +63,7 @@ impl PackageLoader {
     /// Load and evaluate all .cue files in a directory as a unified package with multi-file hoisting.
     pub fn load_dir<P: AsRef<Path>>(dir: P) -> Result<(Evaluator, ValueId), EvalError> {
         let mut evaluator = Evaluator::new();
-        let files = Self::find_cue_files(dir)?;
+        let files = Self::find_cue_files(dir.as_ref())?;
 
         if files.is_empty() {
             return Err(EvalError::Evaluation(
@@ -77,6 +77,41 @@ impl PackageLoader {
                 .map_err(|e| EvalError::Evaluation(format!("Failed to read {}: {e}", path.display())))?;
             let source_file = cue_syntax::parse_file(&content)?;
             parsed_files.push(source_file);
+        }
+
+        let mod_root_opt = Self::find_module_root(dir.as_ref());
+
+        // Process imports across parsed files and resolve external/module packages
+        for file in &parsed_files {
+            for imp in &file.imports {
+                let alias = imp
+                    .alias
+                    .clone()
+                    .unwrap_or_else(|| imp.path.split('/').next_back().unwrap_or(&imp.path).to_string());
+                evaluator.import_aliases.insert(alias, imp.path.clone());
+
+                if let Some((ref mod_root, ref mod_info)) = mod_root_opt
+                    && !evaluator.imported_packages.contains_key(&imp.path) {
+                        let pkg_dir = if imp.path.starts_with(&mod_info.module) {
+                            let sub = imp.path[mod_info.module.len()..].trim_start_matches('/');
+                            Some(mod_root.join(sub))
+                        } else {
+                            let vendored = mod_root.join("cue.mod").join("pkg").join(&imp.path);
+                            if vendored.is_dir() {
+                                Some(vendored)
+                            } else {
+                                None
+                            }
+                        };
+
+                        if let Some(p_dir) = pkg_dir
+                            && p_dir.is_dir()
+                            && let Ok((sub_eval, sub_val)) = Self::load_dir(&p_dir) {
+                                let imported_id = clone_value_into(&sub_eval.arena, &mut evaluator.arena, sub_val);
+                                evaluator.imported_packages.insert(imp.path.clone(), imported_id);
+                            }
+                    }
+            }
         }
 
         // Pass 1: Pre-register and evaluate definitions and aliases across all files
@@ -138,3 +173,119 @@ impl PackageLoader {
         Ok(files)
     }
 }
+
+fn clone_value_into(
+    from_arena: &ValueArena,
+    to_arena: &mut ValueArena,
+    id: ValueId,
+) -> ValueId {
+    let Some(val) = from_arena.get(id) else {
+        return to_arena.alloc(Value::Top);
+    };
+    match val {
+        Value::Top => to_arena.alloc(Value::Top),
+        Value::Bottom(msg) => to_arena.alloc(Value::Bottom(msg.clone())),
+        Value::Null => to_arena.alloc(Value::Null),
+        Value::Bool(b) => to_arena.alloc(Value::Bool(*b)),
+        Value::Int(i) => to_arena.alloc(Value::Int(i.clone())),
+        Value::Float(f) => to_arena.alloc(Value::Float(*f)),
+        Value::String(s) => to_arena.alloc(Value::String(s.clone())),
+        Value::Bytes(b) => to_arena.alloc(Value::Bytes(b.clone())),
+        Value::Type(t) => to_arena.alloc(Value::Type(*t)),
+        Value::Bounds {
+            base_type,
+            constraints,
+        } => {
+            let cloned_constraints = constraints
+                .iter()
+                .map(|(op, v)| (*op, clone_value_into(from_arena, to_arena, *v)))
+                .collect();
+            to_arena.alloc(Value::Bounds {
+                base_type: *base_type,
+                constraints: cloned_constraints,
+            })
+        }
+        Value::List { elements, ellipsis } => {
+            let cloned_elems = elements
+                .iter()
+                .map(|&e| clone_value_into(from_arena, to_arena, e))
+                .collect();
+            let cloned_el = ellipsis.map(|e| clone_value_into(from_arena, to_arena, e));
+            to_arena.alloc(Value::List {
+                elements: cloned_elems,
+                ellipsis: cloned_el,
+            })
+        }
+        Value::Struct(s) => {
+            let mut new_s = StructValue::new(s.is_closed);
+            for (k, entry) in &s.fields {
+                new_s.fields.insert(
+                    k.clone(),
+                    FieldEntry {
+                        val: clone_value_into(from_arena, to_arena, entry.val),
+                        optional: entry.optional,
+                    },
+                );
+            }
+            for (k, entry) in &s.definitions {
+                new_s.definitions.insert(
+                    k.clone(),
+                    FieldEntry {
+                        val: clone_value_into(from_arena, to_arena, entry.val),
+                        optional: entry.optional,
+                    },
+                );
+            }
+            for (k, entry) in &s.hidden {
+                new_s.hidden.insert(
+                    k.clone(),
+                    FieldEntry {
+                        val: clone_value_into(from_arena, to_arena, entry.val),
+                        optional: entry.optional,
+                    },
+                );
+            }
+            for pc in &s.pattern_constraints {
+                new_s.pattern_constraints.push(PatternConstraint {
+                    pattern_val: clone_value_into(from_arena, to_arena, pc.pattern_val),
+                    target_val: clone_value_into(from_arena, to_arena, pc.target_val),
+                });
+            }
+            to_arena.alloc(Value::Struct(new_s))
+        }
+        Value::Disjunction { branches } => {
+            let cloned_branches = branches
+                .iter()
+                .map(|b| DisjunctionBranch {
+                    val: clone_value_into(from_arena, to_arena, b.val),
+                    default: b.default,
+                })
+                .collect();
+            to_arena.alloc(Value::Disjunction {
+                branches: cloned_branches,
+            })
+        }
+        Value::BuiltinValidator { name, target } => {
+            let cloned_target = clone_value_into(from_arena, to_arena, *target);
+            to_arena.alloc(Value::BuiltinValidator {
+                name: name.clone(),
+                target: cloned_target,
+            })
+        }
+        Value::Validators(vec) => {
+            let cloned_vec = vec
+                .iter()
+                .map(|&v| clone_value_into(from_arena, to_arena, v))
+                .collect();
+            to_arena.alloc(Value::Validators(cloned_vec))
+        }
+        Value::RecursiveRef { name, target } => {
+            let cloned_target = target.map(|t| clone_value_into(from_arena, to_arena, t));
+            to_arena.alloc(Value::RecursiveRef {
+                name: name.clone(),
+                target: cloned_target,
+            })
+        }
+    }
+}
+
