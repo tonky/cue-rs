@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **26 / 26 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **60 / 60 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **62 / 62 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -31,6 +31,7 @@ This document tracks the technical design, milestone progress, and conformance v
 │                 │ ──► Dynamic Slicing (`items[1:]`, `items[:3]`, `items[2:5]`)
 │                 │ ──► Cartesian Multi-Clause List Comprehensions (`[ for x in s1 for y in s2 { ... } ]`)
 │                 │ ──► Cartesian Indexed Loop Unpacking (`[ for i, x in s1 for j, y in s2 { ... } ]`)
+│                 │ ──► Comprehensions with `let` Bindings (`[ for x in src let y = x * 2 if y > 5 { y } ]`)
 │                 │ ──► Struct Body Comprehensions (`[ for k, v in map { name: k, val: v } ]`)
 │                 │ ──► Field Attributes Parser (`@protobuf`, `@json`, `@tag`)
 │                 │ ──► Single & Multi-Import Statements (`import s "strings"`)
@@ -99,6 +100,7 @@ This document tracks the technical design, milestone progress, and conformance v
 - [x] **Raw Strings & Multi-Line Literals**: `#""" ... """#`, `#"..."#`, and `#'...'#`.
 - [x] **Pratt Expression Parser**: Unification (`&`), Disjunction (`|`), Comparison operators (`==`, `!=`, `<`, `<=`, `>`, `>=`, `=~`, `!~`), Mixed integer/float arithmetic (`+`, `-`, `*`, `/`), Unary arithmetic/bounds, and Selectors/Indexing/Slicing.
 - [x] **Cartesian & List Comprehensions**: `[ for x in src if x > 1 { x * 10 } ]`, `[ for i, x in s1 for j, y in s2 { ... } ]`, and struct-body mappings `[ for k, v in map { name: k, port: v.port } ]`.
+- [x] **Comprehensions with `let` Bindings**: `[ for x in src let y = x * 2 if y > 5 { y } ]` and struct-comprehension `let` bindings.
 - [x] **Import Declarations & Aliases**: Single and multi-import blocks (`import ( s "strings", json "encoding/json" )`).
 - [x] **Dynamic & Interpolated Field Labels**: `(expr): val` and `"\(expr)_suffix": val`.
 - [x] **Field Aliases & Let Bindings**: `let Identifier = Expr` and `Alias = Expr`.
@@ -135,6 +137,7 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `for k, v in source { ... }` list and struct iterations.
   - [x] `if condition { ... }` conditional declarations.
   - [x] Chained multi-clause comprehensions (`for x in list if x > 2 if x < 6 { ... }`).
+  - [x] `let` local bindings inside comprehension clauses.
   - [x] Cartesian product list comprehensions (`for i, x in src1 for j, y in src2 { ... }`).
   - [x] List comprehensions producing evaluated lists (`[ for x in raw if x > 2 { x * 10 } ]`).
   - [x] Dynamic parenthesized label evaluation inside loops `("k_\(i)"): val`.

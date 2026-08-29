@@ -485,18 +485,22 @@ impl<'a> Parser<'a> {
     ) -> Result<Decl, ParseError> {
         let mut clauses = vec![first_clause];
 
-        while !self.is_eof() && self.peek() != Some(&Token::LBrace) {
+        while !self.is_eof() {
+            self.match_token(&Token::Comma);
+            if self.peek() == Some(&Token::LBrace) {
+                break;
+            }
             if self.match_token(&Token::KwFor) {
                 let (first_tok, span) = self.advance()?;
                 let (key, val) = match first_tok {
-                    Token::Ident(k_or_v) => {
+                    Token::Ident(k_or_v) | Token::DefIdent(k_or_v) => {
                         if self.match_token(&Token::Comma) {
                             let (val_tok, val_span) = self.advance()?;
                             if let Token::Ident(v) = val_tok {
                                 (Some(k_or_v), v)
                             } else {
                                 return Err(ParseError::UnexpectedToken {
-                                    found: format!("{}", val_tok),
+                                    found: format!("{val_tok}"),
                                     expected: "value identifier in for-loop".to_string(),
                                     span: val_span,
                                 });
@@ -507,7 +511,7 @@ impl<'a> Parser<'a> {
                     }
                     _ => {
                         return Err(ParseError::UnexpectedToken {
-                            found: format!("{}", first_tok),
+                            found: format!("{first_tok}"),
                             expected: "identifier in for-loop".to_string(),
                             span,
                         });
@@ -529,7 +533,7 @@ impl<'a> Parser<'a> {
                     Token::Ident(id) | Token::DefIdent(id) => id,
                     _ => {
                         return Err(ParseError::UnexpectedToken {
-                            found: format!("{}", tok),
+                            found: format!("{tok}"),
                             expected: "identifier after let".to_string(),
                             span,
                         });
@@ -541,9 +545,9 @@ impl<'a> Parser<'a> {
             } else {
                 break;
             }
-            self.match_token(&Token::Comma);
         }
 
+        self.match_token(&Token::Comma);
         self.expect(Token::LBrace)?;
         let decls = self.parse_decls_until(|p| p.peek() == Some(&Token::RBrace))?;
         self.expect(Token::RBrace)?;

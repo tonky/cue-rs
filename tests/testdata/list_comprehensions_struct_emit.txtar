@@ -1,0 +1,37 @@
+Test list comprehensions emitting structured objects
+-- in.cue --
+package test
+
+ports: [80, 443, 8080]
+
+endpoints: [
+    for p in ports {
+        port: p
+        tls:  p == 443
+        name: "port-\(p)"
+    }
+]
+
+-- out/eval --
+endpoints: [
+    {
+        name: "port-80"
+        port: 80
+        tls: false
+    },
+    {
+        name: "port-443"
+        port: 443
+        tls: true
+    },
+    {
+        name: "port-8080"
+        port: 8080
+        tls: false
+    }
+]
+ports: [
+    80,
+    443,
+    8080
+]

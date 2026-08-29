@@ -10,7 +10,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 
 | Upstream Directory | Approx. Fixture Count | Focus Area | Our Rust Coverage |
 | :--- | :---: | :--- | :---: |
-| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, dynamic indexing, dynamic list slicing, multi-pattern constraints, comprehensions, Cartesian list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (60 fixtures)** |
+| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, dynamic indexing, dynamic list slicing, multi-pattern constraints, comprehensions, `let` comprehension bindings, Cartesian list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (62 fixtures)** |
 | `cue/testdata/compile/` | ~110 | Lexer, parser, Pratt expressions, AST construction, binary/hex/octal/SI number literals, identifiers, attributes, raw string literals | **High (syntax 100% passing)** |
 | `cue/testdata/fulleval/` | ~85 | End-to-end multi-struct evaluation, closed definitions, exports | **Core subsets active** |
 | `cue/testdata/resolve/` | ~65 | Scoping, aliases, lexical lookup, forward references, selector chains, embeddings, default overrides | **Active** |
@@ -18,7 +18,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | `cue/testdata/basic/` | ~35 | Primitive types, literals, raw strings, mixed arithmetic, list/string arithmetic, comparisons, numeric types, hierarchy | **Active** |
 | `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, module discovery (`cue.mod/module.cue`), import aliases | **Active via `PackageLoader`** |
 | `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `math/bits`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding/json`, `encoding/yaml`, `encoding/html`, `encoding/csv`, `encoding/base32`, `encoding/base64`, `encoding/hex`, `text/tabwriter`, `text/template`, `crypto/sha256`, `crypto/md5`, `crypto/sha1`, `crypto/hmac`, `path`) | **23 core packages active** |
-| **Total** | **~580+ fixtures** | | **60 conformance suites (100% pass)** |
+| **Total** | **~580+ fixtures** | | **62 conformance suites (100% pass)** |
 
 ---
 
@@ -33,6 +33,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **Automatic Semicolon Insertion (ASI)** | ✅ | **100% Complete** | Newline-aware virtual comma insertion for multi-line expressions and pattern constraints. |
 | **Pratt Expression Parser** | ✅ | **100% Complete** | `\|` $\to$ `&` $\to$ comparisons $\to$ mixed arithmetic $\to$ unary (including `-x` and `!b`) $\to$ postfix calls/indexing/slicing. |
 | **Cartesian & List Comprehensions** | ✅ | **100% Complete** | `[ for x in src if x > 1 { x * 10 } ]`, `[ for i, x in s1 for j, y in s2 { ... } ]`, and struct-body mappings `[ for k, v in map { name: k, port: v.port } ]`. |
+| **Comprehensions with `let` Bindings** | ✅ | **100% Complete** | `[ for x in src let y = x * 2 if y > 5 { y } ]` and struct-comprehension `let` bindings. |
 | **Import Declarations & Aliases** | ✅ | **100% Complete** | Single/multi imports with aliases: `import ( s "strings", json "encoding/json" )`. |
 | **Dynamic & Interpolated Field Labels** | ✅ | **100% Complete** | `(key): val`, `"\(key)_suffix": val`, and dynamic keys in loops. |
 | **Field Aliases & Let Declarations** | ✅ | **100% Complete** | `let Identifier = Expr` and `Alias = Expr`. |

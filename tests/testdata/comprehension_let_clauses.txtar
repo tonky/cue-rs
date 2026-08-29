@@ -1,0 +1,42 @@
+Test let bindings in list and struct comprehensions
+-- in.cue --
+package test
+
+numbers: [1, 2, 3, 4, 5]
+
+transformed: [
+    for x in numbers
+    let doubled = x * 2
+    let shifted = doubled + 1
+    if shifted > 5 {
+        shifted
+    }
+]
+
+lookup: {
+    for x in numbers
+    let k = "item_\(x)"
+    let v = x * 100
+    if v >= 300 {
+        (k): v
+    }
+}
+
+-- out/eval --
+lookup: {
+    item_3: 300
+    item_4: 400
+    item_5: 500
+}
+numbers: [
+    1,
+    2,
+    3,
+    4,
+    5
+]
+transformed: [
+    7,
+    9,
+    11
+]
