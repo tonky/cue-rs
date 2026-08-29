@@ -10,15 +10,15 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 
 | Upstream Directory | Approx. Fixture Count | Focus Area | Our Rust Coverage |
 | :--- | :---: | :--- | :---: |
-| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, dynamic indexing, comprehensions, Cartesian list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (47 fixtures)** |
+| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, dynamic indexing, comprehensions, Cartesian list comprehensions with index unpacking, lexical scoping, forward references, cycle detection | **Core subsets active (49 fixtures)** |
 | `cue/testdata/compile/` | ~110 | Lexer, parser, Pratt expressions, AST construction, identifiers, attributes, raw string literals | **High (syntax 100% passing)** |
 | `cue/testdata/fulleval/` | ~85 | End-to-end multi-struct evaluation, closed definitions, exports | **Core subsets active** |
 | `cue/testdata/resolve/` | ~65 | Scoping, aliases, lexical lookup, forward references, selector chains, embeddings, default overrides | **Active** |
 | `cue/testdata/export/` | ~45 | Export to concrete JSON, YAML, text | **JSON & YAML export active** |
 | `cue/testdata/basic/` | ~35 | Primitive types, literals, raw strings, mixed arithmetic, list/string arithmetic, comparisons, numeric types, hierarchy | **Active** |
 | `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, import aliases | **Active via `PackageLoader`** |
-| `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding/json`, `encoding/yaml`, `encoding/csv`, `crypto`, `path`) | **17 core packages active** |
-| **Total** | **~580+ fixtures** | | **47 conformance suites (100% pass)** |
+| `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding/json`, `encoding/yaml`, `encoding/csv`, `encoding/base32`, `crypto`, `path`) | **18 core packages active** |
+| **Total** | **~580+ fixtures** | | **49 conformance suites (100% pass)** |
 
 ---
 
@@ -32,7 +32,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **Raw & Multi-line Strings** | ✅ | **100% Complete** | `#""" multi-line """#`, `#"raw\n"#`, and `#'bytes'#`. |
 | **Automatic Semicolon Insertion (ASI)** | ✅ | **100% Complete** | Newline-aware virtual comma insertion for multi-line expressions and pattern constraints. |
 | **Pratt Expression Parser** | ✅ | **100% Complete** | `\|` $\to$ `&` $\to$ comparisons $\to$ mixed arithmetic $\to$ unary (including `-x` and `!b`) $\to$ postfix calls/indexing/slicing. |
-| **Cartesian & List Comprehensions** | ✅ | **100% Complete** | `[ for x in src if x > 1 { x * 10 } ]`, `[ for n in nums for l in letters { "\(n)-\(l)" } ]`, and struct-body mappings `[ for k, v in map { name: k, port: v.port } ]`. |
+| **Cartesian & List Comprehensions** | ✅ | **100% Complete** | `[ for x in src if x > 1 { x * 10 } ]`, `[ for i, x in s1 for j, y in s2 { ... } ]`, and struct-body mappings `[ for k, v in map { name: k, port: v.port } ]`. |
 | **Import Declarations & Aliases** | ✅ | **100% Complete** | Single/multi imports with aliases: `import ( s "strings", json "encoding/json" )`. |
 | **Dynamic & Interpolated Field Labels** | ✅ | **100% Complete** | `(key): val`, `"\(key)_suffix": val`, and dynamic keys in loops. |
 | **Field Aliases & Let Declarations** | ✅ | **100% Complete** | `let Identifier = Expr` and `Alias = Expr`. |
@@ -86,6 +86,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **`encoding/json`** | 🟢 **100%** | `json.Marshal`, `json.Unmarshal` | `json.Validate` |
 | **`encoding/yaml`** | 🟢 **100%** | `yaml.Marshal`, `yaml.Unmarshal` | `yaml.Validate` |
 | **`encoding/csv`** | 🟢 **100%** | `csv.Decode`, `csv.Encode` | — |
+| **`encoding/base32`** | 🟢 **100%** | `base32.Encode`, `base32.Decode` | — |
 | **`encoding/base64`** | 🟢 **100%** | `base64.Encode`, `base64.Decode` | — |
 | **`encoding/hex`** | 🟢 **100%** | `hex.Encode`, `hex.Decode` | — |
 | **`crypto/sha256`** | 🟢 **100%** | `sha256.Sum` | — |

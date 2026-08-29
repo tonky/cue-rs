@@ -1,0 +1,42 @@
+Test index and value unpacking in Cartesian list comprehensions
+-- in.cue --
+package test
+
+rows: [10, 20]
+cols: [100, 200]
+
+matrix: [
+    for i, r in rows
+    for j, c in cols {
+        cell: "\(i)_\(j)"
+        sum:  r + c
+    }
+]
+
+-- out/eval --
+cols: [
+    100,
+    200
+]
+matrix: [
+    {
+        cell: "0_0"
+        sum: 110
+    },
+    {
+        cell: "0_1"
+        sum: 210
+    },
+    {
+        cell: "1_0"
+        sum: 120
+    },
+    {
+        cell: "1_1"
+        sum: 220
+    }
+]
+rows: [
+    10,
+    20
+]

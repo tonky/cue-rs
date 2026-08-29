@@ -915,6 +915,26 @@ pub fn call_stdlib_func(
             Err("base64.Decode requires 1 base64 string argument".to_string())
         }
 
+        // --- encoding/base32 package ---
+        ("base32" | "encoding/base32", "Encode") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    return Ok(arena.string(base32_encode(s.as_bytes())));
+                }
+            Err("base32.Encode requires 1 string argument".to_string())
+        }
+        ("base32" | "encoding/base32", "Decode") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    if let Ok(bytes) = base32_decode(s) {
+                        return Ok(arena.string(String::from_utf8_lossy(&bytes).to_string()));
+                    } else {
+                        return Err("invalid base32 string".to_string());
+                    }
+                }
+            Err("base32.Decode requires 1 base32 string argument".to_string())
+        }
+
         // --- encoding/hex package ---
         ("hex" | "encoding/hex", "Encode") => {
             if let Some(&arg0) = args.first()
@@ -1125,6 +1145,70 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
         };
         buffer = (buffer << 6) | val;
         bits += 6;
+
+        if bits >= 8 {
+            bits -= 8;
+            bytes.push((buffer >> bits) as u8);
+            buffer &= (1 << bits) - 1;
+        }
+    }
+
+    Ok(bytes)
+}
+
+const B32_ALPHABET: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+fn base32_encode(input: &[u8]) -> String {
+    let mut out = String::new();
+    let mut i = 0;
+    while i < input.len() {
+        let b0 = input[i] as u64;
+        let b1 = if i + 1 < input.len() { input[i + 1] as u64 } else { 0 };
+        let b2 = if i + 2 < input.len() { input[i + 2] as u64 } else { 0 };
+        let b3 = if i + 3 < input.len() { input[i + 3] as u64 } else { 0 };
+        let b4 = if i + 4 < input.len() { input[i + 4] as u64 } else { 0 };
+
+        let combined = (b0 << 32) | (b1 << 24) | (b2 << 16) | (b3 << 8) | b4;
+
+        let rem = input.len() - i;
+        let count = match rem {
+            1 => 2,
+            2 => 4,
+            3 => 5,
+            4 => 7,
+            _ => 8,
+        };
+
+        for c in 0..count {
+            let shift = 35 - c * 5;
+            let idx = ((combined >> shift) & 31) as usize;
+            out.push(B32_ALPHABET[idx] as char);
+        }
+
+        for _ in count..8 {
+            out.push('=');
+        }
+
+        i += 5;
+    }
+    out
+}
+
+fn base32_decode(input: &str) -> Result<Vec<u8>, String> {
+    let input = input.trim().trim_end_matches('=');
+    let mut bytes = Vec::new();
+    let mut buffer = 0u64;
+    let mut bits = 0;
+
+    for ch in input.chars() {
+        let val = match ch {
+            'A'..='Z' => ch as u64 - 'A' as u64,
+            'a'..='z' => ch as u64 - 'a' as u64,
+            '2'..='7' => ch as u64 - '2' as u64 + 26,
+            _ => return Err("invalid base32 char".to_string()),
+        };
+        buffer = (buffer << 5) | val;
+        bits += 5;
 
         if bits >= 8 {
             bits -= 8;

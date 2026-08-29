@@ -1,0 +1,13 @@
+Test encoding/base32 standard package
+-- in.cue --
+package test
+
+plain: "hello world"
+
+b32Encoded: base32.Encode(plain)
+b32Decoded: base32.Decode(b32Encoded)
+
+-- out/eval --
+b32Decoded: "hello world"
+b32Encoded: "NBSWY3DPEB3W64TMMQ======"
+plain: "hello world"
