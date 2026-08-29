@@ -1,0 +1,32 @@
+Test nested disjunctions with hierarchical defaults
+-- in.cue --
+package test
+
+#Mode: *"auto" | "manual" | "disabled"
+
+#ServerConfig: {
+    mode: #Mode
+    replicas: int | *3
+    timeout:  int | *30
+}
+
+devServer: #ServerConfig & {
+    replicas: 1
+}
+
+prodServer: #ServerConfig & {
+    mode: "manual"
+    replicas: 10
+}
+
+-- out/eval --
+devServer: {
+    mode: "auto"
+    replicas: 1
+    timeout: 30
+}
+prodServer: {
+    mode: "manual"
+    replicas: 10
+    timeout: 30
+}

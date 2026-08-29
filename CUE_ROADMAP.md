@@ -11,8 +11,8 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Rust Edition** | **2024** | 2024 |
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
-| **Unit Test Coverage** | **25 / 25 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **58 / 58 passing (100%)** | >95% upstream parity |
+| **Unit Test Coverage** | **26 / 26 passing (100%)** | 100% |
+| **Txtar Fixture Pass Rate** | **60 / 60 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -43,7 +43,8 @@ This document tracks the technical design, milestone progress, and conformance v
 │    cue-eval     │ ──► SlotMap Arena Allocation with Transactional Trail
 │ (Lattice Engine)│ ──► Greatest Lower Bound Unification (⊓) with Disjunction Rollback
 │ (PackageLoader) │ ──► Multi-Pass Fixpoint Relaxation Loop for Order-Independent Reference Graphs
-└────────┬────────┘ ──► Multi-Pattern Simultaneous Constraints (`[=~"^STR_"]: string`, `[=~"^NUM_"]: int & >0`)
+└────────┬────────┘ ──► Module Discovery (`cue.mod/module.cue` search and `ModuleInfo` parsing)
+         │          ──► Multi-Pattern Simultaneous Constraints (`[=~"^STR_"]: string`, `[=~"^NUM_"]: int & >0`)
          │          ──► Dynamic Struct Indexing (`ports[env]`) & Nested Selector Chains
          │          ──► Lexical Scope Isolation for Nested Struct Blocks
          │          ──► Open List Ellipsis Unification (`[...int]` ⊓ `[1, 2, 3]`)
@@ -175,6 +176,7 @@ This document tracks the technical design, milestone progress, and conformance v
 - [x] **Lexical Scope Isolation**: Nested struct evaluations maintain private environments with outermost scope resolution.
 - [x] **Multi-Pass Reference Relaxation**: Fixpoint loop for forward and mutually derived struct fields (`a: b + 1, b: c * 2, c: 10`).
 - [x] **Multi-File Package Loader (`PackageLoader`)**: Evaluates all `.cue` files in a directory as a unified package environment with cross-file definition hoisting and import aliasing.
+- [x] **Module Root Discovery (`cue.mod/module.cue`)**: Upward directory traversal extracting module name and language version into `ModuleInfo`.
 - [x] **Serde Direct Validation API**: `cue_eval::validate_json(&schema_str, &json_data) -> Result<(), EvalError>`.
 - [x] **Rust Procedural Macro (`cue-derive`)**: `#[derive(CueValidate)]` with `#[cue(schema = "...")]` or `#[cue(file = "...")]`.
 

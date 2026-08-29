@@ -298,4 +298,30 @@ mod tests {
         });
         assert!(validate_json(schema, &invalid_data).is_err());
     }
+
+    #[test]
+    fn test_module_root_discovery() {
+        let temp_dir = std::env::temp_dir().join(format!("cue_test_mod_{}", std::process::id()));
+        let mod_dir = temp_dir.join("cue.mod");
+        let sub_dir = temp_dir.join("pkg").join("service");
+        std::fs::create_dir_all(&mod_dir).unwrap();
+        std::fs::create_dir_all(&sub_dir).unwrap();
+
+        let mod_cue = r#"
+            module: "example.com/kepler@v0"
+            language: {
+                version: "v0.9.0"
+            }
+        "#;
+        std::fs::write(mod_dir.join("module.cue"), mod_cue).unwrap();
+
+        let discovered = crate::package::PackageLoader::find_module_root(&sub_dir);
+        assert!(discovered.is_some());
+        let (root, info) = discovered.unwrap();
+        assert_eq!(root, temp_dir);
+        assert_eq!(info.module, "example.com/kepler@v0");
+        assert_eq!(info.language_version.as_deref(), Some("v0.9.0"));
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
 }

@@ -1,0 +1,63 @@
+Test complex nested loop struct comprehensions
+-- in.cue --
+package test
+
+regions: ["us-east", "eu-west"]
+services: ["auth", "billing"]
+
+grid: {
+    for r in regions {
+        (r): {
+            for s in services {
+                (s): {
+                    cluster: "\(r)-\(s)"
+                    ports:   [80, 443]
+                }
+            }
+        }
+    }
+}
+
+-- out/eval --
+grid: {
+    "eu-west": {
+        auth: {
+            cluster: "eu-west-auth"
+            ports: [
+                80,
+                443
+            ]
+        }
+        billing: {
+            cluster: "eu-west-billing"
+            ports: [
+                80,
+                443
+            ]
+        }
+    }
+    "us-east": {
+        auth: {
+            cluster: "us-east-auth"
+            ports: [
+                80,
+                443
+            ]
+        }
+        billing: {
+            cluster: "us-east-billing"
+            ports: [
+                80,
+                443
+            ]
+        }
+    }
+}
+regions: [
+    "us-east",
+    "eu-west"
+]
+services: [
+    "auth",
+    "billing"
+]

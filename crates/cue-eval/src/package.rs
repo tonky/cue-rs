@@ -3,9 +3,63 @@ use crate::eval::{EvalError, Evaluator};
 use crate::value::{StructValue, Value, ValueId};
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleInfo {
+    pub module: String,
+    pub language_version: Option<String>,
+}
+
 pub struct PackageLoader;
 
 impl PackageLoader {
+    /// Discovers the module root by searching parent directories for `cue.mod/module.cue`.
+    pub fn find_module_root<P: AsRef<Path>>(start_dir: P) -> Option<(PathBuf, ModuleInfo)> {
+        let mut curr = start_dir.as_ref().to_path_buf();
+        if curr.is_file() {
+            curr.pop();
+        }
+
+        loop {
+            let mod_cue = curr.join("cue.mod").join("module.cue");
+            if mod_cue.is_file()
+                && let Ok(content) = std::fs::read_to_string(&mod_cue)
+                && let Ok(source) = cue_syntax::parse_file(&content)
+            {
+                let mut mod_name = String::new();
+                let mut lang_ver = None;
+                for decl in &source.decls {
+                    if let Decl::Field(f) = decl {
+                        if f.label.name() == Some("module")
+                            && let cue_syntax::ast::Expr::String(s) = &f.value {
+                                mod_name = s.clone();
+                            }
+                        if f.label.name() == Some("language")
+                            && let cue_syntax::ast::Expr::Struct(st) = &f.value {
+                                for d in &st.decls {
+                                    if let Decl::Field(inner_f) = d
+                                        && inner_f.label.name() == Some("version")
+                                        && let cue_syntax::ast::Expr::String(v) = &inner_f.value {
+                                            lang_ver = Some(v.clone());
+                                        }
+                                }
+                            }
+                    }
+                }
+                if !mod_name.is_empty() {
+                    return Some((curr, ModuleInfo {
+                        module: mod_name,
+                        language_version: lang_ver,
+                    }));
+                }
+            }
+
+            if !curr.pop() {
+                break;
+            }
+        }
+        None
+    }
+
     /// Load and evaluate all .cue files in a directory as a unified package with multi-file hoisting.
     pub fn load_dir<P: AsRef<Path>>(dir: P) -> Result<(Evaluator, ValueId), EvalError> {
         let mut evaluator = Evaluator::new();
