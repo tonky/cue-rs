@@ -1,0 +1,19 @@
+Test text/template standard package
+-- in.cue --
+package test
+
+user: {
+    name:  "Kepler"
+    role:  "Astronomer"
+    epoch: 1609
+}
+
+msg: template.Execute("Welcome {{ .name }}, active as {{ .role }} since {{ .epoch }}!", user)
+
+-- out/eval --
+msg: "Welcome Kepler, active as Astronomer since 1609!"
+user: {
+    epoch: 1609
+    name: "Kepler"
+    role: "Astronomer"
+}

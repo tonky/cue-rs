@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **25 / 25 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **55 / 55 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **57 / 57 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -54,7 +54,7 @@ This document tracks the technical design, milestone progress, and conformance v
          │          ──► Numeric Type Constraints:
          │                • uint, uint8, uint16, uint32, uint64
          │                • int8, int16, int32, int64, float32, float64
-         │          ──► Standard Library Packages (21 packages active):
+         │          ──► Standard Library Packages (23 packages active):
          │                • strings (MinRunes, MaxRunes, Trim, TrimPrefix, Repeat)
          │                • math (Sqrt, Pow, Log, Sin, Cos, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, Abs)
          │                • math/bits (And, Or, Xor, Lsh, Rsh, OnesCount)
@@ -72,6 +72,8 @@ This document tracks the technical design, milestone progress, and conformance v
          │                • encoding/base32 (Encode, Decode)
          │                • encoding/base64 (Encode, Decode, RawURLEncode, RawURLDecode, URLEncode, URLDecode)
          │                • encoding/hex (Encode, Decode)
+         │                • text/tabwriter (Write)
+         │                • text/template (Execute)
          │                • crypto/sha256 (Sum)
          │                • crypto/md5 (Sum)
          │                • crypto/sha1 (Sum)
@@ -124,7 +126,7 @@ This document tracks the technical design, milestone progress, and conformance v
 
 ---
 
-### Phase 3: Advanced Language Features & 21 Standard Library Packages
+### Phase 3: Advanced Language Features & 23 Standard Library Packages
 - [x] **Pattern Constraints on Structs**:
   - [x] Support multiple simultaneous pattern constraints (`[=~"^STR_"]: string`, `[=~"^NUM_"]: int`).
   - [x] Pattern exemption in closed `#Definitions`.
@@ -140,7 +142,7 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `list[low:high]`, `list[low:]`, `list[:high]` range slicing.
   - [x] List concatenation (`l1 + l2`) and repetition (`[0] * 4`).
 - [x] **String Interpolation & Repetition**: `"prefix \(expr) suffix"` and `"x" * 10`.
-- [x] **21 Standard Library Packages**:
+- [x] **23 Standard Library Packages**:
   - [x] `strings`: `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `Repeat`.
   - [x] `math`: `Sqrt`, `Pow`, `Log`, `Sin`, `Cos`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Abs`.
   - [x] `math/bits`: `And`, `Or`, `Xor`, `Lsh`, `Rsh`, `OnesCount`.
@@ -158,6 +160,8 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `encoding/base32`: `Encode`, `Decode`.
   - [x] `encoding/base64`: `Encode`, `Decode`, `RawURLEncode`, `RawURLDecode`, `URLEncode`, `URLDecode`.
   - [x] `encoding/hex`: `Encode`, `Decode`.
+  - [x] `text/tabwriter`: `Write`.
+  - [x] `text/template`: `Execute`.
   - [x] `crypto/sha256`: `Sum`.
   - [x] `crypto/md5`: `Sum`.
   - [x] `crypto/sha1`: `Sum`.

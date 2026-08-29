@@ -1,0 +1,11 @@
+Test text/tabwriter standard package
+-- in.cue --
+package test
+
+tableData: "NAME\tVERSION\tSTATUS\nkepler\tv1.0\trunning\nantigravity\tv2.4\tactive"
+
+formatted: tabwriter.Write(tableData)
+
+-- out/eval --
+formatted: "NAME         VERSION  STATUS\nkepler       v1.0     running\nantigravity  v2.4     active"
+tableData: "NAME\tVERSION\tSTATUS\nkepler\tv1.0\trunning\nantigravity\tv2.4\tactive"
