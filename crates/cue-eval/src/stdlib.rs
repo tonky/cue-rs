@@ -959,6 +959,20 @@ pub fn call_stdlib_func(
                 }
             Err("time.Duration requires 1 duration string argument".to_string())
         }
+        ("time", "Unix") => {
+            if args.len() >= 2
+                && let (Some(Value::Int(sec_val)), Some(Value::Int(_nsec_val))) = (arena.get(args[0]), arena.get(args[1]))
+                && let Some(sec) = sec_val.to_i64() {
+                    return Ok(arena.string(format_unix_rfc3339(sec)));
+                }
+            Err("time.Unix requires (sec, nsec) integer arguments".to_string())
+        }
+        ("time", "Hour") => Ok(arena.int(3_600_000_000_000i64)),
+        ("time", "Minute") => Ok(arena.int(60_000_000_000i64)),
+        ("time", "Second") => Ok(arena.int(1_000_000_000i64)),
+        ("time", "Millisecond") => Ok(arena.int(1_000_000i64)),
+        ("time", "Microsecond") => Ok(arena.int(1_000i64)),
+        ("time", "Nanosecond") => Ok(arena.int(1i64)),
 
         // --- encoding/json & json package ---
         ("json" | "encoding/json", "Marshal") => {
@@ -1473,6 +1487,44 @@ pub fn call_stdlib_func(
                         }
                 }
             Err("strconv.ParseUint requires (string, base) arguments".to_string())
+        }
+        ("strconv", "FormatInt") => {
+            if args.len() >= 2
+                && let (Some(Value::Int(i)), Some(Value::Int(base_int))) = (arena.get(args[0]), arena.get(args[1])) {
+                    let base = base_int.to_u8().unwrap_or(10);
+                    let is_neg = i.sign() == num_bigint::Sign::Minus;
+                    let abs_i = i.abs();
+                    let formatted = match base {
+                        2 => format!("{abs_i:b}"),
+                        8 => format!("{abs_i:o}"),
+                        16 => format!("{abs_i:x}"),
+                        _ => format!("{abs_i}"),
+                    };
+                    let result = if is_neg { format!("-{formatted}") } else { formatted };
+                    return Ok(arena.string(result));
+                }
+            Err("strconv.FormatInt requires (int, base) arguments".to_string())
+        }
+        ("strconv", "Quote") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    let quoted = format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\t', "\\t"));
+                    return Ok(arena.string(quoted));
+                }
+            Err("strconv.Quote requires 1 string argument".to_string())
+        }
+        ("strconv", "Unquote") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    let trimmed = s.trim();
+                    if (trimmed.starts_with('"') && trimmed.ends_with('"')) || (trimmed.starts_with('`') && trimmed.ends_with('`')) {
+                        let inner = &trimmed[1..trimmed.len()-1];
+                        let unquoted = inner.replace("\\n", "\n").replace("\\t", "\t").replace("\\\"", "\"").replace("\\\\", "\\");
+                        return Ok(arena.string(unquoted));
+                    }
+                    return Err(format!("strconv.Unquote: invalid quoted string {s}"));
+                }
+            Err("strconv.Unquote requires 1 string argument".to_string())
         }
         ("strconv", "FormatUint") => {
             if args.len() >= 2
@@ -2269,4 +2321,25 @@ fn sha512_bytes(input: &[u8]) -> Vec<u8> {
 fn sha512_digest(input: &[u8]) -> String {
     let bytes = sha512_bytes(input);
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn format_unix_rfc3339(sec: i64) -> String {
+    let days = sec.div_euclid(86400);
+    let rem_sec = sec.rem_euclid(86400);
+    let hour = rem_sec / 3600;
+    let min = (rem_sec % 3600) / 60;
+    let s = rem_sec % 60;
+
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u32;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = (yoe as i64) + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y_adj = if m <= 2 { y + 1 } else { y };
+
+    format!("{y_adj:04}-{m:02}-{d:02}T{hour:02}:{min:02}:{s:02}Z")
 }

@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **27 / 27 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **70 / 70 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **72 / 72 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -70,9 +70,9 @@ This document tracks the technical design, milestone progress, and conformance v
          │                • list (MinItems, MaxItems, UniqueItems, Sort, FlattenN, Range, Take, Drop, Sum, Product, Avg, Min, Max)
          │                • regexp (Valid, Match, Find, FindAll, ReplaceAll)
          │                • struct (MinFields, MaxFields)
-         │                • time (Time RFC3339 validator, Duration parser)
+         │                • time (Time RFC3339 validator, Duration parser, Unix, Hour, Minute, Second, Millisecond, Microsecond, Nanosecond)
          │                • net (IPv4, IPv6, IP validators)
-         │                • strconv (Atoi, Itoa, ParseFloat, FormatFloat, ParseBool, FormatBool, ParseInt, ParseUint, FormatUint)
+         │                • strconv (Atoi, Itoa, ParseFloat, FormatFloat, ParseBool, FormatBool, ParseInt, ParseUint, FormatInt, FormatUint, Quote, Unquote)
          │                • uuid (Valid, Version)
          │                • encoding/json (Marshal, Unmarshal)
          │                • encoding/yaml (Marshal, Unmarshal)
@@ -150,7 +150,7 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] Chained multi-clause comprehensions (`for x in list if x > 2 if x < 6 { ... }`).
   - [x] `let` local bindings inside comprehension clauses.
   - [x] Cartesian product list comprehensions (`for i, x in src1 for j, y in src2 { ... }`).
-  - [x] List comprehensions with stdlib functions in conditions/expressions (`strings.HasPrefix`, `strings.ToUpper`).
+  - [x] List comprehensions with stdlib functions in conditions/expressions (`strings.HasPrefix`, `strings.ToUpper`, `strings.Replace`).
   - [x] Dynamic parenthesized label evaluation inside loops `("k_\(i)"): val`.
 - [x] **List Indexing & Slicing & Operations**:
   - [x] `list[i]` integer indexing and struct dynamic field indexing (`struct[expr]`).
@@ -165,9 +165,9 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `list`: `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `FlattenN`, `Range`, `Take`, `Drop`, `Sum`, `Product`, `Avg`, `Min`, `Max`.
   - [x] `regexp`: `Valid`, `Match`, `Find`, `FindAll`, `ReplaceAll`.
   - [x] `struct`: `MinFields`, `MaxFields`.
-  - [x] `time`: `Time` (RFC3339 validator), `Duration` (string duration to nanoseconds).
+  - [x] `time`: `Time` (RFC3339 validator), `Duration` (string duration to nanoseconds), `Unix` (timestamp formatter), `Hour`, `Minute`, `Second`, `Millisecond`, `Microsecond`, `Nanosecond`.
   - [x] `net`: `IPv4`, `IPv6`, `IP` address validators.
-  - [x] `strconv`: `Atoi`, `Itoa`, `ParseFloat`, `FormatFloat`, `ParseBool`, `FormatBool`, `ParseInt`, `ParseUint`, `FormatUint`.
+  - [x] `strconv`: `Atoi`, `Itoa`, `ParseFloat`, `FormatFloat`, `ParseBool`, `FormatBool`, `ParseInt`, `ParseUint`, `FormatInt`, `FormatUint`, `Quote`, `Unquote`.
   - [x] `uuid`: `Valid`, `Version`.
   - [x] `encoding/json`: `Marshal`, `Unmarshal`.
   - [x] `encoding/yaml`: `Marshal`, `Unmarshal`.

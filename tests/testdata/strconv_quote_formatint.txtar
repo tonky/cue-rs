@@ -1,0 +1,19 @@
+Test strconv.FormatInt, Quote, and Unquote
+-- in.cue --
+package test
+
+import "strconv"
+
+negHex: strconv.FormatInt(-255, 16)
+posBin: strconv.FormatInt(42, 2)
+posOct: strconv.FormatInt(511, 8)
+
+quotedText:   strconv.Quote("Hello\tWorld\n")
+unquotedText: strconv.Unquote(quotedText)
+
+-- out/eval --
+negHex: "-ff"
+posBin: "101010"
+posOct: "777"
+quotedText: "\"Hello\\tWorld\\n\""
+unquotedText: "Hello\tWorld\n"

@@ -1,0 +1,21 @@
+Test time.Unix and time duration constants
+-- in.cue --
+package test
+
+import "time"
+
+t1: time.Unix(1577836800, 0)
+t2: time.Unix(0, 0)
+
+durHour:   time.Hour
+durMin:    time.Minute
+durSec:    time.Second
+durMillis: time.Millisecond
+
+-- out/eval --
+durHour: 3600000000000
+durMillis: 1000000
+durMin: 60000000000
+durSec: 1000000000
+t1: "2020-01-01T00:00:00Z"
+t2: "1970-01-01T00:00:00Z"
