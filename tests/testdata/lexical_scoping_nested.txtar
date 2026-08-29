@@ -1,0 +1,20 @@
+Test lexical scoping in nested structs
+-- in.cue --
+package test
+
+val: 100
+
+nested: {
+    val: 20
+    innerSum: val + 5
+}
+
+total: val + nested.innerSum
+
+-- out/eval --
+nested: {
+    innerSum: 25
+    val: 20
+}
+total: 125
+val: 100

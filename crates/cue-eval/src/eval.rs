@@ -326,7 +326,9 @@ impl Evaluator {
             }
             Expr::Struct(s) => {
                 let mut struct_val = StructValue::new(false);
+                self.push_scope();
                 self.eval_decls_into_struct(&s.decls, &mut struct_val)?;
+                self.pop_scope();
                 Ok(self.arena.alloc(Value::Struct(struct_val)))
             }
             Expr::List(l) => {

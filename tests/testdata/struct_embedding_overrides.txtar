@@ -1,0 +1,28 @@
+Test struct embedding with default overrides
+-- in.cue --
+package test
+
+#BaseConfig: {
+    environment: *"development" | "production"
+    timeout:     *30 | int
+    debug:       *true | false
+}
+
+devApp: #BaseConfig
+
+prodApp: #BaseConfig & {
+    environment: "production"
+    debug:       false
+}
+
+-- out/eval --
+devApp: {
+    debug: true
+    environment: "development"
+    timeout: 30
+}
+prodApp: {
+    debug: false
+    environment: "production"
+    timeout: 30
+}
