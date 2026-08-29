@@ -1,0 +1,27 @@
+Test dynamic labels generated inside comprehensions
+-- in.cue --
+package test
+
+items: ["alpha", "beta", "gamma"]
+
+mapped: {
+    for i, item in items {
+        ("item_\(i)"): item
+        ("upper_\(i)"): strings.ToUpper(item)
+    }
+}
+
+-- out/eval --
+items: [
+    "alpha",
+    "beta",
+    "gamma"
+]
+mapped: {
+    item_0: "alpha"
+    item_1: "beta"
+    item_2: "gamma"
+    upper_0: "ALPHA"
+    upper_1: "BETA"
+    upper_2: "GAMMA"
+}

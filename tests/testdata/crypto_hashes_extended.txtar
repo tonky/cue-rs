@@ -1,0 +1,15 @@
+Test crypto/md5, crypto/sha1, and crypto/sha256 standard packages
+-- in.cue --
+package test
+
+plainText: "hello world"
+
+md5Hash:    md5.Sum(plainText)
+sha1Hash:   sha1.Sum(plainText)
+sha256Hash: sha256.Sum(plainText)
+
+-- out/eval --
+md5Hash: "5eb63bbbe01eeed093cb22bb8f5acdc3"
+plainText: "hello world"
+sha1Hash: "2aae6c35c94fcfb415dbe95f408b9ce91ee846ed"
+sha256Hash: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
