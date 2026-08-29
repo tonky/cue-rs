@@ -1,0 +1,51 @@
+Test complex struct-to-list mappings using comprehensions
+-- in.cue --
+package test
+
+services: {
+    auth: {
+        port: 8000
+        tier: "core"
+    }
+    billing: {
+        port: 8001
+        tier: "core"
+    }
+    metrics: {
+        port: 9090
+        tier: "infra"
+    }
+}
+
+coreServices: [
+    for name, svc in services if svc.tier == "core" {
+        service: name
+        port:    svc.port
+    }
+]
+
+-- out/eval --
+coreServices: [
+    {
+        port: 8000
+        service: "auth"
+    },
+    {
+        port: 8001
+        service: "billing"
+    }
+]
+services: {
+    auth: {
+        port: 8000
+        tier: "core"
+    }
+    billing: {
+        port: 8001
+        tier: "core"
+    }
+    metrics: {
+        port: 9090
+        tier: "infra"
+    }
+}

@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **25 / 25 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **41 / 41 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **43 / 43 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -26,7 +26,9 @@ This document tracks the technical design, milestone progress, and conformance v
 │   cue-syntax    │ ──► Logos Lexer + Automatic Semicolon Insertion (ASI)
 │   (AST & CST)   │ ──► Pratt Recursive Descent Parser + String Interpolation
 │   (Formatter)   │ ──► AST Pretty-Printer / Formatter (`cue-rs fmt`)
+│                 │ ──► Raw & Multi-Line Strings (`#"..."#`, `#"""..."""#`, `#'...'#`)
 │                 │ ──► List Comprehensions (`[ for x in src if x > 1 { x * 10 } ]`)
+│                 │ ──► Struct Body Comprehensions (`[ for k, v in map { name: k, val: v } ]`)
 │                 │ ──► Field Attributes Parser (`@protobuf`, `@json`, `@tag`)
 │                 │ ──► Single & Multi-Import Statements (`import s "strings"`)
 │                 │ ──► Dynamic & Interpolated Field Labels (`(key): val`, `"\(k)_env": val`)
@@ -80,8 +82,9 @@ This document tracks the technical design, milestone progress, and conformance v
 
 ### Phase 1: Lexer, Parser, Formatter & Test Harness
 - [x] **Logos Lexer**: Identifiers, Definitions (`#Def`), Hidden fields (`_hidden`), Bottom (`_|_`), Top (`_`), Numbers, Strings, and Operators.
+- [x] **Raw Strings & Multi-Line Literals**: `#""" ... """#`, `#"..."#`, and `#'...'#`.
 - [x] **Pratt Expression Parser**: Unification (`&`), Disjunction (`|`), Comparison operators (`==`, `!=`, `<`, `<=`, `>`, `>=`, `=~`, `!~`), Mixed integer/float arithmetic (`+`, `-`, `*`, `/`), Unary arithmetic/bounds, and Selectors/Indexing.
-- [x] **List Comprehensions**: `[ for x in src if x > 1 { x * 10 } ]` and `[ for i, x in src { i + x } ]`.
+- [x] **List Comprehensions**: `[ for x in src if x > 1 { x * 10 } ]`, `[ for i, x in src { i + x } ]`, and `[ for k, v in map { name: k, port: v.port } ]`.
 - [x] **Import Declarations & Aliases**: Single and multi-import blocks (`import ( s "strings", json "encoding/json" )`).
 - [x] **Dynamic & Interpolated Field Labels**: `(expr): val` and `"\(expr)_suffix": val`.
 - [x] **Field Aliases & Let Bindings**: `let Identifier = Expr` and `Alias = Expr`.

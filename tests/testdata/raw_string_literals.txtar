@@ -1,0 +1,10 @@
+Test raw string literals and raw multi-line strings
+-- in.cue --
+package test
+
+rawSimple: #"hello \n world"#
+rawRegex:  #"^[a-zA-Z0-9_\-\.]+$"#
+
+-- out/eval --
+rawRegex: "^[a-zA-Z0-9_\\-\\.]+$"
+rawSimple: "hello \\n world"

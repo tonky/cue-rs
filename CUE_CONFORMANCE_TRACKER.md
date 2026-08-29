@@ -10,15 +10,15 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 
 | Upstream Directory | Approx. Fixture Count | Focus Area | Our Rust Coverage |
 | :--- | :---: | :--- | :---: |
-| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, dynamic indexing, comprehensions, list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (41 fixtures)** |
-| `cue/testdata/compile/` | ~110 | Lexer, parser, Pratt expressions, AST construction, identifiers, attributes | **High (syntax 100% passing)** |
+| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, dynamic indexing, comprehensions, list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (43 fixtures)** |
+| `cue/testdata/compile/` | ~110 | Lexer, parser, Pratt expressions, AST construction, identifiers, attributes, raw string literals | **High (syntax 100% passing)** |
 | `cue/testdata/fulleval/` | ~85 | End-to-end multi-struct evaluation, closed definitions, exports | **Core subsets active** |
 | `cue/testdata/resolve/` | ~65 | Scoping, aliases, lexical lookup, forward references, selector chains, embeddings, default overrides | **Active** |
 | `cue/testdata/export/` | ~45 | Export to concrete JSON, YAML, text | **JSON & YAML export active** |
-| `cue/testdata/basic/` | ~35 | Primitive types, literals, mixed arithmetic, list/string arithmetic, comparisons, numeric types, hierarchy | **Active** |
+| `cue/testdata/basic/` | ~35 | Primitive types, literals, raw strings, mixed arithmetic, list/string arithmetic, comparisons, numeric types, hierarchy | **Active** |
 | `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, import aliases | **Active via `PackageLoader`** |
 | `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding`, `crypto`, `path`) | **14 core packages active** |
-| **Total** | **~580+ fixtures** | | **41 conformance suites (100% pass)** |
+| **Total** | **~580+ fixtures** | | **43 conformance suites (100% pass)** |
 
 ---
 
@@ -29,14 +29,14 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | Feature | Upstream Spec | Rust Implementation Status | Notes |
 | :--- | :---: | :---: | :--- |
 | **Lexer & Tokens** | ✅ | **100% Complete** | Definitions (`#Def`), hidden (`_foo`), bottom (`_|_`), top (`_`), bounds, literals. |
+| **Raw & Multi-line Strings** | ✅ | **100% Complete** | `#""" multi-line """#`, `#"raw\n"#`, and `#'bytes'#`. |
 | **Automatic Semicolon Insertion (ASI)** | ✅ | **100% Complete** | Newline-aware virtual comma insertion for multi-line expressions and pattern constraints. |
 | **Pratt Expression Parser** | ✅ | **100% Complete** | `\|` $\to$ `&` $\to$ comparisons $\to$ mixed arithmetic $\to$ unary (including `-x` and `!b`) $\to$ postfix calls/indexing/slicing. |
-| **List Comprehensions** | ✅ | **100% Complete** | `[ for x in src if x > 1 { x * 10 } ]` and `[ for i, x in src { i + x } ]`. |
+| **List Comprehensions** | ✅ | **100% Complete** | `[ for x in src if x > 1 { x * 10 } ]`, `[ for i, x in src { i + x } ]`, and struct-body mappings `[ for k, v in map { name: k, port: v.port } ]`. |
 | **Import Declarations & Aliases** | ✅ | **100% Complete** | Single/multi imports with aliases: `import ( s "strings", json "encoding/json" )`. |
 | **Dynamic & Interpolated Field Labels** | ✅ | **100% Complete** | `(key): val` and `"\(key)_suffix": val`. |
 | **Field Aliases & Let Declarations** | ✅ | **100% Complete** | `let Identifier = Expr` and `Alias = Expr`. |
 | **String Interpolation** | ✅ | **100% Complete** | Dynamic expressions: `"https://\(host):\(port)/\(path)"`. |
-| **Raw & Multi-line Strings** | ✅ | **100% Complete** | `#""" multi-line """#` and `#"raw\n"#`. |
 | **List Indexing & Slicing** | ✅ | **100% Complete** | `list[0]`, `list[1:4]`, `struct["key"]`, `struct[expr]`. |
 | **Chained Comprehensions** | ✅ | **100% Complete** | `for x in list if x > 2 if x < 6 { ... }`. |
 | **Field Attributes (`@tag()`)** | ✅ | **100% Complete** | Parsing `@protobuf(...)` / `@json(...)` attributes into AST and pretty-printing in formatter. |

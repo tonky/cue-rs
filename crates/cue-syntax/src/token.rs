@@ -150,21 +150,33 @@ pub enum Token {
     #[regex(r"[0-9][0-9_]*(\.[0-9][0-9_]*)?([eE][+-]?[0-9]+)?([KMGTP]i|[KMGTPk])?", |lex| lex.slice().to_string())]
     Number(String),
 
-    // String literals (single-line double quoted)
+    // String literals (single-line double quoted & raw)
+    #[regex(r##"#"([^"])*"#"##, |lex| {
+        let s = lex.slice();
+        s[2..s.len()-2].to_string()
+    })]
     #[regex(r#""([^"\\]|\\.)*""#, |lex| {
         let s = lex.slice();
         s[1..s.len()-1].to_string()
     })]
     StringLit(String),
 
-    // Multiline double quoted string: """ ... """
+    // Multiline double quoted string: """ ... """ & #""" ... """#
+    #[regex(r##"#"""(?:[^"]|"[^"]|""[^"])*"""#"##, |lex| {
+        let s = lex.slice();
+        s[4..s.len()-4].to_string()
+    })]
     #[regex(r#""""(?:[^"]|"[^"]|""[^"])*""""#, |lex| {
         let s = lex.slice();
         s[3..s.len()-3].to_string()
     })]
     MultiStringLit(String),
 
-    // Single quoted string (bytes)
+    // Single quoted string (bytes & raw bytes)
+    #[regex(r##"#'([^'])*'#"##, |lex| {
+        let s = lex.slice();
+        s[2..s.len()-2].to_string()
+    })]
     #[regex(r#"'([^'\\]|\\.)*'"#, |lex| {
         let s = lex.slice();
         s[1..s.len()-1].to_string()

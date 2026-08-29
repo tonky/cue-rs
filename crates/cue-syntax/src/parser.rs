@@ -614,9 +614,15 @@ impl<'a> Parser<'a> {
         }
 
         let expr = if self.match_token(&Token::LBrace) {
-            let inner_expr = self.parse_expr()?;
-            self.expect(Token::RBrace)?;
-            inner_expr
+            if self.is_label_ahead() {
+                let decls = self.parse_decls_until(|p| p.peek() == Some(&Token::RBrace))?;
+                self.expect(Token::RBrace)?;
+                Expr::Struct(StructLit { decls })
+            } else {
+                let inner_expr = self.parse_expr()?;
+                self.expect(Token::RBrace)?;
+                inner_expr
+            }
         } else {
             self.parse_expr()?
         };
