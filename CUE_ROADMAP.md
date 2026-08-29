@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **27 / 27 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **74 / 74 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **79 / 79 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -25,7 +25,8 @@ This document tracks the technical design, milestone progress, and conformance v
 ┌─────────────────┐
 │   cue-syntax    │ ──► Logos Lexer + Automatic Semicolon Insertion (ASI)
 │   (AST & CST)   │ ──► Pratt Recursive Descent Parser + String Interpolation
-│   (Formatter)   │ ──► AST Pretty-Printer / Formatter (`cue-rs fmt`)
+│   (Formatter)   │ ──► String Literal Escape Processing (`\"`, `\\`, `\n`, `\t`)
+│                 │ ──► AST Pretty-Printer / Formatter (`cue-rs fmt`)
 │                 │ ──► Binary (`0b1100`), Hex (`0x2A`), Octal (`0o755`) & SI Literals (`4Ki`, `10M`, `2G`)
 │                 │ ──► Raw & Multi-Line Strings (`#"..."#`, `#"""..."""#`, `#'...'#`)
 │                 │ ──► Dynamic Slicing (`items[1:]`, `items[:3]`, `items[2:5]`)
@@ -65,17 +66,17 @@ This document tracks the technical design, milestone progress, and conformance v
          │                • uint, uint8, uint16, uint32, uint64
          │                • int8, int16, int32, int64, float32, float64
          │          ──► Standard Library Packages (24 packages active):
-         │                • strings (MinRunes, MaxRunes, Trim, TrimPrefix, TrimSuffix, Repeat, Replace)
-         │                • math (Sqrt, Pow, Log, Sin, Cos, Tan, Asin, Acos, Atan, Atan2, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, Trunc, Abs)
+         │                • strings (MinRunes, MaxRunes, Trim, TrimPrefix, TrimSuffix, Repeat, Replace, Fields, Split, Index, LastIndex, Compare)
+         │                • math (Sqrt, Pow, Log, Log10, Log2, Hypot, Sin, Cos, Tan, Asin, Acos, Atan, Atan2, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, Trunc, Abs)
          │                • math/bits (And, Or, Xor, Lsh, Rsh, OnesCount)
-         │                • list (MinItems, MaxItems, UniqueItems, Sort, FlattenN, Range, Take, Drop, Sum, Product, Avg, Min, Max)
+         │                • list (MinItems, MaxItems, UniqueItems, Sort, FlattenN, Concat, Repeat, Range, Take, Drop, Sum, Product, Avg, Min, Max)
          │                • regexp (Valid, Match, Find, FindAll, ReplaceAll)
          │                • struct (MinFields, MaxFields)
          │                • time (Time RFC3339 validator, Duration parser, Unix, Hour, Minute, Second, Millisecond, Microsecond, Nanosecond)
          │                • net (IPv4, IPv6, IP validators)
          │                • strconv (Atoi, Itoa, ParseFloat, FormatFloat, ParseBool, FormatBool, ParseInt, ParseUint, FormatInt, FormatUint, Quote, Unquote)
          │                • uuid (Valid, Version)
-         │                • encoding/json (Marshal, Unmarshal)
+         │                • encoding/json (Marshal, Unmarshal, Indent, Compact)
          │                • encoding/yaml (Marshal, Unmarshal)
          │                • encoding/html (Escape, Unescape)
          │                • encoding/csv (Decode, Encode)
@@ -107,6 +108,7 @@ This document tracks the technical design, milestone progress, and conformance v
 ### Phase 1: Lexer, Parser, Formatter & Test Harness
 - [x] **Logos Lexer**: Identifiers, Definitions (`#Def`), Hidden fields (`_hidden`), Bottom (`_|_`), Top (`_`), Numbers (`0b`, `0x`, `0o`, SI suffixes), Strings, and Operators.
 - [x] **Raw Strings & Multi-Line Literals**: `#""" ... """#`, `#"..."#`, and `#'...'#`.
+- [x] **String Escape Processing**: Full support for `\"`, `\\`, `\n`, `\t`, `\r`, `\0`, `\f`, `\v` in string literals and interpolations.
 - [x] **Pratt Expression Parser**: Unification (`&`), Disjunction (`|`), Comparison operators (`==`, `!=`, `<`, `<=`, `>`, `>=`, `=~`, `!~`), Mixed integer/float arithmetic (`+`, `-`, `*`, `/`), Unary arithmetic/bounds, and Selectors/Indexing/Slicing.
 - [x] **Parenthesized Selector & Index Chaining**: `({ cluster: { id: "p1" } }).cluster.id` and `(["a", "b"])[1]`.
 - [x] **Cartesian & List Comprehensions**: `[ for x in src if x > 1 { x * 10 } ]`, `[ for i, x in s1 for j, y in s2 { ... } ]`, and struct-body mappings `[ for k, v in map { name: k, port: v.port } ]`.
@@ -158,20 +160,20 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `list[i]` integer indexing and struct dynamic field indexing (`struct[expr]`).
   - [x] Nested dynamic lookup chains (`database.environments[env].pool[tier]`).
   - [x] `list[low:high]`, `list[low:]`, `list[:high]` range slicing.
-  - [x] List concatenation (`l1 + l2`) and repetition (`[0] * 4`).
+  - [x] List concatenation (`l1 + l2`), repetition (`[0] * 4`), and `list.Concat` / `list.Repeat`.
 - [x] **String Interpolation & Repetition**: `"prefix \(expr) suffix"` and `"x" * 10`.
 - [x] **24 Standard Library Packages**:
-  - [x] `strings`: `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `Repeat`, `Replace`.
-  - [x] `math`: `Sqrt`, `Pow`, `Log`, `Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Trunc`, `Abs`.
+  - [x] `strings`: `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `Repeat`, `Replace`, `Fields`, `Split`, `Index`, `LastIndex`, `Compare`.
+  - [x] `math`: `Sqrt`, `Pow`, `Log`, `Log10`, `Log2`, `Hypot`, `Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Trunc`, `Abs`.
   - [x] `math/bits`: `And`, `Or`, `Xor`, `Lsh`, `Rsh`, `OnesCount`.
-  - [x] `list`: `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `FlattenN`, `Range`, `Take`, `Drop`, `Sum`, `Product`, `Avg`, `Min`, `Max`.
+  - [x] `list`: `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `FlattenN`, `Concat`, `Repeat`, `Range`, `Take`, `Drop`, `Sum`, `Product`, `Avg`, `Min`, `Max`.
   - [x] `regexp`: `Valid`, `Match`, `Find`, `FindAll`, `ReplaceAll`.
   - [x] `struct`: `MinFields`, `MaxFields`.
   - [x] `time`: `Time` (RFC3339 validator), `Duration` (string duration to nanoseconds), `Unix` (timestamp formatter), `Hour`, `Minute`, `Second`, `Millisecond`, `Microsecond`, `Nanosecond`.
   - [x] `net`: `IPv4`, `IPv6`, `IP` address validators.
   - [x] `strconv`: `Atoi`, `Itoa`, `ParseFloat`, `FormatFloat`, `ParseBool`, `FormatBool`, `ParseInt`, `ParseUint`, `FormatInt`, `FormatUint`, `Quote`, `Unquote`.
   - [x] `uuid`: `Valid`, `Version`.
-  - [x] `encoding/json`: `Marshal`, `Unmarshal`.
+  - [x] `encoding/json`: `Marshal`, `Unmarshal`, `Indent`, `Compact`.
   - [x] `encoding/yaml`: `Marshal`, `Unmarshal`.
   - [x] `encoding/html`: `Escape`, `Unescape`.
   - [x] `encoding/csv`: `Decode`, `Encode`.

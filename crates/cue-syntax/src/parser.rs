@@ -917,7 +917,7 @@ impl<'a> Parser<'a> {
 
     fn parse_string_lit(s: String) -> Result<Expr, ParseError> {
         if !s.contains(r"\(") {
-            return Ok(Expr::String(s));
+            return Ok(Expr::String(unescape_cue_string(&s)));
         }
 
         let mut parts = Vec::new();
@@ -926,7 +926,7 @@ impl<'a> Parser<'a> {
         while let Some(start) = cur.find(r"\(") {
             let prefix = &cur[..start];
             if !prefix.is_empty() {
-                parts.push(InterpolationPart::Lit(prefix.to_string()));
+                parts.push(InterpolationPart::Lit(unescape_cue_string(prefix)));
             }
 
             let after_open = &cur[start + 2..];
@@ -953,15 +953,41 @@ impl<'a> Parser<'a> {
                 parts.push(InterpolationPart::Expr(Box::new(expr)));
                 cur = &after_open[end + 1..];
             } else {
-                parts.push(InterpolationPart::Lit(cur.to_string()));
+                parts.push(InterpolationPart::Lit(unescape_cue_string(cur)));
                 break;
             }
         }
 
         if !cur.is_empty() {
-            parts.push(InterpolationPart::Lit(cur.to_string()));
+            parts.push(InterpolationPart::Lit(unescape_cue_string(cur)));
         }
 
         Ok(Expr::Interpolation { parts })
     }
+}
+
+fn unescape_cue_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some('r') => out.push('\r'),
+                Some('0') => out.push('\0'),
+                Some('"') => out.push('"'),
+                Some('\\') => out.push('\\'),
+                Some('/') => out.push('/'),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }

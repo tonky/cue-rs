@@ -1,0 +1,29 @@
+Test strings.Fields and strings.Split
+-- in.cue --
+package test
+
+import "strings"
+
+words: strings.Fields("  antigravity   kepler   engine  v2  ")
+csvParts: strings.Split("alpha,beta,gamma,delta", ",")
+colonParts: strings.Split("user:role:admin:read", ":")
+
+-- out/eval --
+colonParts: [
+    "user",
+    "role",
+    "admin",
+    "read"
+]
+csvParts: [
+    "alpha",
+    "beta",
+    "gamma",
+    "delta"
+]
+words: [
+    "antigravity",
+    "kepler",
+    "engine",
+    "v2"
+]

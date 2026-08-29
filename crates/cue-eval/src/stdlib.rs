@@ -401,6 +401,66 @@ pub fn call_stdlib_func(
                 }
             Err("strings.Replace requires (s, old, new, n) arguments".to_string())
         }
+        ("strings", "Fields") => {
+            let words_opt = if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    Some(s.split_whitespace().map(|w| w.to_string()).collect::<Vec<String>>())
+                } else {
+                    None
+                };
+            if let Some(words) = words_opt {
+                let elems: Vec<ValueId> = words.into_iter().map(|w| arena.string(w)).collect();
+                return Ok(arena.alloc(Value::List {
+                    elements: elems,
+                    ellipsis: None,
+                }));
+            }
+            Err("strings.Fields requires 1 string argument".to_string())
+        }
+        ("strings", "Split") => {
+            let parts_opt = if args.len() >= 2
+                && let (Some(Value::String(s)), Some(Value::String(sep))) = (arena.get(args[0]), arena.get(args[1])) {
+                    Some(s.split(sep.as_str()).map(|part| part.to_string()).collect::<Vec<String>>())
+                } else {
+                    None
+                };
+            if let Some(parts) = parts_opt {
+                let elems: Vec<ValueId> = parts.into_iter().map(|p| arena.string(p)).collect();
+                return Ok(arena.alloc(Value::List {
+                    elements: elems,
+                    ellipsis: None,
+                }));
+            }
+            Err("strings.Split requires (string, sep) arguments".to_string())
+        }
+        ("strings", "Index") => {
+            if args.len() >= 2
+                && let (Some(Value::String(s)), Some(Value::String(sub))) = (arena.get(args[0]), arena.get(args[1])) {
+                    let idx = s.find(sub.as_str()).map(|i| i as i64).unwrap_or(-1);
+                    return Ok(arena.int(idx));
+                }
+            Err("strings.Index requires (string, substr) arguments".to_string())
+        }
+        ("strings", "LastIndex") => {
+            if args.len() >= 2
+                && let (Some(Value::String(s)), Some(Value::String(sub))) = (arena.get(args[0]), arena.get(args[1])) {
+                    let idx = s.rfind(sub.as_str()).map(|i| i as i64).unwrap_or(-1);
+                    return Ok(arena.int(idx));
+                }
+            Err("strings.LastIndex requires (string, substr) arguments".to_string())
+        }
+        ("strings", "Compare") => {
+            if args.len() >= 2
+                && let (Some(Value::String(a)), Some(Value::String(b))) = (arena.get(args[0]), arena.get(args[1])) {
+                    let cmp = match a.cmp(b) {
+                        std::cmp::Ordering::Less => -1,
+                        std::cmp::Ordering::Equal => 0,
+                        std::cmp::Ordering::Greater => 1,
+                    };
+                    return Ok(arena.int(cmp));
+                }
+            Err("strings.Compare requires (a, b) string arguments".to_string())
+        }
         ("strings", "MinRunes") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(i)) = arena.get(arg0)
@@ -569,6 +629,46 @@ pub fn call_stdlib_func(
                     }
             }
             Err("math.Log requires 1 number argument".to_string())
+        }
+        ("math", "Log10") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.log10()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(n) = i.to_f64() {
+                        return Ok(arena.float(n.log10()));
+                    }
+            }
+            Err("math.Log10 requires 1 number argument".to_string())
+        }
+        ("math", "Log2") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.log2()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(n) = i.to_f64() {
+                        return Ok(arena.float(n.log2()));
+                    }
+            }
+            Err("math.Log2 requires 1 number argument".to_string())
+        }
+        ("math", "Hypot") => {
+            if args.len() >= 2 {
+                let p = match arena.get(args[0]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                let q = match arena.get(args[1]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let (Some(p_val), Some(q_val)) = (p, q) {
+                    return Ok(arena.float(p_val.hypot(q_val)));
+                }
+            }
+            Err("math.Hypot requires 2 number arguments (p, q)".to_string())
         }
         ("math", "Sin") => {
             if let Some(&arg0) = args.first() {
@@ -815,6 +915,37 @@ pub fn call_stdlib_func(
                 }
             Err("list.FlattenN requires 1 list and 1 depth integer argument".to_string())
         }
+        ("list", "Concat") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::List { elements, .. }) = arena.get(arg0) {
+                    let mut concatenated = Vec::new();
+                    for &sub_id in elements {
+                        if let Some(Value::List { elements: sub_elems, .. }) = arena.get(sub_id) {
+                            concatenated.extend_from_slice(sub_elems);
+                        } else {
+                            concatenated.push(sub_id);
+                        }
+                    }
+                    return Ok(arena.alloc(Value::List {
+                        elements: concatenated,
+                        ellipsis: None,
+                    }));
+                }
+            Err("list.Concat requires 1 list of lists argument".to_string())
+        }
+        ("list", "Repeat") => {
+            if args.len() >= 2
+                && let Some(Value::Int(count_val)) = arena.get(args[1])
+                && let Some(count) = count_val.to_usize() {
+                    let elem = args[0];
+                    let repeated = vec![elem; count];
+                    return Ok(arena.alloc(Value::List {
+                        elements: repeated,
+                        ellipsis: None,
+                    }));
+                }
+            Err("list.Repeat requires (elem, count) arguments".to_string())
+        }
         ("list", "Sum") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::List { elements, .. }) = arena.get(arg0) {
@@ -1001,6 +1132,25 @@ pub fn call_stdlib_func(
                     return Ok(json_to_value(arena, parsed));
                 }
             Err("json.Unmarshal requires 1 JSON string argument".to_string())
+        }
+        ("json" | "encoding/json", "Indent") => {
+            if args.len() >= 3
+                && let (Some(Value::String(s)), Some(Value::String(prefix)), Some(Value::String(_indent))) =
+                    (arena.get(args[0]), arena.get(args[1]), arena.get(args[2])) {
+                        let parsed: serde_json::Value = serde_json::from_str(s).map_err(|e| format!("json.Indent failed: {e}"))?;
+                        let indented = serde_json::to_string_pretty(&parsed).map_err(|e| format!("json.Indent failed: {e}"))?;
+                        return Ok(arena.string(format!("{prefix}{indented}")));
+                    }
+            Err("json.Indent requires (json_string, prefix, indent) arguments".to_string())
+        }
+        ("json" | "encoding/json", "Compact") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    let parsed: serde_json::Value = serde_json::from_str(s).map_err(|e| format!("json.Compact failed: {e}"))?;
+                    let compact = serde_json::to_string(&parsed).map_err(|e| format!("json.Compact failed: {e}"))?;
+                    return Ok(arena.string(compact));
+                }
+            Err("json.Compact requires 1 JSON string argument".to_string())
         }
 
         // --- encoding/yaml & yaml package ---

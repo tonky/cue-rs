@@ -1,0 +1,21 @@
+Test strings.Index, LastIndex, and Compare
+-- in.cue --
+package test
+
+import "strings"
+
+idxFirst: strings.Index("antigravity-kepler-engine", "kepler")
+idxMissing: strings.Index("antigravity-kepler-engine", "voyager")
+idxLast: strings.LastIndex("foo-bar-baz-bar-qux", "bar")
+
+cmpLess: strings.Compare("abc", "def")
+cmpEqual: strings.Compare("kepler", "kepler")
+cmpGreater: strings.Compare("xyz", "abc")
+
+-- out/eval --
+cmpEqual: 0
+cmpGreater: 1
+cmpLess: -1
+idxFirst: 12
+idxLast: 12
+idxMissing: -1

@@ -1,0 +1,17 @@
+Test math.Hypot, Log10, and Log2
+-- in.cue --
+package test
+
+import "math"
+
+h1: math.Hypot(3.0, 4.0)
+h2: math.Hypot(5, 12)
+
+l10: math.Log10(1000.0)
+l2:  math.Log2(1024.0)
+
+-- out/eval --
+h1: 5.0
+h2: 13.0
+l10: 3.0
+l2: 10.0

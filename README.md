@@ -2,7 +2,7 @@
 
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Clippy Clean](https://img.shields.io/badge/clippy-0%20warnings-brightgreen.svg)](https://github.com/rust-lang/rust-clippy)
-[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-74%2F74%20passing-brightgreen.svg)](tests/testdata/)
+[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-79%2F79%20passing-brightgreen.svg)](tests/testdata/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
 
 A high-performance, modular implementation of the [CUE configuration language](https://cuelang.org/) in **Rust (2024 Edition)**.
@@ -25,7 +25,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
 │   └── cue-cli/                # CLI binary (`cue-rs eval`, `cue-rs vet`, `cue-rs fmt`, `cue-rs test-txtar`)
 ├── tests/
-│   └── testdata/               # 74 conformance .txtar suites (100% passing)
+│   └── testdata/               # 79 conformance .txtar suites (100% passing)
 └── examples/                   # Sample CUE schemas and data files
 ```
 
@@ -38,9 +38,12 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 - **Inter-Arena Deep Value Cloning (`clone_value_into`)**: Recursive value allocation across isolated package evaluation arenas.
 - **Parenthesized Selector & Index Chaining**: `({ cluster: { id: "p1" } }).cluster.id`, `(["alpha", "beta"])[1]`, `(inlineMap["prod"]).ports[1]`.
 - **Comprehensions with `let` Bindings & Dynamic Labels**: `for k, v in map let uk = strings.ToUpper(k) if strings.HasPrefix(uk, "P_") { (strings.ToLower(uk)): v }`.
+- **String Functions & Escape Sequences**: `strings.Fields(s)`, `strings.Split(s, sep)`, `strings.Index(s, sub)`, `strings.LastIndex(s, sub)`, `strings.Compare(a, b)`, and full escape sequence support (`\"`, `\\`, `\n`, `\t`).
+- **JSON Formatting & Minification**: `encoding/json.Indent(s, prefix, indent)`, `encoding/json.Compact(s)`.
+- **Extended Math Package**: `math.Hypot(p, q)`, `math.Log10(x)`, `math.Log2(x)`, `math.Trunc(f)`, `math.Round(f)`, `math.Floor(f)`, `math.Ceil(f)`.
+- **List Aggregation & Manipulation**: `list.Concat([l1, l2])`, `list.Repeat(elem, count)`, `list.Sum`, `list.Product`, `list.Avg`, `list.Min`, `list.Max`.
 - **Time Package Unix Formatter & Constants**: `time.Unix(sec, nsec)`, `time.Hour`, `time.Minute`, `time.Second`, `time.Millisecond`, `time.Microsecond`, `time.Nanosecond`.
 - **Strconv String Escaping & Arbitrary Base Formatting**: `strconv.FormatInt(i, base)`, `strconv.Quote(s)`, `strconv.Unquote(s)`.
-- **Math Package Functions**: `math.Trunc(f)`, `math.Round(f)`, `math.Floor(f)`, `math.Ceil(f)`, `math.MultipleOf(n)`, `math.Sqrt(x)`, `math.Pow(x, y)`.
 - **Struct Embedding with Disjunction Selection**: Embedded disjunction schemas (`#Prod | #Dev`) resolving via field unification.
 - **Comprehensions with Standard Library Filtering**: Iteration with stdlib functions in conditions (`strings.HasPrefix`) and mapping expressions (`strings.ToUpper`, `strings.TrimPrefix`, `strings.Replace`).
 - **Optional Field Validation & Export Filtering**: Validates `field?: type` when present and omits unpopulated optional fields from JSON/YAML export.
@@ -87,7 +90,7 @@ cargo test --workspace
 # Run clippy lint verification (0 warnings)
 cargo clippy --workspace --all-targets
 
-# Run the 74 txtar conformance suites (74/74 passing)
+# Run the 79 txtar conformance suites (79/79 passing)
 cargo run -p cue-cli -- test-txtar tests/testdata
 ```
 

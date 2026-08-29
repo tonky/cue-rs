@@ -1,0 +1,12 @@
+Test json.Indent and json.Compact
+-- in.cue --
+package test
+
+import "encoding/json"
+
+minified: json.Compact("{\n  \"name\": \"kepler\",\n  \"port\": 8080\n}")
+indented: json.Indent("{\"name\":\"kepler\",\"port\":8080}", "", "  ")
+
+-- out/eval --
+indented: "{\n  \"name\": \"kepler\",\n  \"port\": 8080\n}"
+minified: "{\"name\":\"kepler\",\"port\":8080}"
