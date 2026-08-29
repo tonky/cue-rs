@@ -1,0 +1,43 @@
+Test struct embedding with disjunction schema selection
+-- in.cue --
+package test
+
+#ProdConfig: {
+    environment: "production"
+    replicas:    5
+    tls:         true
+}
+
+#DevConfig: {
+    environment: "development"
+    replicas:    1
+    tls:         false
+}
+
+#AppEnv: #ProdConfig | #DevConfig
+
+prodApp: {
+    #AppEnv
+    name: "billing"
+    environment: "production"
+}
+
+devApp: {
+    #AppEnv
+    name: "billing"
+    environment: "development"
+}
+
+-- out/eval --
+devApp: {
+    environment: "development"
+    name: "billing"
+    replicas: 1
+    tls: false
+}
+prodApp: {
+    environment: "production"
+    name: "billing"
+    replicas: 5
+    tls: true
+}

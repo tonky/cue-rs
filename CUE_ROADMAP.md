@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **26 / 26 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **66 / 66 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **68 / 68 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -43,8 +43,9 @@ This document tracks the technical design, milestone progress, and conformance v
 ┌─────────────────┐
 │    cue-eval     │ ──► SlotMap Arena Allocation with Transactional Trail
 │ (Lattice Engine)│ ──► Greatest Lower Bound Unification (⊓) with Disjunction Rollback
-│ (PackageLoader) │ ──► Optional Field Validation (`field?: type`) & Export Filtering
-└────────┬────────┘ ──► Hidden Field (`_secret`) & Definition (`#Schema`) Export Filtering
+│ (PackageLoader) │ ──► Struct Embedding with Disjunction Schema Selection (`#Prod | #Dev`)
+└────────┬────────┘ ──► Optional Field Validation (`field?: type`) & Export Filtering
+         │          ──► Hidden Field (`_secret`) & Definition (`#Schema`) Export Filtering
          │          ──► Discriminated Union Struct Disjunctions (`#Circle | #Rectangle`)
          │          ──► Multi-Pass Fixpoint Relaxation Loop for Order-Independent Reference Graphs
          │          ──► Mixed Int/Float Numeric Bounds (`number & >0` matching `12.5` float and `10` int)
@@ -146,7 +147,7 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] Chained multi-clause comprehensions (`for x in list if x > 2 if x < 6 { ... }`).
   - [x] `let` local bindings inside comprehension clauses.
   - [x] Cartesian product list comprehensions (`for i, x in src1 for j, y in src2 { ... }`).
-  - [x] List comprehensions producing evaluated lists (`[ for x in raw if x > 2 { x * 10 } ]`).
+  - [x] List comprehensions with stdlib functions in conditions/expressions (`strings.HasPrefix`, `strings.ToUpper`).
   - [x] Dynamic parenthesized label evaluation inside loops `("k_\(i)"): val`.
 - [x] **List Indexing & Slicing & Operations**:
   - [x] `list[i]` integer indexing and struct dynamic field indexing (`struct[expr]`).
@@ -183,7 +184,7 @@ This document tracks the technical design, milestone progress, and conformance v
 ---
 
 ### Phase 4: Scoping, Multi-file Packages & Rust Procedural Macro
-- [x] **Struct Embedding**: Embedding `#Definitions` and structs into target structs (`{ #Base, extra: 1 }`).
+- [x] **Struct Embedding with Disjunction Selection**: Embedding `#Disjunction` schemas into target structs (`{ #ProdConfig | #DevConfig, name: "app" }`).
 - [x] **Lexical Scope Isolation**: Nested struct evaluations maintain private environments with outermost scope resolution.
 - [x] **Multi-Pass Reference Relaxation**: Fixpoint loop for forward and mutually derived struct fields (`a: b + 1, b: c * 2, c: 10`).
 - [x] **Multi-File Package Loader (`PackageLoader`)**: Evaluates all `.cue` files in a directory as a unified package environment with cross-file definition hoisting and import aliasing.

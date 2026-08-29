@@ -1,0 +1,34 @@
+Test stdlib functions inside list comprehensions
+-- in.cue --
+package test
+
+import "strings"
+
+rawKeys: [
+    "v1_alpha",
+    "legacy_old",
+    "v1_beta",
+    "temp_test",
+    "v1_prod",
+]
+
+cleanedV1: [
+    for k in rawKeys
+    if strings.HasPrefix(k, "v1_") {
+        strings.ToUpper(strings.TrimPrefix(k, "v1_"))
+    }
+]
+
+-- out/eval --
+cleanedV1: [
+    "ALPHA",
+    "BETA",
+    "PROD"
+]
+rawKeys: [
+    "v1_alpha",
+    "legacy_old",
+    "v1_beta",
+    "temp_test",
+    "v1_prod"
+]
