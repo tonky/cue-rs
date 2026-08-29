@@ -10,15 +10,15 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 
 | Upstream Directory | Approx. Fixture Count | Focus Area | Our Rust Coverage |
 | :--- | :---: | :--- | :---: |
-| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, comprehensions, list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (39 fixtures)** |
+| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, dynamic indexing, comprehensions, list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (41 fixtures)** |
 | `cue/testdata/compile/` | ~110 | Lexer, parser, Pratt expressions, AST construction, identifiers, attributes | **High (syntax 100% passing)** |
 | `cue/testdata/fulleval/` | ~85 | End-to-end multi-struct evaluation, closed definitions, exports | **Core subsets active** |
-| `cue/testdata/resolve/` | ~65 | Scoping, aliases, lexical lookup, forward references, embeddings, default overrides | **Active** |
+| `cue/testdata/resolve/` | ~65 | Scoping, aliases, lexical lookup, forward references, selector chains, embeddings, default overrides | **Active** |
 | `cue/testdata/export/` | ~45 | Export to concrete JSON, YAML, text | **JSON & YAML export active** |
 | `cue/testdata/basic/` | ~35 | Primitive types, literals, mixed arithmetic, list/string arithmetic, comparisons, numeric types, hierarchy | **Active** |
 | `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, import aliases | **Active via `PackageLoader`** |
 | `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding`, `crypto`, `path`) | **14 core packages active** |
-| **Total** | **~580+ fixtures** | | **39 conformance suites (100% pass)** |
+| **Total** | **~580+ fixtures** | | **41 conformance suites (100% pass)** |
 
 ---
 
@@ -37,7 +37,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **Field Aliases & Let Declarations** | ✅ | **100% Complete** | `let Identifier = Expr` and `Alias = Expr`. |
 | **String Interpolation** | ✅ | **100% Complete** | Dynamic expressions: `"https://\(host):\(port)/\(path)"`. |
 | **Raw & Multi-line Strings** | ✅ | **100% Complete** | `#""" multi-line """#` and `#"raw\n"#`. |
-| **List Indexing & Slicing** | ✅ | **100% Complete** | `list[0]`, `list[1:4]`, `struct["key"]`. |
+| **List Indexing & Slicing** | ✅ | **100% Complete** | `list[0]`, `list[1:4]`, `struct["key"]`, `struct[expr]`. |
 | **Chained Comprehensions** | ✅ | **100% Complete** | `for x in list if x > 2 if x < 6 { ... }`. |
 | **Field Attributes (`@tag()`)** | ✅ | **100% Complete** | Parsing `@protobuf(...)` / `@json(...)` attributes into AST and pretty-printing in formatter. |
 | **AST Formatter (`fmt`)** | ✅ | **100% Complete** | Canonical pretty-printer with indentation, list comprehensions, and operator spacing. |
@@ -56,6 +56,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **Hierarchical Type Subsumption** | ✅ | **100% Complete** | `number & int & uint & uint16 & 8080` $\to$ `8080`, `number & float & float64` $\to$ `float64`. |
 | **Lexical Scope Isolation** | ✅ | **100% Complete** | Nested struct scopes isolated with parent lookup chaining. |
 | **Multi-Pass Reference Relaxation** | ✅ | **100% Complete** | Order-independent forward references and mutual derivations (`a: b + 1, b: c * 2, c: 10`). |
+| **Dynamic Struct Indexing** | ✅ | **100% Complete** | `struct[expr]` dynamic field lookup with variable expressions. |
 | **Mixed Int/Float & List Arithmetic** | ✅ | **100% Complete** | `10 + 2.5 -> 12.5`, `[1, 2] + [3, 4] -> [1, 2, 3, 4]`, `[0] * 4 -> [0, 0, 0, 0]`, `"x" * 5`. |
 | **Open List Ellipsis Unification** | ✅ | **100% Complete** | `[...int] & [1, 2, 3]` and open list schema matching. |
 | **Disjunction Meet Algebra** | ✅ | **100% Complete** | `(A | B) & (C | D)` cross-product branch unification. |

@@ -1,0 +1,21 @@
+Test dynamic struct indexing with variable keys
+-- in.cue --
+package test
+
+ports: {
+    dev:     3000
+    staging: 8000
+    prod:    8080
+}
+
+currentEnv: "prod"
+activePort: ports[currentEnv]
+
+-- out/eval --
+activePort: 8080
+currentEnv: "prod"
+ports: {
+    dev: 3000
+    prod: 8080
+    staging: 8000
+}

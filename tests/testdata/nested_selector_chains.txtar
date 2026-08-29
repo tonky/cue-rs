@@ -1,0 +1,27 @@
+Test multi-level nested selector chains
+-- in.cue --
+package test
+
+cluster: {
+    ingress: {
+        tls: {
+            enabled: true
+            secret:  "cert-prod-alpha"
+        }
+    }
+}
+
+certSecret: cluster.ingress.tls.secret
+tlsActive:  cluster.ingress.tls.enabled
+
+-- out/eval --
+certSecret: "cert-prod-alpha"
+cluster: {
+    ingress: {
+        tls: {
+            enabled: true
+            secret: "cert-prod-alpha"
+        }
+    }
+}
+tlsActive: true

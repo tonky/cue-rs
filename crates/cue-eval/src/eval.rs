@@ -560,11 +560,14 @@ impl Evaluator {
                     }
                 }
                 let val_id = self.eval_expr(expr)?;
+                if let Some(Value::Bottom(_)) = self.arena.get(val_id) {
+                    return Ok(val_id);
+                }
                 if let Some(Value::Struct(s)) = self.arena.get(val_id) {
                     if let Some(f) = s.fields.get(field).or_else(|| s.definitions.get(field)) {
                         Ok(f.val)
                     } else {
-                        Ok(self.arena.bottom(format!("field '{field}' not found")))
+                        Ok(self.arena.bottom(format!("unresolved reference '{field}'")))
                     }
                 } else {
                     Ok(self.arena.bottom("selector on non-struct"))
@@ -572,7 +575,13 @@ impl Evaluator {
             }
             Expr::Index { expr, index } => {
                 let target_id = self.eval_expr(expr)?;
+                if let Some(Value::Bottom(_)) = self.arena.get(target_id) {
+                    return Ok(target_id);
+                }
                 let index_id = self.eval_expr(index)?;
+                if let Some(Value::Bottom(_)) = self.arena.get(index_id) {
+                    return Ok(index_id);
+                }
 
                 match (self.arena.get(target_id), self.arena.get(index_id)) {
                     (Some(Value::List { elements, .. }), Some(Value::Int(i))) => {
@@ -593,7 +602,7 @@ impl Evaluator {
                         if let Some(f) = s.fields.get(key).or_else(|| s.definitions.get(key)) {
                             Ok(f.val)
                         } else {
-                            Ok(self.arena.bottom(format!("struct key '{key}' not found")))
+                            Ok(self.arena.bottom(format!("unresolved reference '{key}'")))
                         }
                     }
                     _ => Ok(self.arena.bottom("indexing unsupported on target")),

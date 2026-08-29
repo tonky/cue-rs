@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **25 / 25 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **39 / 39 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **41 / 41 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -38,7 +38,8 @@ This document tracks the technical design, milestone progress, and conformance v
 │    cue-eval     │ ──► SlotMap Arena Allocation with Transactional Trail
 │ (Lattice Engine)│ ──► Greatest Lower Bound Unification (⊓) with Disjunction Rollback
 │ (PackageLoader) │ ──► Multi-Pass Fixpoint Relaxation Loop for Order-Independent Reference Graphs
-└────────┬────────┘ ──► Lexical Scope Isolation for Nested Struct Blocks
+└────────┬────────┘ ──► Dynamic Struct Indexing (`ports[env]`) & Nested Selector Chains
+         │          ──► Lexical Scope Isolation for Nested Struct Blocks
          │          ──► Open List Ellipsis Unification (`[...int]` ⊓ `[1, 2, 3]`)
          │          ──► Hierarchical Type Subsumption (`number` ⊓ `int` ⊓ `uint16` ⊓ `8080`)
          │          ──► Disjunction Meet Algebra (`(A | B) ⊓ (C | D)`)
@@ -120,7 +121,7 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] List comprehensions producing evaluated lists (`[ for x in raw if x > 2 { x * 10 } ]`).
   - [x] Dynamic parenthesized label evaluation `(expr): value`.
 - [x] **List Indexing & Slicing & Operations**:
-  - [x] `list[i]` integer indexing and struct dynamic field indexing.
+  - [x] `list[i]` integer indexing and struct dynamic field indexing (`struct[expr]`).
   - [x] `list[low:high]` range slicing.
   - [x] List concatenation (`l1 + l2`) and repetition (`[0] * 4`).
 - [x] **String Interpolation & Repetition**: `"prefix \(expr) suffix"` and `"x" * 10`.
