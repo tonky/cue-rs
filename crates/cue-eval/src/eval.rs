@@ -715,6 +715,63 @@ impl Evaluator {
 
     fn eval_number(&mut self, n_str: &str) -> Result<ValueId, EvalError> {
         let cleaned = n_str.replace('_', "");
+
+        // Hex, binary, octal
+        if (cleaned.starts_with("0x") || cleaned.starts_with("0X"))
+            && let Ok(i) = i64::from_str_radix(&cleaned[2..], 16)
+        {
+            return Ok(self.arena.int(i));
+        } else if (cleaned.starts_with("0b") || cleaned.starts_with("0B"))
+            && let Ok(i) = i64::from_str_radix(&cleaned[2..], 2)
+        {
+            return Ok(self.arena.int(i));
+        } else if (cleaned.starts_with("0o") || cleaned.starts_with("0O"))
+            && let Ok(i) = i64::from_str_radix(&cleaned[2..], 8)
+        {
+            return Ok(self.arena.int(i));
+        }
+
+        // SI multipliers
+        let multiplier: Option<i64> = if cleaned.ends_with("Ki") {
+            Some(1024)
+        } else if cleaned.ends_with("Mi") {
+            Some(1024 * 1024)
+        } else if cleaned.ends_with("Gi") {
+            Some(1024 * 1024 * 1024)
+        } else if cleaned.ends_with("Ti") {
+            Some(1024 * 1024 * 1024 * 1024)
+        } else if cleaned.ends_with("Pi") {
+            Some(1024 * 1024 * 1024 * 1024 * 1024)
+        } else if cleaned.ends_with('k') || cleaned.ends_with('K') {
+            Some(1000)
+        } else if cleaned.ends_with('M') {
+            Some(1_000_000)
+        } else if cleaned.ends_with('G') {
+            Some(1_000_000_000)
+        } else if cleaned.ends_with('T') {
+            Some(1_000_000_000_000)
+        } else if cleaned.ends_with('P') {
+            Some(1_000_000_000_000_000)
+        } else {
+            None
+        };
+
+        if let Some(mult) = multiplier {
+            let num_part = if cleaned.ends_with("Ki")
+                || cleaned.ends_with("Mi")
+                || cleaned.ends_with("Gi")
+                || cleaned.ends_with("Ti")
+                || cleaned.ends_with("Pi")
+            {
+                &cleaned[..cleaned.len() - 2]
+            } else {
+                &cleaned[..cleaned.len() - 1]
+            };
+            if let Ok(base) = num_part.parse::<i64>() {
+                return Ok(self.arena.int(base * mult));
+            }
+        }
+
         if (cleaned.contains('.') || cleaned.contains('e') || cleaned.contains('E'))
             && let Ok(f) = cleaned.parse::<f64>() {
                 return Ok(self.arena.float(f));

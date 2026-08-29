@@ -1,0 +1,13 @@
+Test encoding/html standard package
+-- in.cue --
+package test
+
+rawSnippet: "<div>Hello & welcome to \"Antigravity\"!</div>"
+
+escaped: html.Escape(rawSnippet)
+unescaped: html.Unescape(escaped)
+
+-- out/eval --
+escaped: "&lt;div&gt;Hello &amp; welcome to &quot;Antigravity&quot;!&lt;/div&gt;"
+rawSnippet: "<div>Hello & welcome to \"Antigravity\"!</div>"
+unescaped: "<div>Hello & welcome to \"Antigravity\"!</div>"

@@ -552,6 +552,56 @@ pub fn call_stdlib_func(
             Err("math.MultipleOf requires 1 integer argument".to_string())
         }
 
+        // --- math/bits & bits package ---
+        ("bits" | "math/bits", "And") => {
+            if args.len() >= 2
+                && let (Some(Value::Int(a)), Some(Value::Int(b))) = (arena.get(args[0]), arena.get(args[1]))
+                && let (Some(a_i), Some(b_i)) = (a.to_i64(), b.to_i64()) {
+                    return Ok(arena.int(a_i & b_i));
+                }
+            Err("bits.And requires 2 integer arguments".to_string())
+        }
+        ("bits" | "math/bits", "Or") => {
+            if args.len() >= 2
+                && let (Some(Value::Int(a)), Some(Value::Int(b))) = (arena.get(args[0]), arena.get(args[1]))
+                && let (Some(a_i), Some(b_i)) = (a.to_i64(), b.to_i64()) {
+                    return Ok(arena.int(a_i | b_i));
+                }
+            Err("bits.Or requires 2 integer arguments".to_string())
+        }
+        ("bits" | "math/bits", "Xor") => {
+            if args.len() >= 2
+                && let (Some(Value::Int(a)), Some(Value::Int(b))) = (arena.get(args[0]), arena.get(args[1]))
+                && let (Some(a_i), Some(b_i)) = (a.to_i64(), b.to_i64()) {
+                    return Ok(arena.int(a_i ^ b_i));
+                }
+            Err("bits.Xor requires 2 integer arguments".to_string())
+        }
+        ("bits" | "math/bits", "Lsh") => {
+            if args.len() >= 2
+                && let (Some(Value::Int(x)), Some(Value::Int(n))) = (arena.get(args[0]), arena.get(args[1]))
+                && let (Some(x_i), Some(n_u)) = (x.to_i64(), n.to_u32()) {
+                    return Ok(arena.int(x_i << n_u));
+                }
+            Err("bits.Lsh requires 1 integer and 1 shift count argument".to_string())
+        }
+        ("bits" | "math/bits", "Rsh") => {
+            if args.len() >= 2
+                && let (Some(Value::Int(x)), Some(Value::Int(n))) = (arena.get(args[0]), arena.get(args[1]))
+                && let (Some(x_i), Some(n_u)) = (x.to_i64(), n.to_u32()) {
+                    return Ok(arena.int(x_i >> n_u));
+                }
+            Err("bits.Rsh requires 1 integer and 1 shift count argument".to_string())
+        }
+        ("bits" | "math/bits", "OnesCount") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::Int(x)) = arena.get(arg0)
+                && let Some(x_u) = x.to_u64() {
+                    return Ok(arena.int(x_u.count_ones() as i64));
+                }
+            Err("bits.OnesCount requires 1 non-negative integer argument".to_string())
+        }
+
         // --- list package ---
         ("list", "MinItems") => {
             if let Some(&arg0) = args.first()
@@ -977,6 +1027,35 @@ pub fn call_stdlib_func(
                 return Ok(arena.string(csv_text));
             }
             Err("csv.Encode requires 1 list argument".to_string())
+        }
+
+        // --- encoding/html package ---
+        ("html" | "encoding/html", "Escape") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    let escaped = s
+                        .replace('&', "&amp;")
+                        .replace('<', "&lt;")
+                        .replace('>', "&gt;")
+                        .replace('"', "&quot;")
+                        .replace('\'', "&#39;");
+                    return Ok(arena.string(escaped));
+                }
+            Err("html.Escape requires 1 string argument".to_string())
+        }
+        ("html" | "encoding/html", "Unescape") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    let unescaped = s
+                        .replace("&quot;", "\"")
+                        .replace("&#39;", "'")
+                        .replace("&apos;", "'")
+                        .replace("&lt;", "<")
+                        .replace("&gt;", ">")
+                        .replace("&amp;", "&");
+                    return Ok(arena.string(unescaped));
+                }
+            Err("html.Unescape requires 1 string argument".to_string())
         }
 
         // --- crypto/sha256 package ---

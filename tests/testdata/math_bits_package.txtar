@@ -1,0 +1,18 @@
+Test math/bits standard package
+-- in.cue --
+package test
+
+andVal: bits.And(0b1100, 0b1010)
+orVal:  bits.Or(0b1100, 0b1010)
+xorVal: bits.Xor(0b1100, 0b1010)
+lshVal: bits.Lsh(1, 4)
+rshVal: bits.Rsh(64, 2)
+ones:   bits.OnesCount(0b11101)
+
+-- out/eval --
+andVal: 8
+lshVal: 16
+ones: 4
+orVal: 14
+rshVal: 16
+xorVal: 6
