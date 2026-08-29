@@ -1,0 +1,34 @@
+Test list concatenation, list repetition, and string repetition
+-- in.cue --
+package test
+
+l1: [1, 2]
+l2: [3, 4]
+concatList: l1 + l2
+
+repeatedList: [0] * 4
+
+repeatedStr: "=" * 10
+
+-- out/eval --
+concatList: [
+    1,
+    2,
+    3,
+    4
+]
+l1: [
+    1,
+    2
+]
+l2: [
+    3,
+    4
+]
+repeatedList: [
+    0,
+    0,
+    0,
+    0
+]
+repeatedStr: "=========="

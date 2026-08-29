@@ -1,0 +1,19 @@
+Test uuid standard library package (Valid, Version)
+-- in.cue --
+package test
+
+#Device: {
+    id:      string & uuid.Valid
+    version: int
+}
+
+myDevice: #Device & {
+    id:      "123e4567-e89b-42d3-a456-426614174000"
+    version: uuid.Version(id)
+}
+
+-- out/eval --
+myDevice: {
+    id: "123e4567-e89b-42d3-a456-426614174000"
+    version: 4
+}

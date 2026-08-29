@@ -774,6 +774,60 @@ impl Evaluator {
             (BinaryOp::Add, Value::String(a), Value::String(b)) => {
                 self.arena.string(format!("{a}{b}"))
             }
+            (BinaryOp::Mul, Value::String(a), Value::Int(b)) => {
+                if let Some(count) = b.to_usize() {
+                    self.arena.string(a.repeat(count))
+                } else {
+                    self.arena.bottom("invalid string repetition factor")
+                }
+            }
+            (BinaryOp::Mul, Value::Int(a), Value::String(b)) => {
+                if let Some(count) = a.to_usize() {
+                    self.arena.string(b.repeat(count))
+                } else {
+                    self.arena.bottom("invalid string repetition factor")
+                }
+            }
+
+            // List Concatenation and Repetition
+            (
+                BinaryOp::Add,
+                Value::List {
+                    elements: mut e1,
+                    ellipsis: _,
+                },
+                Value::List {
+                    elements: e2,
+                    ellipsis,
+                },
+            ) => {
+                e1.extend(e2);
+                self.arena.alloc(Value::List {
+                    elements: e1,
+                    ellipsis,
+                })
+            }
+            (
+                BinaryOp::Mul,
+                Value::List {
+                    elements: e1,
+                    ellipsis,
+                },
+                Value::Int(b),
+            ) => {
+                if let Some(count) = b.to_usize() {
+                    let mut repeated = Vec::new();
+                    for _ in 0..count {
+                        repeated.extend(e1.clone());
+                    }
+                    self.arena.alloc(Value::List {
+                        elements: repeated,
+                        ellipsis,
+                    })
+                } else {
+                    self.arena.bottom("invalid list repetition factor")
+                }
+            }
 
             // Comparisons
             (BinaryOp::Equal, Value::Int(a), Value::Int(b)) => self.arena.bool(a == b),

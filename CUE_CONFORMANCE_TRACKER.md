@@ -10,15 +10,15 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 
 | Upstream Directory | Approx. Fixture Count | Focus Area | Our Rust Coverage |
 | :--- | :---: | :--- | :---: |
-| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, comprehensions, list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (37 fixtures)** |
+| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, open lists, dynamic labels, comprehensions, list comprehensions, lexical scoping, forward references, cycle detection | **Core subsets active (39 fixtures)** |
 | `cue/testdata/compile/` | ~110 | Lexer, parser, Pratt expressions, AST construction, identifiers, attributes | **High (syntax 100% passing)** |
 | `cue/testdata/fulleval/` | ~85 | End-to-end multi-struct evaluation, closed definitions, exports | **Core subsets active** |
 | `cue/testdata/resolve/` | ~65 | Scoping, aliases, lexical lookup, forward references, embeddings, default overrides | **Active** |
 | `cue/testdata/export/` | ~45 | Export to concrete JSON, YAML, text | **JSON & YAML export active** |
-| `cue/testdata/basic/` | ~35 | Primitive types, literals, mixed arithmetic, comparisons, numeric types, hierarchy | **Active** |
+| `cue/testdata/basic/` | ~35 | Primitive types, literals, mixed arithmetic, list/string arithmetic, comparisons, numeric types, hierarchy | **Active** |
 | `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, import aliases | **Active via `PackageLoader`** |
-| `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `list`, `struct`, `time`, `net`, `strconv`, `regexp`, `encoding`, `crypto`, `path`) | **13 core packages active** |
-| **Total** | **~580+ fixtures** | | **37 conformance suites (100% pass)** |
+| `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding`, `crypto`, `path`) | **14 core packages active** |
+| **Total** | **~580+ fixtures** | | **39 conformance suites (100% pass)** |
 
 ---
 
@@ -56,7 +56,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **Hierarchical Type Subsumption** | ✅ | **100% Complete** | `number & int & uint & uint16 & 8080` $\to$ `8080`, `number & float & float64` $\to$ `float64`. |
 | **Lexical Scope Isolation** | ✅ | **100% Complete** | Nested struct scopes isolated with parent lookup chaining. |
 | **Multi-Pass Reference Relaxation** | ✅ | **100% Complete** | Order-independent forward references and mutual derivations (`a: b + 1, b: c * 2, c: 10`). |
-| **Mixed Int/Float Arithmetic** | ✅ | **100% Complete** | `10 + 2.5 -> 12.5`, `15.0 / 3 -> 5.0`, `10 < 20 -> true`. |
+| **Mixed Int/Float & List Arithmetic** | ✅ | **100% Complete** | `10 + 2.5 -> 12.5`, `[1, 2] + [3, 4] -> [1, 2, 3, 4]`, `[0] * 4 -> [0, 0, 0, 0]`, `"x" * 5`. |
 | **Open List Ellipsis Unification** | ✅ | **100% Complete** | `[...int] & [1, 2, 3]` and open list schema matching. |
 | **Disjunction Meet Algebra** | ✅ | **100% Complete** | `(A | B) & (C | D)` cross-product branch unification. |
 | **Multi-Constraint Bounds** | ✅ | **100% Complete** | `int & >0 & <65535 & !=8080`, regex bounds `=~ "^app\\."`. |
@@ -81,6 +81,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **`time`** | 🟢 **100%** | `time.Time` (RFC3339 validator), `time.Duration` (parsing duration to nanoseconds) | `time.Format`, `time.Parse` |
 | **`net`** | 🟢 **100%** | `net.IPv4`, `net.IPv6`, `net.IP` | `net.ParseIP` |
 | **`strconv`** | 🟢 **100%** | `strconv.Atoi`, `strconv.Itoa`, `strconv.ParseFloat`, `strconv.FormatFloat` | `strconv.ParseBool` |
+| **`uuid`** | 🟢 **100%** | `uuid.Valid`, `uuid.Version` | `uuid.URN` |
 | **`encoding/json`** | 🟢 **100%** | `json.Marshal`, `json.Unmarshal` | `json.Validate` |
 | **`encoding/yaml`** | 🟢 **100%** | `yaml.Marshal`, `yaml.Unmarshal` | `yaml.Validate` |
 | **`encoding/base64`** | 🟢 **100%** | `base64.Encode`, `base64.Decode` | — |

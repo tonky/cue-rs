@@ -19,6 +19,7 @@ pub enum StdlibValidator {
     NetIPv4,
     NetIPv6,
     NetIP,
+    UuidValid,
 }
 
 impl StdlibValidator {
@@ -180,8 +181,37 @@ impl StdlibValidator {
                 }
                 _ => Err("net.IP validator expects a string value".to_string()),
             },
+            StdlibValidator::UuidValid => match val {
+                Value::String(s) => {
+                    if is_valid_uuid(s) {
+                        Ok(())
+                    } else {
+                        Err(format!("string \"{s}\" is not a valid UUID"))
+                    }
+                }
+                _ => Err("uuid.Valid validator expects a string value".to_string()),
+            },
         }
     }
+}
+
+fn is_valid_uuid(s: &str) -> bool {
+    if s.len() != 36 {
+        return false;
+    }
+    let bytes = s.as_bytes();
+    if bytes[8] != b'-' || bytes[13] != b'-' || bytes[18] != b'-' || bytes[23] != b'-' {
+        return false;
+    }
+    for (i, &b) in bytes.iter().enumerate() {
+        if i == 8 || i == 13 || i == 18 || i == 23 {
+            continue;
+        }
+        if !b.is_ascii_hexdigit() {
+            return false;
+        }
+    }
+    true
 }
 
 /// Helper function to convert a CUE ValueId to serde_json::Value for stdlib marshaling.
@@ -979,6 +1009,28 @@ pub fn call_stdlib_func(
                 }
             }
             Err("strconv.FormatFloat requires 1 float argument".to_string())
+        }
+
+        // --- uuid package ---
+        ("uuid", "Valid") => {
+            let dummy = arena.alloc(Value::Top);
+            Ok(arena.alloc(Value::BuiltinValidator {
+                name: "uuid.Valid".to_string(),
+                target: dummy,
+            }))
+        }
+        ("uuid", "Version") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    if is_valid_uuid(s) {
+                        let ver_char = s.chars().nth(14).unwrap_or('0');
+                        let ver = ver_char.to_digit(10).unwrap_or(0) as i64;
+                        return Ok(arena.int(ver));
+                    } else {
+                        return Err(format!("uuid.Version: invalid UUID string \"{s}\""));
+                    }
+                }
+            Err("uuid.Version requires 1 string argument".to_string())
         }
 
         _ => Err(format!("unknown stdlib function: {pkg}.{func_name}")),

@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **25 / 25 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **37 / 37 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **39 / 39 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -42,11 +42,12 @@ This document tracks the technical design, milestone progress, and conformance v
          │          ──► Open List Ellipsis Unification (`[...int]` ⊓ `[1, 2, 3]`)
          │          ──► Hierarchical Type Subsumption (`number` ⊓ `int` ⊓ `uint16` ⊓ `8080`)
          │          ──► Disjunction Meet Algebra (`(A | B) ⊓ (C | D)`)
+         │          ──► List Concatenation (`[1, 2] + [3, 4]`) and List/String Repetition (`"x" * 3`, `[0] * 4`)
          │          ──► Multi-File Package Hoisting, Import Aliasing & Cycle Solver
          │          ──► Numeric Type Constraints:
          │                • uint, uint8, uint16, uint32, uint64
          │                • int8, int16, int32, int64, float32, float64
-         │          ──► Standard Library Packages (13 packages active):
+         │          ──► Standard Library Packages (14 packages active):
          │                • strings (MinRunes, MaxRunes, Trim, TrimPrefix, Repeat)
          │                • math (Sqrt, Pow, Log, Sin, Cos, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, Abs)
          │                • list (MinItems, MaxItems, UniqueItems, Sort, FlattenN, Range, Take, Drop)
@@ -55,6 +56,7 @@ This document tracks the technical design, milestone progress, and conformance v
          │                • time (Time RFC3339 validator, Duration parser)
          │                • net (IPv4, IPv6, IP validators)
          │                • strconv (Atoi, Itoa, ParseFloat, FormatFloat)
+         │                • uuid (Valid, Version)
          │                • encoding/json (Marshal, Unmarshal)
          │                • encoding/yaml (Marshal, Unmarshal)
          │                • encoding/base64 (Encode, Decode)
@@ -107,7 +109,7 @@ This document tracks the technical design, milestone progress, and conformance v
 
 ---
 
-### Phase 3: Advanced Language Features & 13 Standard Library Packages
+### Phase 3: Advanced Language Features & 14 Standard Library Packages
 - [x] **Pattern Constraints on Structs**:
   - [x] Support `[Expr]: Type` constraint evaluation (e.g. `[=~"^app\\.kubernetes\\.io/"]: string`).
   - [x] Pattern exemption in closed `#Definitions`.
@@ -117,11 +119,12 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] Chained multi-clause comprehensions (`for x in list if x > 2 if x < 6 { ... }`).
   - [x] List comprehensions producing evaluated lists (`[ for x in raw if x > 2 { x * 10 } ]`).
   - [x] Dynamic parenthesized label evaluation `(expr): value`.
-- [x] **List Indexing & Slicing**:
+- [x] **List Indexing & Slicing & Operations**:
   - [x] `list[i]` integer indexing and struct dynamic field indexing.
   - [x] `list[low:high]` range slicing.
-- [x] **String Interpolation**: Full parsing and evaluation of `"prefix \(expr) suffix"`.
-- [x] **13 Standard Library Packages**:
+  - [x] List concatenation (`l1 + l2`) and repetition (`[0] * 4`).
+- [x] **String Interpolation & Repetition**: `"prefix \(expr) suffix"` and `"x" * 10`.
+- [x] **14 Standard Library Packages**:
   - [x] `strings`: `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `Repeat`.
   - [x] `math`: `Sqrt`, `Pow`, `Log`, `Sin`, `Cos`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Abs`.
   - [x] `list`: `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `FlattenN`, `Range`, `Take`, `Drop`.
@@ -130,6 +133,7 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `time`: `Time` (RFC3339 validator), `Duration` (string duration to nanoseconds).
   - [x] `net`: `IPv4`, `IPv6`, `IP` address validators.
   - [x] `strconv`: `Atoi`, `Itoa`, `ParseFloat`, `FormatFloat`.
+  - [x] `uuid`: `Valid`, `Version`.
   - [x] `encoding/json`: `Marshal`, `Unmarshal`.
   - [x] `encoding/yaml`: `Marshal`, `Unmarshal`.
   - [x] `encoding/base64`: `Encode`, `Decode`.

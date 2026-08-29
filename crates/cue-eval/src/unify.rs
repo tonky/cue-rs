@@ -846,6 +846,12 @@ fn unify_validator(
                     } else {
                         return arena.bottom(format!("string \"{s}\" is not a valid IP address"));
                     }
+                } else if name == "uuid.Valid" {
+                    if is_valid_uuid_str(s) {
+                        return candidate_id;
+                    } else {
+                        return arena.bottom(format!("string \"{s}\" is not a valid UUID"));
+                    }
                 }
             arena.bottom(format!("validator '{name}' failed on string \"{s}\""))
         }
@@ -935,4 +941,23 @@ fn unify_validator(
         }
         _ => arena.bottom(format!("validator '{name}' is not applicable to value")),
     }
+}
+
+fn is_valid_uuid_str(s: &str) -> bool {
+    if s.len() != 36 {
+        return false;
+    }
+    let bytes = s.as_bytes();
+    if bytes[8] != b'-' || bytes[13] != b'-' || bytes[18] != b'-' || bytes[23] != b'-' {
+        return false;
+    }
+    for (i, &b) in bytes.iter().enumerate() {
+        if i == 8 || i == 13 || i == 18 || i == 23 {
+            continue;
+        }
+        if !b.is_ascii_hexdigit() {
+            return false;
+        }
+    }
+    true
 }
