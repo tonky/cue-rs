@@ -18,6 +18,63 @@ pub enum ParseError {
     LexerError { span: Range<usize> },
 }
 
+impl ParseError {
+    /// Formats the error as a rich, rustc-style source code snippet with file, line, col, and caret pointers.
+    pub fn format_with_source(&self, source: &str, file_name: Option<&str>) -> String {
+        let (span, message) = match self {
+            ParseError::UnexpectedEof => {
+                let end = source.len();
+                (end..end, "unexpected end of file".to_string())
+            }
+            ParseError::UnexpectedToken {
+                found,
+                expected,
+                span,
+            } => (
+                span.clone(),
+                format!("unexpected token '{found}', expected {expected}"),
+            ),
+            ParseError::LexerError { span } => {
+                (span.clone(), "syntax error: unrecognized token".to_string())
+            }
+        };
+
+        let mut line_num: usize = 1;
+        let mut col_num: usize = 1;
+        let mut line_start: usize = 0;
+
+        for (i, ch) in source.char_indices() {
+            if i >= span.start {
+                break;
+            }
+            if ch == '\n' {
+                line_num += 1;
+                col_num = 1;
+                line_start = i + 1;
+            } else {
+                col_num += 1;
+            }
+        }
+
+        let line_end = source[line_start..]
+            .find('\n')
+            .map(|pos| line_start + pos)
+            .unwrap_or(source.len());
+
+        let line_content = &source[line_start..line_end];
+        let file_prefix = file_name.unwrap_or("<input>");
+
+        let caret_indent = " ".repeat(col_num.saturating_sub(1));
+        let span_len = span.end.saturating_sub(span.start).max(1);
+        let carets = "^".repeat(span_len);
+
+        format!(
+            "error: {message}\n  --> {file_prefix}:{line_num}:{col_num}\n   |\n{:4} | {line_content}\n   | {caret_indent}{carets}",
+            line_num
+        )
+    }
+}
+
 pub struct Parser<'a> {
     tokens: Vec<(Token, Range<usize>)>,
     pos: usize,

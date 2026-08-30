@@ -210,6 +210,61 @@ impl StdlibValidator {
     }
 }
 
+/// Standard signature for native CUE built-in standard library functions.
+pub type StdlibFn = fn(&mut ValueArena, &[ValueId]) -> Result<ValueId, String>;
+
+/// Known standard library package prefixes.
+pub const KNOWN_PACKAGES: &[&str] = &[
+    "strings",
+    "math",
+    "math/bits",
+    "bits",
+    "list",
+    "struct",
+    "time",
+    "net",
+    "path",
+    "path/filepath",
+    "regexp",
+    "strconv",
+    "uuid",
+    "tabwriter",
+    "text/tabwriter",
+    "template",
+    "text/template",
+    "crypto/sha256",
+    "sha256",
+    "crypto/sha512",
+    "sha512",
+    "crypto/md5",
+    "md5",
+    "crypto/sha1",
+    "sha1",
+    "crypto/hmac",
+    "hmac",
+    "encoding/json",
+    "json",
+    "encoding/yaml",
+    "yaml",
+    "encoding/base64",
+    "base64",
+    "encoding/base32",
+    "base32",
+    "encoding/hex",
+    "hex",
+    "encoding/csv",
+    "csv",
+    "encoding/html",
+    "html",
+    "encoding/toml",
+    "toml",
+];
+
+/// Returns true if the package path is a recognized built-in standard library package.
+pub fn is_known_package(pkg: &str) -> bool {
+    KNOWN_PACKAGES.contains(&pkg)
+}
+
 /// Dispatch CUE standard library function calls to modular domain packages.
 pub fn call_stdlib_func(
     arena: &mut ValueArena,
@@ -243,3 +298,4 @@ pub fn call_stdlib_func(
         _ => Err(format!("unknown stdlib package: {pkg}")),
     }
 }
+

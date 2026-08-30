@@ -2,11 +2,13 @@ pub mod ast;
 pub mod formatter;
 pub mod parser;
 pub mod token;
+pub mod visitor;
 
 pub use ast::*;
 pub use formatter::format_file;
 pub use parser::{ParseError, Parser};
 pub use token::Token;
+pub use visitor::{Folder, Visitor};
 
 /// Parse a CUE source string into a `SourceFile`.
 pub fn parse_file(source: &str) -> Result<SourceFile, ParseError> {
@@ -101,5 +103,15 @@ mod tests {
         } else {
             panic!("Expected list");
         }
+    }
+
+    #[test]
+    fn test_rich_diagnostic_formatting() {
+        let bad_src = "a: 1\nb: @invalid\nc: 3";
+        let err = parse_file(bad_src).unwrap_err();
+        let diag = err.format_with_source(bad_src, Some("config.cue"));
+        assert!(diag.contains("--> config.cue:2:"));
+        assert!(diag.contains("b: @invalid"));
+        assert!(diag.contains("^"));
     }
 }

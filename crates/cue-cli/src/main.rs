@@ -63,7 +63,7 @@ fn main() -> Result<()> {
             let content = std::fs::read_to_string(&file)
                 .with_context(|| format!("Failed to read file {}", file.display()))?;
             let source_file = cue_syntax::parse_file(&content)
-                .map_err(|e| anyhow::anyhow!("Parse error: {e}"))?;
+                .map_err(|e| anyhow::anyhow!("{}", e.format_with_source(&content, Some(&file.to_string_lossy()))))?;
             let formatted = cue_syntax::format_file(&source_file);
 
             if write {
@@ -84,7 +84,13 @@ fn main() -> Result<()> {
             } else {
                 let content = std::fs::read_to_string(&file)
                     .with_context(|| format!("Failed to read file {}", file.display()))?;
-                eval_to_json(&content)
+                let source_file = cue_syntax::parse_file(&content)
+                    .map_err(|e| anyhow::anyhow!("{}", e.format_with_source(&content, Some(&file.to_string_lossy()))))?;
+                let mut evaluator = cue_eval::Evaluator::new();
+                let root_id = evaluator.eval_file(&source_file)
+                    .map_err(|e| anyhow::anyhow!("CUE evaluation failed: {e}"))?;
+                evaluator
+                    .to_json(root_id)
                     .map_err(|e| anyhow::anyhow!("CUE evaluation failed: {e}"))?
             };
 

@@ -6,7 +6,7 @@ pub mod value;
 
 pub use eval::{EvalError, Evaluator};
 pub use package::PackageLoader;
-pub use stdlib::StdlibValidator;
+pub use stdlib::{is_known_package, StdlibFn, StdlibValidator};
 pub use unify::unify;
 pub use value::{BottomReason, BoundOp, StructValue, TypeKind, Value, ValueArena, ValueId};
 
@@ -366,5 +366,14 @@ mod tests {
         assert_eq!(json_val["server"]["port"], 8080);
 
         let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_stdlib_package_registry() {
+        assert!(is_known_package("strings"));
+        assert!(is_known_package("crypto/sha256"));
+        assert!(is_known_package("encoding/json"));
+        assert!(is_known_package("math/bits"));
+        assert!(!is_known_package("nonexistent/pkg"));
     }
 }
