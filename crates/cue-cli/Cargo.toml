@@ -2,7 +2,12 @@
 name = "cue-cli"
 version = "0.1.0"
 edition = "2024"
-description = "Command-line interface for the Rust CUE evaluator"
+description = "Command-line interface and tool for the Rust CUE evaluator and validator"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tonky/cue-rs"
+readme = "README.md"
+keywords = ["cue", "cuelang", "cli", "validator", "evaluator"]
+categories = ["command-line-utilities", "config"]
 
 [[bin]]
 name = "cue-rs"

@@ -3,6 +3,11 @@ name = "cue-test-harness"
 version = "0.1.0"
 edition = "2024"
 description = "Txtar test archive parser and test runner for CUE upstream conformance suites"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tonky/cue-rs"
+readme = "README.md"
+keywords = ["cue", "cuelang", "txtar", "testing", "conformance"]
+categories = ["development-tools::testing"]
 
 [dependencies]
 thiserror = "2.0"

@@ -2,7 +2,12 @@
 name = "cue-derive"
 version = "0.1.0"
 edition = "2024"
-description = "Procedural derive macro for CUE schema validation in Rust"
+description = "Procedural derive macro for CUE schema validation in Rust structs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tonky/cue-rs"
+readme = "README.md"
+keywords = ["cue", "cuelang", "derive", "validation", "schema"]
+categories = ["development-tools::procedural-macro-helpers", "config"]
 
 [lib]
 proc-macro = true

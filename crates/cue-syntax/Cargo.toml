@@ -2,7 +2,12 @@
 name = "cue-syntax"
 version = "0.1.0"
 edition = "2024"
-description = "Lexer, AST, and Parser for the CUE configuration language"
+description = "Lexer, AST, Pratt parser, and code formatter for the CUE configuration language"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tonky/cue-rs"
+readme = "README.md"
+keywords = ["cue", "cuelang", "parser", "ast", "formatter"]
+categories = ["parser-implementations", "config"]
 
 [dependencies]
 logos = "0.14"

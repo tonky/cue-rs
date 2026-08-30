@@ -56,44 +56,152 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 
 ---
 
-## 3. Quick Start
+## 3. Usage & Quick Start
 
-### Build & Test
+### Add to Your Rust Project
 
-```bash
-# Build the entire workspace
-cargo build
+Add `cue-eval` and `cue-derive` to your `Cargo.toml`:
 
-# Run all workspace unit tests (27/27 passing)
-cargo test --workspace
-
-# Run clippy lint verification (0 warnings)
-cargo clippy --workspace --all-targets
-
-# Run the 118 txtar conformance suites (118/118 passing)
-cargo run -p cue-cli -- test-txtar tests/testdata
+```toml
+[dependencies]
+cue-eval = { git = "https://github.com/tonky/cue-rs" }
+cue-derive = { git = "https://github.com/tonky/cue-rs" }
+# or when published on crates.io:
+# cue-eval = "0.1"
+# cue-derive = "0.1"
 ```
 
-### CLI Commands (`cue-rs`)
+### Rust API Examples
 
-```bash
-# 1. Evaluate a CUE file (JSON or YAML format)
-cargo run -p cue-cli -- eval examples/data.cue --format json
-cargo run -p cue-cli -- eval examples/data.cue --format yaml
+#### 1. Evaluate CUE to JSON / YAML
+```rust
+use cue_eval::eval_to_json;
 
-# 2. Validate (vet) a data file against a schema definition
-cargo run -p cue-cli -- vet examples/schema.cue examples/data.cue
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cue_src = r#"
+        #Server: {
+            host: string
+            port: int & >1024 & <=65535
+        }
+        prod: #Server & {
+            host: "api.example.com"
+            port: 8080
+        }
+    "#;
 
-# 3. Format CUE source code
-cargo run -p cue-cli -- fmt examples/data.cue
+    let json_val = eval_to_json(cue_src)?;
+    println!("{}", serde_json::to_string_pretty(&json_val)?);
+    Ok(())
+}
+```
 
-# 4. Run upstream .txtar test suites
-cargo run -p cue-cli -- test-txtar tests/testdata
+#### 2. Validate Rust Structs with `#[derive(CueValidate)]`
+```rust
+use serde::Deserialize;
+use cue_derive::CueValidate;
+
+#[derive(Deserialize, CueValidate)]
+#[cue(schema = "#User: { id: uint32, name: string & strings.MinRunes(2), email: =~\"@\" }")]
+struct User {
+    id: u32,
+    name: String,
+    email: String,
+}
+
+fn main() {
+    let json_data = serde_json::json!({
+        "id": 1,
+        "name": "Alice",
+        "email": "alice@example.com"
+    });
+
+    let user: User = serde_json::from_value(json_data).unwrap();
+    user.cue_validate().expect("Schema validation failed");
+}
+```
+
+#### 3. Validate JSON Directly Against CUE Schemas
+```rust
+use cue_eval::validate_json;
+use serde_json::json;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let schema = "#Config: { timeout_seconds: int & >0 & <=300, replicas: int & >=1 }";
+    let data = json!({ "timeout_seconds": 30, "replicas": 3 });
+
+    validate_json(schema, &data)?;
+    println!("Payload valid!");
+    Ok(())
+}
 ```
 
 ---
 
-## 4. Documentation & Roadmap
+## 4. CLI Tool (`cue-rs`)
+
+Install the binary:
+```bash
+cargo install --path crates/cue-cli
+```
+
+### Commands
+
+```bash
+# 1. Evaluate a CUE file (JSON or YAML format)
+cue-rs eval config.cue --format json
+cue-rs eval config.cue --format yaml
+
+# 2. Validate (vet) a data file against a schema definition
+cue-rs vet schema.cue data.json
+
+# 3. Format CUE source files
+cue-rs fmt config.cue --write
+
+# 4. Import JSON Schema or OpenAPI definitions into CUE
+cue-rs import json-schema schema.json --root User --write user.cue
+cue-rs import openapi petstore.yaml --write api.cue
+
+# 5. Initialize and manage CUE modules
+cue-rs mod init example.com/mymod@v0
+cue-rs mod tidy
+
+# 6. Run upstream .txtar test suites
+cue-rs test-txtar tests/testdata
+```
+
+---
+
+## 5. WebAssembly Integration (`cue-wasm`)
+
+Compile to WebAssembly:
+```bash
+cargo build -p cue-wasm --target wasm32-unknown-unknown --release
+```
+
+Or using `wasm-pack`:
+```bash
+wasm-pack build crates/cue-wasm --target web
+```
+
+JavaScript / TypeScript usage:
+```javascript
+import init, { eval_cue, validate_json, format_cue } from "./pkg/cue_wasm.js";
+
+await init();
+
+// Evaluate CUE code
+const jsonStr = eval_cue("a: 10, b: 20, sum: a + b");
+
+// Validate JSON
+const isValid = validate_json("#User: { name: string }", JSON.stringify({ name: "Alice" }));
+
+// Format CUE
+const formatted = format_cue("x:1\ny:2");
+```
+
+---
+
+## 6. Documentation & Roadmap
 
 - [`CUE_CONFORMANCE_TRACKER.md`](CUE_CONFORMANCE_TRACKER.md): Upstream CUE test inventory, feature comparison, and conformance tracking.
 - [`CUE_ROADMAP.md`](CUE_ROADMAP.md): Detailed phase breakdown, memory model, and milestone progress.

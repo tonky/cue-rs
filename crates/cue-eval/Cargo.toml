@@ -2,7 +2,12 @@
 name = "cue-eval"
 version = "0.1.0"
 edition = "2024"
-description = "Arena-based lattice unification engine and evaluator for CUE"
+description = "Arena-based lattice unification engine and evaluator for CUE with standard library packages"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tonky/cue-rs"
+readme = "README.md"
+keywords = ["cue", "cuelang", "evaluator", "unification", "lattice"]
+categories = ["config", "data-structures"]
 
 [dependencies]
 cue-syntax = { path = "../cue-syntax" }
