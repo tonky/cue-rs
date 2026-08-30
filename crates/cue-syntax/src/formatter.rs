@@ -105,6 +105,14 @@ fn format_decl(decl: &Decl, out: &mut String, indent: usize) {
             }
             out.push_str(&format!("{pad}}}"));
         }
+        Decl::Attribute(attr) => {
+            out.push_str(&pad);
+            if attr.body.is_empty() {
+                out.push_str(&format!("@{}", attr.name));
+            } else {
+                out.push_str(&format!("@{}({})", attr.name, attr.body));
+            }
+        }
     }
 }
 

@@ -10,7 +10,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 
 | Upstream Directory | Approx. Fixture Count | Focus Area | Our Rust Coverage |
 | :--- | :---: | :--- | :---: |
-| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, discriminated unions (`#A \| #B`), embedded disjunctions, optional fields (`k?: T`), hidden fields (`_foo`), open lists, dynamic labels, nested dynamic indexing, dynamic list slicing, parenthesized selector chains, multi-pattern constraints, comprehensions with stdlib filters, `let` comprehension bindings, Cartesian list comprehensions, lexical scoping, forward references, cycle detection, logical expressions (`&&`, `\|\|`) | **Core subsets active (118 fixtures)** |
+| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, discriminated unions (`#A \| #B`), embedded disjunctions, optional fields (`k?: T`), hidden fields (`_foo`), open lists, dynamic labels, nested dynamic indexing, dynamic list slicing, parenthesized selector chains, multi-pattern constraints, comprehensions with stdlib filters, `let` comprehension bindings, Cartesian list comprehensions, lexical scoping, forward references, cycle detection, logical expressions (`&&`, `\|\|`) | **Core subsets active (158 fixtures)** |
 | `cue/testdata/compile/` | ~110 | Lexer, parser, Pratt expressions, AST construction, string literal escape sequences, binary/hex/octal/SI number literals, identifiers, attributes, raw string literals, logical boolean operators (`&&`, `\|\|`) | **High (syntax 100% passing)** |
 | `cue/testdata/fulleval/` | ~85 | End-to-end multi-struct evaluation, closed definitions, exports | **Core subsets active** |
 | `cue/testdata/resolve/` | ~65 | Scoping, aliases, lexical lookup, forward references, selector chains, embeddings, default overrides | **Active** |
@@ -18,7 +18,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | `cue/testdata/basic/` | ~35 | Primitive types, literals, raw strings, mixed arithmetic, list/string arithmetic, comparisons, numeric types, hierarchy, logical expressions | **Active** |
 | `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, module discovery (`cue.mod/module.cue`), module-aware package import resolution (`import "myorg.com/app/sub"`), vendored packages (`cue.mod/pkg/...`) | **Active via `PackageLoader`** |
 | `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `math/bits`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding/json`, `encoding/yaml`, `encoding/html`, `encoding/csv`, `encoding/base32`, `encoding/base64`, `encoding/hex`, `text/tabwriter`, `text/template`, `crypto/sha512`, `crypto/sha256`, `crypto/md5`, `crypto/sha1`, `crypto/hmac`, `path`) | **24 core packages active** |
-| **Total** | **~580+ fixtures** | | **118 conformance suites (100% pass)** |
+| **Total** | **~580+ fixtures** | | **158 conformance suites (100% pass)** |
 
 ---
 

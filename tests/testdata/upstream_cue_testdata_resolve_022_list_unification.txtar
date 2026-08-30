@@ -1,0 +1,15 @@
+-- in.cue --
+a: {l: ["foo", v], v: l[1]}   @test(eq, {l: ["foo", _], v: _})
+b: a & {l: [_, "bar"]}   @test(eq, {l: ["foo", "bar"], v: "bar"})
+-- out/eval/stats --
+Leaks:  0
+Freed:  11
+Reused: 4
+Allocs: 7
+Retain: 0
+
+Unifications: 11
+Conjuncts:    17
+Disjuncts:    0
+
+NumCloseIDs: 2

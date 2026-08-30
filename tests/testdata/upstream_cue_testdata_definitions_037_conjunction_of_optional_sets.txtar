@@ -1,0 +1,43 @@
+-- in.cue --
+#A: {
+	[=~"^[a-s]*$"]: int
+}
+#B: {
+	[=~"^[m-z]*$"]: int
+}
+
+#C: #A & #B  @test(allows, moo) @test(allows=false, QQQ) @test(eq, {
+	[=~"^[a-s]*$"]: int
+	[=~"^[m-z]*$"]: int
+})
+c: #C
+c: {aaa: 3 } @test(err, code=eval, at=aaa,
+	hint="positions missing",
+	contains="field not allowed", pos=[in.cue:2:2, 0:5])
+
+#D: {#A & #B}
+d: #D
+d: {aaa: 3 } @test(err, code=eval, at=aaa,
+	hint="positions missing",
+	contains="field not allowed", pos=[in.cue:2:2, 0:5])
+-- out/errors.txt --
+[eval] c.aaa: field not allowed:
+    ./in.cue:2:2
+    ./in.cue:13:5
+[eval] d.aaa: field not allowed:
+    ./in.cue:2:2
+    ./in.cue:19:5
+-- out/eval/stats --
+Leaks:  0
+Freed:  9
+Reused: 1
+Allocs: 8
+Retain: 0
+
+Unifications: 9
+Conjuncts:    29
+Disjuncts:    0
+
+NumCloseIDs: 14
+-- out/diff-v2-v3.txt --
+Missing positions: v3 reports fewer positions than v2 for the "field not allowed" errors.

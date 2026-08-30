@@ -235,7 +235,29 @@ impl<'a> Parser<'a> {
         Ok(decls)
     }
 
+    fn parse_attr_str(raw: &str) -> Attribute {
+        if let Some(open) = raw.find('(') {
+            let name = raw[1..open].to_string();
+            let body = if raw.ends_with(')') {
+                raw[open + 1..raw.len() - 1].to_string()
+            } else {
+                raw[open + 1..].to_string()
+            };
+            Attribute { name, body }
+        } else {
+            let name = raw[1..].to_string();
+            Attribute { name, body: String::new() }
+        }
+    }
+
     pub fn parse_decl(&mut self) -> Result<Decl, ParseError> {
+        // 0. Standalone attribute: `@test(...)`
+        if let Some((Token::Attribute(attr_str), _)) = self.tokens.get(self.pos) {
+            let attr = Self::parse_attr_str(attr_str);
+            self.pos += 1;
+            return Ok(Decl::Attribute(attr));
+        }
+
         // 1. Let clause: `let x = expr`
         if self.match_token(&Token::KwLet) {
             let (tok, span) = self.advance()?;
@@ -317,6 +339,23 @@ impl<'a> Parser<'a> {
                 }
                 idx += 1;
             }
+            if idx < self.tokens.len() && self.tokens[idx].0 == Token::Tilde {
+                idx += 1;
+                if idx < self.tokens.len() && self.tokens[idx].0 == Token::LParen {
+                    let mut p_depth = 1;
+                    idx += 1;
+                    while idx < self.tokens.len() && p_depth > 0 {
+                        match &self.tokens[idx].0 {
+                            Token::LParen => p_depth += 1,
+                            Token::RParen => p_depth -= 1,
+                            _ => {}
+                        }
+                        idx += 1;
+                    }
+                } else if idx < self.tokens.len() && matches!(&self.tokens[idx].0, Token::Ident(_)) {
+                    idx += 1;
+                }
+            }
             if idx < self.tokens.len() {
                 if self.tokens[idx].0 == Token::Question {
                     idx += 1;
@@ -337,6 +376,23 @@ impl<'a> Parser<'a> {
                     _ => {}
                 }
                 idx += 1;
+            }
+            if idx < self.tokens.len() && self.tokens[idx].0 == Token::Tilde {
+                idx += 1;
+                if idx < self.tokens.len() && self.tokens[idx].0 == Token::LParen {
+                    let mut p_depth = 1;
+                    idx += 1;
+                    while idx < self.tokens.len() && p_depth > 0 {
+                        match &self.tokens[idx].0 {
+                            Token::LParen => p_depth += 1,
+                            Token::RParen => p_depth -= 1,
+                            _ => {}
+                        }
+                        idx += 1;
+                    }
+                } else if idx < self.tokens.len() && matches!(&self.tokens[idx].0, Token::Ident(_)) {
+                    idx += 1;
+                }
             }
             if idx < self.tokens.len() {
                 if self.tokens[idx].0 == Token::Question {
@@ -366,6 +422,15 @@ impl<'a> Parser<'a> {
 
     fn parse_field_decl(&mut self) -> Result<Decl, ParseError> {
         let label = self.parse_label()?;
+        if self.match_token(&Token::Tilde) {
+            if self.match_token(&Token::LParen) {
+                while !self.is_eof() && !self.match_token(&Token::RParen) {
+                    self.pos += 1;
+                }
+            } else if let Some((Token::Ident(_), _)) = self.tokens.get(self.pos) {
+                self.pos += 1;
+            }
+        }
         let optional = self.match_token(&Token::Question);
         self.expect(Token::Colon)?;
 

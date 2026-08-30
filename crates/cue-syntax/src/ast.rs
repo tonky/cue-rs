@@ -21,6 +21,7 @@ pub enum Decl {
     Embedding(Expr),
     Ellipsis(Option<Expr>),
     Comprehension(ComprehensionDecl),
+    Attribute(Attribute),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

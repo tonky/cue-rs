@@ -728,25 +728,37 @@ pub fn call_stdlib_func(
 
         // --- math package ---
         ("math", "Floor") => {
-            if let Some(&arg0) = args.first()
-                && let Some(Value::Float(f)) = arena.get(arg0) {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.floor()));
-                }
-            Err("math.Floor requires 1 float argument".to_string())
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(f) = i.to_f64() {
+                        return Ok(arena.float(f.floor()));
+                    }
+            }
+            Err("math.Floor requires 1 number argument".to_string())
         }
         ("math", "Ceil") => {
-            if let Some(&arg0) = args.first()
-                && let Some(Value::Float(f)) = arena.get(arg0) {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.ceil()));
-                }
-            Err("math.Ceil requires 1 float argument".to_string())
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(f) = i.to_f64() {
+                        return Ok(arena.float(f.ceil()));
+                    }
+            }
+            Err("math.Ceil requires 1 number argument".to_string())
         }
         ("math", "Round") => {
-            if let Some(&arg0) = args.first()
-                && let Some(Value::Float(f)) = arena.get(arg0) {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.round()));
-                }
-            Err("math.Round requires 1 float argument".to_string())
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(f) = i.to_f64() {
+                        return Ok(arena.float(f.round()));
+                    }
+            }
+            Err("math.Round requires 1 number argument".to_string())
         }
         ("math", "RoundToEven") => {
             if let Some(&arg0) = args.first() {
@@ -1406,23 +1418,48 @@ pub fn call_stdlib_func(
             }
             Err("math.Min requires 2 comparable numbers".to_string())
         }
-        ("math", "Pi") => {
-            Ok(arena.float(std::f64::consts::PI))
-        }
-        ("math", "E") => {
-            Ok(arena.float(std::f64::consts::E))
-        }
+        ("math", "Pi") => Ok(arena.float(std::f64::consts::PI)),
+        ("math", "E") => Ok(arena.float(std::f64::consts::E)),
+        ("math", "Phi") => Ok(arena.float(1.618_033_988_749_895)),
+        ("math", "Sqrt2") => Ok(arena.float(std::f64::consts::SQRT_2)),
+        ("math", "SqrtE") => Ok(arena.float(std::f64::consts::E.sqrt())),
+        ("math", "SqrtPi") => Ok(arena.float(std::f64::consts::PI.sqrt())),
+        ("math", "SqrtPhi") => Ok(arena.float(1.618_033_988_749_895f64.sqrt())),
+        ("math", "Ln2") => Ok(arena.float(std::f64::consts::LN_2)),
+        ("math", "Log2E") => Ok(arena.float(std::f64::consts::LOG2_E)),
+        ("math", "Ln10") => Ok(arena.float(std::f64::consts::LN_10)),
+        ("math", "Log10E") => Ok(arena.float(std::f64::consts::LOG10_E)),
         ("math", "MultipleOf") => {
+            if args.len() >= 2 {
+                let v0 = match arena.get(args[0]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                let v1 = match arena.get(args[1]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let (Some(a), Some(b)) = (v0, v1) {
+                    if b == 0.0 {
+                        return Err("error in call to math.MultipleOf: division by zero".to_string());
+                    }
+                    let rem = (a / b).round();
+                    let diff = (a - rem * b).abs();
+                    return Ok(arena.bool(diff < 1e-9));
+                }
+            }
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(n) = i.to_i64() {
-                        let target = arena.alloc(Value::Int(n.into()));
-                        return Ok(arena.alloc(Value::BuiltinValidator {
-                            name: format!("math.MultipleOf({n})"),
-                            target,
-                        }));
-                    }
-            Err("math.MultipleOf requires 1 integer argument".to_string())
+                && let Some(n) = i.to_i64() {
+                    let target = arena.alloc(Value::Int(n.into()));
+                    return Ok(arena.alloc(Value::BuiltinValidator {
+                        name: format!("math.MultipleOf({n})"),
+                        target,
+                    }));
+                }
+            Err("math.MultipleOf requires 1 or 2 number arguments".to_string())
         }
 
         // --- math/bits & bits package ---
@@ -2397,11 +2434,17 @@ pub fn call_stdlib_func(
 
         // --- encoding/base64 package ---
         ("base64" | "encoding/base64", "Encode") => {
-            if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    return Ok(arena.string(base64_encode(s.as_bytes())));
+            if let Some(&arg0) = args.first() {
+                let bytes = match arena.get(arg0) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                if let Some(b) = bytes {
+                    return Ok(arena.string(base64_encode(&b)));
                 }
-            Err("base64.Encode requires 1 string argument".to_string())
+            }
+            Err("base64.Encode requires 1 string or bytes argument".to_string())
         }
         ("base64" | "encoding/base64", "Decode") => {
             if let Some(&arg0) = args.first()
@@ -2491,22 +2534,34 @@ pub fn call_stdlib_func(
 
         // --- encoding/hex package ---
         ("hex" | "encoding/hex", "Encode") => {
-            if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    let hex_str: String = s.bytes().map(|b| format!("{b:02x}")).collect();
+            if let Some(&arg0) = args.first() {
+                let bytes = match arena.get(arg0) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                if let Some(b) = bytes {
+                    let hex_str: String = b.iter().map(|byte| format!("{byte:02x}")).collect();
                     return Ok(arena.string(hex_str));
                 }
-            Err("hex.Encode requires 1 string argument".to_string())
+            }
+            Err("hex.Encode requires 1 string or bytes argument".to_string())
         }
         ("hex" | "encoding/hex", "Decode") => {
-            if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    if let Ok(bytes) = hex_decode(s) {
-                        return Ok(arena.string(String::from_utf8_lossy(&bytes).to_string()));
+            if let Some(&arg0) = args.first() {
+                let s_opt = match arena.get(arg0) {
+                    Some(Value::String(s)) => Some(s.clone()),
+                    Some(Value::Bytes(b)) => String::from_utf8(b.clone()).ok(),
+                    _ => None,
+                };
+                if let Some(s) = s_opt {
+                    if let Ok(bytes) = hex_decode(&s) {
+                        return Ok(arena.alloc(Value::Bytes(bytes)));
                     } else {
                         return Err("invalid hex string".to_string());
                     }
                 }
+            }
             Err("hex.Decode requires 1 hex string argument".to_string())
         }
         ("hex" | "encoding/hex", "Dump") => {
@@ -2591,69 +2646,196 @@ pub fn call_stdlib_func(
         }
 
         // --- crypto/sha256 package ---
-        ("sha256" | "crypto/sha256", "Sum") => {
-            if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    return Ok(arena.string(sha256_digest(s.as_bytes())));
+        ("sha256" | "crypto/sha256", "Sum" | "Sum256") => {
+            if let Some(&arg0) = args.first() {
+                let bytes = match arena.get(arg0) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                if let Some(b) = bytes {
+                    return Ok(arena.alloc(Value::Bytes(sha256_bytes(&b))));
                 }
-            Err("sha256.Sum requires 1 string argument".to_string())
+            }
+            Err("sha256.Sum requires 1 string or bytes argument".to_string())
+        }
+        ("sha256" | "crypto/sha256", "Sum224") => {
+            if let Some(&arg0) = args.first() {
+                let bytes = match arena.get(arg0) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                if let Some(b) = bytes {
+                    let mut full = sha256_bytes(&b);
+                    full.truncate(28);
+                    return Ok(arena.alloc(Value::Bytes(full)));
+                }
+            }
+            Err("sha256.Sum224 requires 1 string or bytes argument".to_string())
         }
 
         // --- crypto/md5 package ---
         ("md5" | "crypto/md5", "Sum") => {
-            if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    return Ok(arena.string(md5_digest(s.as_bytes())));
+            if let Some(&arg0) = args.first() {
+                let bytes = match arena.get(arg0) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                if let Some(b) = bytes {
+                    return Ok(arena.string(md5_digest(&b)));
                 }
-            Err("md5.Sum requires 1 string argument".to_string())
+            }
+            Err("md5.Sum requires 1 string or bytes argument".to_string())
         }
 
         // --- crypto/sha1 package ---
         ("sha1" | "crypto/sha1", "Sum") => {
-            if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    return Ok(arena.string(sha1_digest(s.as_bytes())));
+            if let Some(&arg0) = args.first() {
+                let bytes = match arena.get(arg0) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                if let Some(b) = bytes {
+                    return Ok(arena.string(sha1_digest(&b)));
                 }
-            Err("sha1.Sum requires 1 string argument".to_string())
+            }
+            Err("sha1.Sum requires 1 string or bytes argument".to_string())
         }
 
         // --- crypto/sha512 package ---
-        ("sha512" | "crypto/sha512", "Sum") => {
-            if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    return Ok(arena.string(sha512_digest(s.as_bytes())));
+        ("sha512" | "crypto/sha512", "Sum" | "Sum512") => {
+            if let Some(&arg0) = args.first() {
+                let bytes = match arena.get(arg0) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                if let Some(b) = bytes {
+                    return Ok(arena.string(sha512_digest(&b)));
                 }
-            Err("sha512.Sum requires 1 string argument".to_string())
+            }
+            Err("sha512.Sum requires 1 string or bytes argument".to_string())
         }
 
         // --- crypto/hmac package ---
-        ("hmac" | "crypto/hmac", "SHA256") => {
-            if args.len() >= 2
-                && let (Some(Value::String(msg)), Some(Value::String(key))) = (arena.get(args[0]), arena.get(args[1])) {
-                    return Ok(arena.string(hmac(key.as_bytes(), msg.as_bytes(), sha256_bytes, 64)));
+        ("hmac" | "crypto/hmac", "SHA1") if args.is_empty() => Ok(arena.string("SHA1")),
+        ("hmac" | "crypto/hmac", "SHA256") if args.is_empty() => Ok(arena.string("SHA256")),
+        ("hmac" | "crypto/hmac", "SHA224") if args.is_empty() => Ok(arena.string("SHA224")),
+        ("hmac" | "crypto/hmac", "SHA384") if args.is_empty() => Ok(arena.string("SHA384")),
+        ("hmac" | "crypto/hmac", "SHA512") if args.is_empty() => Ok(arena.string("SHA512")),
+        ("hmac" | "crypto/hmac", "MD5") if args.is_empty() => Ok(arena.string("MD5")),
+        ("hmac" | "crypto/hmac", "Sign") => {
+            if args.len() >= 3 {
+                let hash_name = match arena.get(args[0]) {
+                    Some(Value::String(s)) => s.as_str(),
+                    _ => "",
+                };
+                let key = match arena.get(args[1]) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                let msg = match arena.get(args[2]) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                if let (Some(k), Some(m)) = (key, msg) {
+                    let sig = match hash_name {
+                        "SHA1" => hmac_bytes(&k, &m, sha1_bytes, 64),
+                        "MD5" => hmac_bytes(&k, &m, md5_bytes, 64),
+                        "SHA224" => {
+                            let mut full = hmac_bytes(&k, &m, sha256_bytes, 64);
+                            full.truncate(28);
+                            full
+                        }
+                        "SHA384" => {
+                            let mut full = hmac_bytes(&k, &m, sha512_bytes, 128);
+                            full.truncate(48);
+                            full
+                        }
+                        "SHA512" => hmac_bytes(&k, &m, sha512_bytes, 128),
+                        _ => hmac_bytes(&k, &m, sha256_bytes, 64),
+                    };
+                    return Ok(arena.alloc(Value::Bytes(sig)));
                 }
-            Err("hmac.SHA256 requires (message, key) string arguments".to_string())
+            }
+            Err("hmac.Sign requires (hash, key, message) arguments".to_string())
+        }
+        ("hmac" | "crypto/hmac", "SHA256") => {
+            if args.len() >= 2 {
+                let a0 = match arena.get(args[0]) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                let a1 = match arena.get(args[1]) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                if let (Some(msg), Some(key)) = (a0, a1) {
+                    return Ok(arena.string(hmac(&key, &msg, sha256_bytes, 64)));
+                }
+            }
+            Err("hmac.SHA256 requires (message, key) arguments".to_string())
         }
         ("hmac" | "crypto/hmac", "SHA512") => {
-            if args.len() >= 2
-                && let (Some(Value::String(msg)), Some(Value::String(key))) = (arena.get(args[0]), arena.get(args[1])) {
-                    return Ok(arena.string(hmac(key.as_bytes(), msg.as_bytes(), sha512_bytes, 128)));
+            if args.len() >= 2 {
+                let a0 = match arena.get(args[0]) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                let a1 = match arena.get(args[1]) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                if let (Some(msg), Some(key)) = (a0, a1) {
+                    return Ok(arena.string(hmac(&key, &msg, sha512_bytes, 128)));
                 }
-            Err("hmac.SHA512 requires (message, key) string arguments".to_string())
+            }
+            Err("hmac.SHA512 requires (message, key) arguments".to_string())
         }
         ("hmac" | "crypto/hmac", "MD5") => {
-            if args.len() >= 2
-                && let (Some(Value::String(msg)), Some(Value::String(key))) = (arena.get(args[0]), arena.get(args[1])) {
-                    return Ok(arena.string(hmac(key.as_bytes(), msg.as_bytes(), md5_bytes, 64)));
+            if args.len() >= 2 {
+                let a0 = match arena.get(args[0]) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                let a1 = match arena.get(args[1]) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                if let (Some(msg), Some(key)) = (a0, a1) {
+                    return Ok(arena.string(hmac(&key, &msg, md5_bytes, 64)));
                 }
-            Err("hmac.MD5 requires (message, key) string arguments".to_string())
+            }
+            Err("hmac.MD5 requires (message, key) arguments".to_string())
         }
         ("hmac" | "crypto/hmac", "SHA1") => {
-            if args.len() >= 2
-                && let (Some(Value::String(msg)), Some(Value::String(key))) = (arena.get(args[0]), arena.get(args[1])) {
-                    return Ok(arena.string(hmac(key.as_bytes(), msg.as_bytes(), sha1_bytes, 64)));
+            if args.len() >= 2 {
+                let a0 = match arena.get(args[0]) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                let a1 = match arena.get(args[1]) {
+                    Some(Value::String(s)) => Some(s.as_bytes().to_vec()),
+                    Some(Value::Bytes(b)) => Some(b.clone()),
+                    _ => None,
+                };
+                if let (Some(msg), Some(key)) = (a0, a1) {
+                    return Ok(arena.string(hmac(&key, &msg, sha1_bytes, 64)));
                 }
-            Err("hmac.SHA1 requires (message, key) string arguments".to_string())
+            }
+            Err("hmac.SHA1 requires (message, key) arguments".to_string())
         }
 
         // --- net package ---
@@ -3213,17 +3395,13 @@ fn sha256_bytes(input: &[u8]) -> Vec<u8> {
     out
 }
 
-fn sha256_digest(input: &[u8]) -> String {
-    let bytes = sha256_bytes(input);
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
 
-fn hmac(
+fn hmac_bytes(
     key: &[u8],
     msg: &[u8],
     hash_fn: fn(&[u8]) -> Vec<u8>,
     block_size: usize,
-) -> String {
+) -> Vec<u8> {
     let mut k = if key.len() > block_size {
         hash_fn(key)
     } else {
@@ -3247,9 +3425,17 @@ fn hmac(
 
     let mut outer_input = opad;
     outer_input.extend_from_slice(&inner_hash);
-    let outer_hash = hash_fn(&outer_input);
+    hash_fn(&outer_input)
+}
 
-    outer_hash.iter().map(|b| format!("{b:02x}")).collect()
+fn hmac(
+    key: &[u8],
+    msg: &[u8],
+    hash_fn: fn(&[u8]) -> Vec<u8>,
+    block_size: usize,
+) -> String {
+    let bytes = hmac_bytes(key, msg, hash_fn, block_size);
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn flatten_list(arena: &ValueArena, elements: &[ValueId], depth: usize) -> Vec<ValueId> {

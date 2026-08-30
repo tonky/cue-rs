@@ -80,6 +80,9 @@ pub enum Token {
     #[token("!")]
     Bang,
 
+    #[token("~")]
+    Tilde,
+
     // Operators
     #[token("&")]
     Ampersand,
@@ -190,8 +193,31 @@ pub enum Token {
     BytesLit(String),
 
     // Attribute: @tag(...) or @protobuf(1, int32)
-    #[regex(r"@[a-zA-Z0-9_]+(?:\([^\)]*\))?", |lex| lex.slice().to_string())]
+    #[regex(r"@[a-zA-Z0-9_]+", lex_attribute)]
     Attribute(String),
+}
+
+fn lex_attribute(lex: &mut logos::Lexer<Token>) -> Option<String> {
+    let remainder = lex.remainder();
+    if remainder.starts_with('(') {
+        let mut depth = 0;
+        let mut end = 0;
+        for (i, c) in remainder.char_indices() {
+            if c == '(' {
+                depth += 1;
+            } else if c == ')' {
+                depth -= 1;
+                if depth == 0 {
+                    end = i + 1;
+                    break;
+                }
+            }
+        }
+        if depth == 0 && end > 0 {
+            lex.bump(end);
+        }
+    }
+    Some(lex.slice().to_string())
 }
 
 impl fmt::Display for Token {
@@ -221,6 +247,7 @@ impl fmt::Display for Token {
             Token::DotDot => write!(f, ".."),
             Token::Question => write!(f, "?"),
             Token::Bang => write!(f, "!"),
+            Token::Tilde => write!(f, "~"),
             Token::Ampersand => write!(f, "&"),
             Token::AndAnd => write!(f, "&&"),
             Token::Pipe => write!(f, "|"),

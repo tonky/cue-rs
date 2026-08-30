@@ -184,10 +184,17 @@ impl Evaluator {
     }
 
     fn is_unresolved(&self, val_id: ValueId) -> bool {
-        if let Some(Value::Bottom(reason)) = self.arena.get(val_id) {
-            reason.message.contains("unresolved reference")
-        } else {
-            false
+        match self.arena.get(val_id) {
+            Some(Value::Bottom(reason)) => reason.message.contains("unresolved reference"),
+            Some(Value::Struct(s)) => {
+                s.fields.values().any(|f| self.is_unresolved(f.val))
+                    || s.definitions.values().any(|f| self.is_unresolved(f.val))
+                    || s.hidden.values().any(|f| self.is_unresolved(f.val))
+            }
+            Some(Value::List { elements, .. }) => {
+                elements.iter().any(|&e| self.is_unresolved(e))
+            }
+            _ => false,
         }
     }
 
@@ -693,6 +700,45 @@ impl Evaluator {
     }
 
     fn eval_call(&mut self, func_expr: &Expr, arg_exprs: &[Expr]) -> Result<ValueId, EvalError> {
+        let mut evaluated_args = Vec::new();
+        for a in arg_exprs {
+            let arg_id = self.eval_expr(a)?;
+            let resolved_arg = if let Some(Value::Disjunction { branches }) = self.arena.get(arg_id) {
+                branches.iter().find(|b| b.default).map(|b| b.val).unwrap_or(arg_id)
+            } else {
+                arg_id
+            };
+            evaluated_args.push(resolved_arg);
+        }
+
+        // Top-level builtins: len(x), close(x)
+        if let Expr::Ident(name) = func_expr {
+            match name.as_str() {
+                "len" => {
+                    if let Some(&arg0) = evaluated_args.first() {
+                        match self.arena.get(arg0) {
+                            Some(Value::String(s)) => return Ok(self.arena.int(s.chars().count() as i64)),
+                            Some(Value::Bytes(b)) => return Ok(self.arena.int(b.len() as i64)),
+                            Some(Value::List { elements, .. }) => return Ok(self.arena.int(elements.len() as i64)),
+                            Some(Value::Struct(s)) => return Ok(self.arena.int(s.fields.len() as i64)),
+                            _ => return Ok(self.arena.bottom("len: unsupported type")),
+                        }
+                    }
+                    return Ok(self.arena.bottom("len requires 1 argument"));
+                }
+                "close" => {
+                    if let Some(&arg0) = evaluated_args.first()
+                        && let Some(Value::Struct(s)) = self.arena.get(arg0) {
+                            let mut closed = s.clone();
+                            closed.is_closed = true;
+                            return Ok(self.arena.alloc(Value::Struct(closed)));
+                        }
+                    return Ok(self.arena.bottom("close requires 1 struct argument"));
+                }
+                _ => {}
+            }
+        }
+
         // Builtin functions dispatch: strings.*, math.*, list.*, regexp.*
         if let Expr::Selector { expr, field } = func_expr
             && let Expr::Ident(pkg) = &**expr {
@@ -701,10 +747,6 @@ impl Evaluator {
                     .get(pkg)
                     .cloned()
                     .unwrap_or_else(|| pkg.clone());
-                let mut evaluated_args = Vec::new();
-                for a in arg_exprs {
-                    evaluated_args.push(self.eval_expr(a)?);
-                }
 
                 match crate::stdlib::call_stdlib_func(
                     &mut self.arena,

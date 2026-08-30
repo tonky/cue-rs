@@ -1,0 +1,25 @@
+-- in.cue --
+A: {
+	[=~"^[a-s]*$"]: int
+}
+B: {
+	[=~"^[m-z]*$"]: int
+}
+#C: {A & B}
+c: #C & {aaa: 3} @test(eq, {
+	[=~"^[a-s]*$"]: int
+	[=~"^[m-z]*$"]: int
+	aaa: 3
+})
+-- out/eval/stats --
+Leaks:  0
+Freed:  6
+Reused: 0
+Allocs: 6
+Retain: 0
+
+Unifications: 6
+Conjuncts:    17
+Disjuncts:    0
+
+NumCloseIDs: 9

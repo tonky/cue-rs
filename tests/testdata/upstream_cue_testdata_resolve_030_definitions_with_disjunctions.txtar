@@ -1,0 +1,33 @@
+-- in.cue --
+#Foo: {
+	field: int
+
+	{a: 1} |
+	{b: 2}
+} @test(eq, {field: int, a: 1} | {field: int, b: 2})
+
+foo: #Foo
+foo: {a: 1} @test(eq, {a: 1, field: int})
+
+bar: #Foo
+bar: {c: 2} @test(err, code=eval, contains="field not allowed", pos=[0:7])
+
+baz: #Foo
+baz: {b: 2} @test(eq, {b: 2, field: int})
+-- out/errors.txt --
+[eval] bar.c: field not allowed:
+    ./in.cue:12:7
+-- out/eval/stats --
+Leaks:  6
+Freed:  34
+Reused: 26
+Allocs: 14
+Retain: 0
+
+Unifications: 18
+Conjuncts:    38
+Disjuncts:    8
+
+NumCloseIDs: 11
+-- out/todo.txt --
+Missing error positions and reorderings.

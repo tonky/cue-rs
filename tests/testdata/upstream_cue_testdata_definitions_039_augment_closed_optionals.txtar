@@ -1,0 +1,30 @@
+-- in.cue --
+#A: {
+	[=~"^[a-s]*$"]: int
+}
+#B: {
+	[=~"^[m-z]*?"]: int
+}
+#C: {
+	#A & #B
+	{[=~"^Q*$"]: int}
+} @test(allows, moo) @test(allows, Qoo) @test(allows=false, string)
+// TODO: What should this be? @test(allows=false, zoo)
+c: #C & {QQ: 3} @test(eq, {QQ: 3})
+#D: {
+	#A
+	#B
+}
+d: #D & {aaa: 4} @test(eq, {aaa: 4})
+-- out/eval/stats --
+Leaks:  0
+Freed:  9
+Reused: 1
+Allocs: 8
+Retain: 0
+
+Unifications: 9
+Conjuncts:    35
+Disjuncts:    0
+
+NumCloseIDs: 22

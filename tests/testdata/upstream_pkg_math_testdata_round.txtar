@@ -1,0 +1,71 @@
+# generated from the original tests.
+# Henceforth it may be nicer to group tests into separate files.
+-- in.cue --
+import "math"
+
+mul0: math.MultipleOf(4, 2)
+mul1: math.MultipleOf(5, 2)
+// TODO(errors): ensure path is included for the following error.
+mul2: math.MultipleOf(5, 0)
+mul3: math.MultipleOf(100, 1.00001)
+mul4: math.MultipleOf(1, 1)
+mul5: math.MultipleOf(5, 2.5)
+mul6: math.MultipleOf(100e100, 10)
+mul7: 10
+mul7: math.MultipleOf(2)
+mul8: 9 & math.MultipleOf(3)
+
+r0: math.Round(2.5)
+r1: math.Round(-2.5)
+r2: math.RoundToEven(2.5)
+r3: math.RoundToEven(-2.5)
+
+floorE1: math.Floor(3, 5)
+floorE2: math.Floor("foo")
+
+floor0: math.Floor(math.Pi)
+floor1: math.Floor(2.9)
+floor2: math.Floor(-2.2)
+floor3: math.Floor(2900)
+floor4: math.Floor(29e2)
+
+ceil0: math.Ceil(2.5)
+ceil1: math.Ceil(-2.2)
+
+trunc0: math.Trunc(2.5)
+trunc1: math.Trunc(-2.9)
+-- out/math --
+Errors:
+mul2: error in call to math.MultipleOf: division by zero:
+    ./in.cue:6:7
+floorE1: too many arguments in call to math.Floor (have 2, want 1):
+    ./in.cue:20:10
+floorE2: cannot use "foo" (type string) as number in argument 1 to math.Floor:
+    ./in.cue:21:21
+
+Result:
+mul0: true
+mul1: false
+// TODO(errors): ensure path is included for the following error.
+mul2:    _|_ // mul2: error in call to math.MultipleOf: division by zero
+mul3:    false
+mul4:    true
+mul5:    true
+mul6:    true
+mul7:    10
+mul8:    9
+r0:      3
+r1:      -3
+r2:      2
+r3:      -2
+floorE1: _|_ // floorE1: too many arguments in call to math.Floor (have 2, want 1)
+floorE2: _|_ // floorE2: cannot use "foo" (type string) as number in argument 1 to math.Floor
+floor0:  3
+floor1:  2
+floor2:  -3
+floor3:  2900
+floor4:  2900
+ceil0:   3
+ceil1:   -2
+trunc0:  2
+trunc1:  -2

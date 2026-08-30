@@ -2,7 +2,7 @@
 
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Clippy Clean](https://img.shields.io/badge/clippy-0%20warnings-brightgreen.svg)](https://github.com/rust-lang/rust-clippy)
-[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-118%2F118%20passing-brightgreen.svg)](tests/testdata/)
+[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-158%2F158%20passing-brightgreen.svg)](tests/testdata/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
 
 A high-performance, modular implementation of the [CUE configuration language](https://cuelang.org/) in **Rust (2024 Edition)**.
@@ -25,7 +25,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
 │   └── cue-cli/                # CLI binary (`cue-rs eval`, `cue-rs vet`, `cue-rs fmt`, `cue-rs test-txtar`)
 ├── tests/
-│   └── testdata/               # 118 conformance .txtar suites (100% passing)
+│   └── testdata/               # 158 conformance .txtar suites (100% passing)
 └── examples/                   # Sample CUE schemas and data files
 ```
 

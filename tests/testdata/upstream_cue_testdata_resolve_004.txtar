@@ -1,0 +1,17 @@
+-- in.cue --
+a: _
+b: a @test(eq, {d: 1}) @test(shareID=ba)
+a: {d: 1, d: _} @test(eq, {d: 1}) @test(shareID=ba)
+b: _
+-- out/eval/stats --
+Leaks:  0
+Freed:  4
+Reused: 0
+Allocs: 4
+Retain: 0
+
+Unifications: 4
+Conjuncts:    7
+Disjuncts:    0
+-- out/todo.txt --
+b: v2 evaluator expands b to a full struct; v3 shares the vertex with a.

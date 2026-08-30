@@ -1,0 +1,34 @@
+#name: struct comprehensions
+#evalPartial
+-- in.cue --
+obj: foo: a: "bar"
+obj: [string]~(Name,_): {
+	a: *"dummy" | string
+	if true {
+		sub: as: a
+	}
+}
+
+for k, v in {#def: 1, opt?: 2, _hid: 3, reg: 4} {
+	"\(k)": v
+}
+@test(eq, {
+  obj: foo: {
+      a: "bar"
+      sub: as: "bar"
+  },
+  reg: 4
+})
+
+-- out/eval/stats --
+Leaks:  1
+Freed:  13
+Reused: 1
+Allocs: 13
+Retain: 0
+
+Unifications: 10
+Conjuncts:    18
+Disjuncts:    2
+
+NumCloseIDs: 4
