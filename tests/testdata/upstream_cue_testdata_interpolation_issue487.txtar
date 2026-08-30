@@ -1,0 +1,40 @@
+# Tests that string interpolation correctly reports "incomplete" errors when
+# the interpolated field is abstract (non-concrete), while still allowing the
+# parent struct to be unified with a concrete value. Issue: interpolation inside
+# a definition produced an "incomplete" error on the definition field itself,
+# but the unified concrete result (e.g. `a: #R & {pos: 67}`) should evaluate
+# to a concrete string.
+# https://cuelang.org/issue/487
+-- in.cue --
+t1: {
+	#R: {
+		pos:  uint
+		name: "hello_\(pos)" @test(err, code=incomplete)
+	}
+	a: #R & {pos: 67} @test(eq, {pos: 67, name: "hello_67"}) @test(closed)
+}
+t2: {
+	#R: {
+		pos:  string
+		name: "hello_\(pos)" @test(err, code=incomplete)
+	}
+	a: #R & {pos: "a"} @test(eq, {pos: "a", name: "hello_a"}) @test(closed)
+}
+-- out/errors.txt --
+[incomplete] t1.#R.name: invalid interpolation: non-concrete value uint (type int):
+    ./in.cue:4:9
+[incomplete] t2.#R.name: invalid interpolation: non-concrete value string (type string):
+    ./in.cue:11:9
+    ./in.cue:10:9
+-- out/eval/stats --
+Leaks:  0
+Freed:  15
+Reused: 8
+Allocs: 7
+Retain: 0
+
+Unifications: 15
+Conjuncts:    21
+Disjuncts:    0
+
+NumCloseIDs: 2

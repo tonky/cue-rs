@@ -1,0 +1,20 @@
+#inlinetest:exclude compile-time alias errors prevent CUE source compilation; @test(err) requires successful compile
+-- new.cue --
+// issue2527: self-referential alias in key `(x)~x:` caused an "unreachable"
+// panic (https://cuelang.org/issue/2527).
+issue2527: {
+	(x)~x: 3
+}
+// issue2094: alias Y referring to a dynamic-key field X declared afterward
+// caused a panic due to ordering sensitivity (https://cuelang.org/issue/2094).
+issue2094: {
+	(X)~Y: string
+	("foo")~X: "bar"
+}
+-- out/evalalpha --
+issue2527: cyclic reference in field alias:
+    ./new.cue:4:3
+issue2094: cyclic reference in field alias:
+    ./new.cue:9:3
+issue2094: unreferenced alias or let clause Y:
+    ./new.cue:9:5

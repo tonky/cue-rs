@@ -1,0 +1,17 @@
+-- in.cue --
+a: *5 | "a" | true @test(eq, *5 | "a" | true)
+b: c: *{
+	a: 2
+} | {
+	a: 3
+} @test(eq, *{a: 2} | {a: 3})
+-- out/eval/stats --
+Leaks:  0
+Freed:  11
+Reused: 3
+Allocs: 8
+Retain: 0
+
+Unifications: 6
+Conjuncts:    11
+Disjuncts:    5

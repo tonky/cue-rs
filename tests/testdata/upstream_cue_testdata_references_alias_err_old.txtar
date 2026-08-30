@@ -1,0 +1,27 @@
+#inlinetest:exclude compile-time alias errors prevent CUE source compilation; @test(err) requires successful compile
+# The old prefix alias syntax (X=) is only accepted below v0.18.0, where
+# @experiment(aliasv2) is stable, so pin the language version. The
+# postfix counterparts live in alias_err.txtar, which runs at the
+# current version.
+-- cue.mod/module.cue --
+module: "test.example"
+language: version: "v0.17.0"
+-- old.cue --
+// issue2527: self-referential alias in key `x=(x):` caused an "unreachable"
+// panic (https://cuelang.org/issue/2527).
+issue2527: {
+	x=(x): 3
+}
+// issue2094: alias Y referring to a dynamic-key field X declared afterward
+// caused a panic due to ordering sensitivity (https://cuelang.org/issue/2094).
+issue2094: {
+	Y=(X): string
+	X=("foo"): "bar"
+}
+-- out/evalalpha --
+issue2527: cyclic reference in field alias:
+    ./old.cue:4:5
+issue2094: unreferenced alias or let clause Y:
+    ./old.cue:9:2
+issue2094: cyclic reference in field alias:
+    ./old.cue:9:5

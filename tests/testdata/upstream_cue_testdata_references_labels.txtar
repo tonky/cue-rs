@@ -1,0 +1,135 @@
+-- in.cue --
+// Label aliases
+
+// direct
+a: [string]~(X,_): X
+a: bar:            _
+@test(eq, {bar: "bar"}, at=a)
+
+// in struct
+b: [string]~(X,_): {X}
+b: bar:            _
+@test(eq, {bar: "bar"}, at=b)
+
+// in structs
+c: [string]~(X,_): X
+c: [string]~(Y,_): {{{Y}}}
+c: bar:            _
+@test(eq, {bar: "bar"}, at=c)
+
+// in sub field
+d: [string]~(X,_): name: X
+d: bar: {}
+@test(eq, {bar: {name: "bar"}}, at=d)
+
+// nested
+e: [string]~(X,_): [string]~(Y,_): X + Y
+e: foo: bar:                       _
+@test(eq, {foo: {bar: "foobar"}}, at=e)
+
+patternField: t1: {
+	[string]~(r): {b: r | null}
+	a:            {r: 0}
+	@test(eq, {a: {r: 0, b: null}})
+}
+
+patternField: t2: {
+	a:            {r: 0}
+	[string]~(x): {z: 1, b: x.z}
+	@test(eq, {a: {r: 0, z: 1, b: 1}})
+}
+
+// Field aliases
+
+bar: 3
+f1: "foo\(bar)"~(C): {
+	name: "xx"
+	foo:  C.name
+}
+@test(eq, {
+	foo3: {
+		name: "xx"
+		foo: "xx"
+		foo3baz: {name: "xx", a: "xx", b: "xx"}
+	}
+}, at=f1)
+
+// nested
+f1: "foo\(bar)"~(D): "foo\(bar)baz"~(E): {
+	name: "xx"
+	a:    D["foo\(bar)baz"].name
+	b:    E.name
+}
+
+// Combo
+
+c1: "foo\(bar)"~(C): [string]~(D,_): {
+	name: D
+	foo:  C.x.name
+}
+c1: foo3: x: _
+@test(eq, {foo3: {x: {name: "x", foo: "x"}}}, at=c1)
+
+emptyLabel: {
+	"": 1
+	a:  emptyLabel[""]
+	@test(eq, {"": 1, a: 1})
+}
+
+underscore: a: {
+	// Issue #1454
+	foo: #Foo
+	foo: "_":     "bar"
+	#Foo: [=~""]: string
+	@test(eq, {foo: {"_": "bar"}, #Foo: {}})
+}
+
+underscore: c: {
+	foo: "_":    "any"
+	foo: [=~""]: string
+	@test(eq, {foo: {"_": "any"}})
+}
+
+underscore: d: {
+	bar: "_":       "any"
+	#bar: [string]: string
+	bar: #bar
+	@test(eq, {bar: {"_": "any"}, #bar: {}})
+}
+
+underscore: e: {
+	baz: "_h":     "any"
+	#baz: [=~"_"]: string
+	baz: #baz
+	@test(eq, {baz: {"_h": "any"}, #baz: {}})
+}
+
+// TODO: support. Also not yet supported in old implementation.
+// c10: {
+//  C=[string]: {
+//   name: "x"
+//   foo: C.name
+//  }
+// }
+// c2: c1 & { x: _ }
+
+invalidPattern: {
+	[=~"BAD)" & =~"x"]: string
+	y:                  123
+	@test(err, code=eval, contains="invalid regexp", pos=[1:22])
+}
+-- out/errors.txt --
+[eval] invalidPattern: invalid regexp: error parsing regexp: unexpected ): `BAD)`:
+    ./in.cue:116:22
+-- out/eval/stats --
+Leaks:  1
+Freed:  60
+Reused: 40
+Allocs: 21
+Retain: 0
+
+Unifications: 59
+Conjuncts:    101
+Disjuncts:    2
+
+NumCloseIDs: 9

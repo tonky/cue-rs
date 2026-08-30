@@ -1,0 +1,18 @@
+TODO: add matching when bulk optional fields are allowed
+alongside other fields.
+-- in.cue --
+{[string]~(X,_): baz: X}
+bar: {}
+@test(eq, {bar: baz: "bar"})
+-- out/eval/stats --
+Leaks:  0
+Freed:  3
+Reused: 0
+Allocs: 3
+Retain: 0
+
+Unifications: 3
+Conjuncts:    5
+Disjuncts:    0
+
+NumCloseIDs: 1

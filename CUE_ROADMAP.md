@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **27 / 27 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **158 / 158 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **230 / 230 passing (100%)** | >95% upstream parity |
 
 ---
 

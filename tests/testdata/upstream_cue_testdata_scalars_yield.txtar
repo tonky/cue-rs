@@ -1,0 +1,48 @@
+// Issue #729
+-- in.cue --
+ifScalar: {
+	_#cond: true
+
+	if _#cond {5}
+	@test(eq, {
+		5
+		_#cond: true
+	})
+}
+
+ifScalarConflict: {
+	_#cond: true
+
+	if _#cond {5}
+
+	"soo"
+	@test(err, code=eval, contains="conflicting values", args=["soo", 5, string, int], pos=[0:19, 3:2, 3:13, 5:2])
+}
+
+ifScalarNested: {
+	_#cond: true
+
+	if _#cond {{{5}}}
+
+	@test(eq, {5, _#cond: true})
+}
+-- out/errors.txt --
+[eval] ifScalarConflict: conflicting values "soo" and 5 (mismatched types string and int):
+    ./in.cue:11:19
+    ./in.cue:14:2
+    ./in.cue:14:13
+    ./in.cue:16:2
+-- out/eval/stats --
+Leaks:  0
+Freed:  7
+Reused: 2
+Allocs: 5
+Retain: 0
+
+Unifications: 7
+Conjuncts:    16
+Disjuncts:    0
+
+NumCloseIDs: 12
+-- out/diff-v2-v3.txt --
+v2 does not report in.cue:7:19 in the error; v3 does.

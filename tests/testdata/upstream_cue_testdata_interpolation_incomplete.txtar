@@ -1,0 +1,30 @@
+Issue #553
+-- in.cue --
+a: "foo" @test(eq, "foo")
+b: "boo" @test(eq, "boo")
+commands: {
+	#c: {
+		help: "help!"
+	}
+}
+out: """
+    a is \(a)
+    b is \(b)
+
+    c is \(commands.#c.help)
+    d is \(commands.#d.help)
+    """ @test(err, code=incomplete)
+-- out/errors.txt --
+[incomplete] out: invalid interpolation: undefined field: #d:
+    ./in.cue:8:6
+    ./in.cue:13:21
+-- out/eval/stats --
+Leaks:  0
+Freed:  7
+Reused: 0
+Allocs: 7
+Retain: 0
+
+Unifications: 7
+Conjuncts:    7
+Disjuncts:    0

@@ -469,7 +469,20 @@ impl Evaluator {
             Expr::List(l) => {
                 let mut elements = Vec::new();
                 for elem in &l.elements {
-                    elements.push(self.eval_expr(elem)?);
+                    let elem_id = self.eval_expr(elem)?;
+                    if matches!(elem, Expr::ListComp(_)) {
+                        if let Some(Value::List {
+                            elements: inner_elems,
+                            ..
+                        }) = self.arena.get(elem_id)
+                        {
+                            elements.extend(inner_elems.clone());
+                        } else {
+                            elements.push(elem_id);
+                        }
+                    } else {
+                        elements.push(elem_id);
+                    }
                 }
                 let ellipsis = if let Some(el) = &l.ellipsis {
                     Some(self.eval_expr(el)?)

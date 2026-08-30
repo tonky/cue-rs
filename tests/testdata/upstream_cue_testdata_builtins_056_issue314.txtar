@@ -1,0 +1,62 @@
+# Tests that builtin encoding/template functions (text/template.Execute,
+# encoding/json.Marshal, encoding/yaml.Marshal) correctly produce [incomplete]
+# errors rather than panicking when called with abstract (non-concrete) values.
+# https://cuelang.org/issue/314
+-- in.cue --
+import (
+	"text/template"
+	"encoding/yaml"
+	"encoding/json"
+)
+
+x: {
+	s: "myname"
+	#T
+	@test(eq, {s: "myname", out: "myname"})
+}
+
+#T: {
+	s:   string
+	out: template.Execute("{{.s}}", {
+		"s": s
+	}) @test(err, code=incomplete,
+		contains="error in call to text/template.Execute: cannot convert non-concrete value string", pos=[0:7, -1:2])
+}
+
+#V: {
+	s:   string
+	out: json.Marshal({"s": s}) @test(err, code=incomplete,
+		contains="cannot convert incomplete value", pos=[0:7, -1:7])
+}
+
+#U: {
+	s:   string
+	out: yaml.Marshal({"s": s}) @test(err, code=incomplete,
+		contains="incomplete value string", pos=[0:7, -1:7, 0:26])
+}
+-- out/eval/stats --
+Leaks:  0
+Freed:  21
+Reused: 12
+Allocs: 9
+Retain: 0
+
+Unifications: 21
+Conjuncts:    24
+Disjuncts:    0
+
+NumCloseIDs: 3
+-- out/errors.txt --
+[incomplete] #T.out: error in call to text/template.Execute: cannot convert non-concrete value string:
+    ./in.cue:15:7
+    ./in.cue:14:2
+[incomplete] #V.out: error in call to encoding/json.Marshal: cannot convert incomplete value "string" to JSON:
+    ./in.cue:23:7
+    ./in.cue:22:7
+[incomplete] #U.out: error in call to encoding/yaml.Marshal: incomplete value string:
+    ./in.cue:29:7
+    ./in.cue:28:7
+    ./in.cue:29:26
+-- out/diff-v2-v3.txt --
+positions: v3 reports different position for some errors
+Verdict: worsening -- v3 reports different error positions.

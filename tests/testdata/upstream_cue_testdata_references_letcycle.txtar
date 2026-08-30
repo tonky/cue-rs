@@ -1,0 +1,62 @@
+#inlinetest:exclude mutually recursive let bindings produce compile-time cycle errors
+# which prevent the inline runner from compiling the source. Issue #1042.
+#expandLetExpr: true
+-- in.cue --
+import "list"
+
+cycles: {
+	a: {
+		let A = {c: B}
+		let B = A
+		out: A
+	}
+
+	b: {
+		let A = {c: B}
+		let B = {A.c}
+		out: A
+	}
+
+	issue1042: {
+		#FullAdder: {
+			// IN
+			a: bool
+			b: bool
+			c: bool
+			// OUT
+			sum:   bool
+			carry: bool
+		}
+
+		#Add16: {
+			a:   [bool] * 16
+			b:   [bool] * 16
+			out: [bool] * 16
+
+			let fulladders = [
+				for i in list.Range(0, 4, 1) {
+					#FullAdder & {"a": a[i], "b": b[i], c: carries[i]}
+				},
+			]
+			let carries = [
+				false,
+				for i in list.Range(0, 4, 1) {fulladders[i].carry},
+			]
+			out: [
+				for i in list.Range(0, 4, 1) {fulladders[i].sum},
+			]
+		}
+	}
+}
+-- out/todo.txt --
+v2 error paths are more verbose than v3:
+  v2: cycles.a.let[].c.c, v3: cycles.a.let[].c
+  v2: cycles.b.let[].c.c, v3: cycles.b.let[].c
+  v2: cycles.issue1042.#Add16.let[].for[].c.for[].for[].c, v3: cycles.issue1042.#Add16.let[].for[].c
+-- out/evalalpha --
+cycles.a.let[].c: cyclic references in let clause or alias:
+    ./in.cue:5:15
+cycles.b.let[].c: cyclic references in let clause or alias:
+    ./in.cue:11:15
+cycles.issue1042.#Add16.let[].for[].c: cyclic references in let clause or alias:
+    ./in.cue:34:45

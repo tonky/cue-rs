@@ -1,0 +1,56 @@
+-- in.cue --
+a1: """
+		before
+		\(4)
+		after
+		""" @test(eq, "before\n4\nafter")
+a2: """
+		before
+		\(4)
+
+		""" @test(eq, "before\n4\n")
+a3: """
+
+		\(4)
+		after
+		""" @test(eq, "\n4\nafter")
+a4: """
+
+		\(4)
+
+		""" @test(eq, "\n4\n")
+m1: """
+		before
+		\(
+	4)
+		after
+		""" @test(eq, "before\n4\nafter")
+m2: """
+		before
+		\(
+	4)
+
+		""" @test(eq, "before\n4\n")
+m3: """
+
+		\(
+
+	4)
+		after
+		""" @test(eq, "\n4\nafter")
+m4: """
+
+		\(
+	4)
+
+		""" @test(eq, "\n4\n")
+-- out/eval/stats --
+Leaks:  0
+Freed:  9
+Reused: 0
+Allocs: 9
+Retain: 0
+
+Unifications: 9
+Conjuncts:    9
+Disjuncts:    0

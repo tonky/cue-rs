@@ -1,0 +1,36 @@
+-- cue.mod/module.cue --
+module: "mod.test"
+language: version: "v0.9.0"
+-- in.cue --
+package exitcode
+
+import (
+	pkg "foo.com/example"
+)
+
+a: 1
+
+incomplete: pkg.Settings
+@test(eq, {
+	a: 1
+	incomplete: {}
+})
+-- cue.mod/pkg/foo.com/example/example.cue --
+package example
+
+// An incomplete error in a package is not transferred to a
+// package that is using it.
+//
+// Issue #550
+blah: Settings.anyKey
+Settings: {}
+-- out/eval/stats --
+Leaks:  3
+Freed:  19
+Reused: 0
+Allocs: 22
+Retain: 0
+
+Unifications: 21
+Conjuncts:    21
+Disjuncts:    0

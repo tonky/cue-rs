@@ -1,0 +1,26 @@
+-- in.cue --
+t1: a: {
+	foo?: int
+
+	b: foo @test(err, code=incomplete)
+}
+t2: a: {
+	b: foo @test(err, code=incomplete)
+
+	foo?: int
+}
+-- out/errors.txt --
+[incomplete] t1.a.b: cannot reference optional field: foo:
+    ./in.cue:4:5
+[incomplete] t2.a.b: cannot reference optional field: foo:
+    ./in.cue:7:5
+-- out/eval/stats --
+Leaks:  0
+Freed:  9
+Reused: 3
+Allocs: 6
+Retain: 0
+
+Unifications: 9
+Conjuncts:    9
+Disjuncts:    0

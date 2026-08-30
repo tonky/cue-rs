@@ -137,6 +137,8 @@ impl<'a> Parser<'a> {
                 | Token::RBracket
                 | Token::RBrace
                 | Token::Question
+                | Token::Attribute(_)
+                | Token::Ellipsis
         )
     }
 
@@ -319,7 +321,10 @@ impl<'a> Parser<'a> {
         if self.match_token(&Token::KwLet) {
             let (tok, span) = self.advance()?;
             let ident = match tok {
-                Token::Ident(id) | Token::DefIdent(id) => id,
+                Token::Ident(id)
+                | Token::DefIdent(id)
+                | Token::HiddenIdent(id)
+                | Token::HiddenDefIdent(id) => id,
                 _ => {
                     return Err(ParseError::UnexpectedToken {
                         found: format!("{}", tok),
@@ -359,7 +364,12 @@ impl<'a> Parser<'a> {
         }
 
         // 5. Lookahead for Field, Alias, or Embedding
-        // An alias is: `X = expr` (Capitalized ident followed by `=`)
+        // Check if this looks like a field label: `label: ...` or `x = label: ...`
+        if self.is_label_ahead() {
+            return self.parse_field_decl();
+        }
+
+        // An alias is: `X = expr` (Ident followed by `=`)
         if let Some((Token::Ident(id), _)) = self.tokens.get(self.pos)
             && self.tokens.get(self.pos + 1).map(|(t, _)| t) == Some(&Token::Equal) {
                 let id = id.clone();
@@ -367,11 +377,6 @@ impl<'a> Parser<'a> {
                 let expr = self.parse_expr()?;
                 return Ok(Decl::Alias { ident: id, expr });
             }
-
-        // Check if this looks like a field label: `label: ...` or `label?: ...`
-        if self.is_label_ahead() {
-            return self.parse_field_decl();
-        }
 
         // Otherwise, it's an embedded expression
         let expr = self.parse_expr()?;
@@ -382,6 +387,17 @@ impl<'a> Parser<'a> {
         let mut idx = self.pos;
         if idx >= self.tokens.len() {
             return false;
+        }
+
+        // Optional prefix alias: `X = ...`
+        if matches!(&self.tokens[idx].0, Token::Ident(_) | Token::DefIdent(_))
+            && idx + 1 < self.tokens.len()
+            && self.tokens[idx + 1].0 == Token::Equal
+        {
+            idx += 2;
+            if idx >= self.tokens.len() {
+                return false;
+            }
         }
 
         // Dynamic or pattern label: `[expr]:`
@@ -468,6 +484,23 @@ impl<'a> Parser<'a> {
             | Token::HiddenDefIdent(_)
             | Token::StringLit(_) => {
                 idx += 1;
+                if idx < self.tokens.len() && self.tokens[idx].0 == Token::Tilde {
+                    idx += 1;
+                    if idx < self.tokens.len() && self.tokens[idx].0 == Token::LParen {
+                        let mut p_depth = 1;
+                        idx += 1;
+                        while idx < self.tokens.len() && p_depth > 0 {
+                            match &self.tokens[idx].0 {
+                                Token::LParen => p_depth += 1,
+                                Token::RParen => p_depth -= 1,
+                                _ => {}
+                            }
+                            idx += 1;
+                        }
+                    } else if idx < self.tokens.len() && matches!(&self.tokens[idx].0, Token::Ident(_)) {
+                        idx += 1;
+                    }
+                }
                 if idx < self.tokens.len() && self.tokens[idx].0 == Token::Question {
                     idx += 1;
                 }
@@ -478,6 +511,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_field_decl(&mut self) -> Result<Decl, ParseError> {
+        // Optional prefix alias: `X = ...`
+        if matches!(self.peek(), Some(Token::Ident(_) | Token::DefIdent(_)))
+            && self.tokens.get(self.pos + 1).map(|(t, _)| t) == Some(&Token::Equal)
+        {
+            self.pos += 2;
+        }
+
         let label = self.parse_label()?;
         if self.match_token(&Token::Tilde) {
             if self.match_token(&Token::LParen) {
@@ -564,34 +604,41 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_for_comprehension(&mut self) -> Result<Decl, ParseError> {
+    fn parse_for_vars(&mut self) -> Result<(Option<String>, String), ParseError> {
         let (first_tok, span) = self.advance()?;
-        let (key, val) = match first_tok {
-            Token::Ident(k_or_v) => {
-                if self.match_token(&Token::Comma) {
-                    let (val_tok, val_span) = self.advance()?;
-                    if let Token::Ident(v) = val_tok {
-                        (Some(k_or_v), v)
-                    } else {
-                        return Err(ParseError::UnexpectedToken {
-                            found: format!("{}", val_tok),
-                            expected: "value identifier in for-loop".to_string(),
-                            span: val_span,
-                        });
-                    }
-                } else {
-                    (None, k_or_v)
-                }
-            }
+        let k_or_v = match first_tok {
+            Token::Ident(s) | Token::DefIdent(s) | Token::HiddenIdent(s) => s,
+            Token::Top => "_".to_string(),
             _ => {
                 return Err(ParseError::UnexpectedToken {
-                    found: format!("{}", first_tok),
+                    found: format!("{first_tok}"),
                     expected: "identifier in for-loop".to_string(),
                     span,
                 });
             }
         };
 
+        if self.match_token(&Token::Comma) {
+            let (val_tok, val_span) = self.advance()?;
+            let v = match val_tok {
+                Token::Ident(s) | Token::DefIdent(s) | Token::HiddenIdent(s) => s,
+                Token::Top => "_".to_string(),
+                _ => {
+                    return Err(ParseError::UnexpectedToken {
+                        found: format!("{val_tok}"),
+                        expected: "value identifier in for-loop".to_string(),
+                        span: val_span,
+                    });
+                }
+            };
+            Ok((Some(k_or_v), v))
+        } else {
+            Ok((None, k_or_v))
+        }
+    }
+
+    fn parse_for_comprehension(&mut self) -> Result<Decl, ParseError> {
+        let (key, val) = self.parse_for_vars()?;
         self.expect(Token::KwIn)?;
         let source = self.parse_expr()?;
         self.parse_comprehension_clauses(ComprehensionClause::For {
@@ -613,32 +660,7 @@ impl<'a> Parser<'a> {
                 break;
             }
             if self.match_token(&Token::KwFor) {
-                let (first_tok, span) = self.advance()?;
-                let (key, val) = match first_tok {
-                    Token::Ident(k_or_v) | Token::DefIdent(k_or_v) => {
-                        if self.match_token(&Token::Comma) {
-                            let (val_tok, val_span) = self.advance()?;
-                            if let Token::Ident(v) = val_tok {
-                                (Some(k_or_v), v)
-                            } else {
-                                return Err(ParseError::UnexpectedToken {
-                                    found: format!("{val_tok}"),
-                                    expected: "value identifier in for-loop".to_string(),
-                                    span: val_span,
-                                });
-                            }
-                        } else {
-                            (None, k_or_v)
-                        }
-                    }
-                    _ => {
-                        return Err(ParseError::UnexpectedToken {
-                            found: format!("{first_tok}"),
-                            expected: "identifier in for-loop".to_string(),
-                            span,
-                        });
-                    }
-                };
+                let (key, val) = self.parse_for_vars()?;
                 self.expect(Token::KwIn)?;
                 let source = self.parse_expr()?;
                 clauses.push(ComprehensionClause::For {
@@ -652,7 +674,10 @@ impl<'a> Parser<'a> {
             } else if self.match_token(&Token::KwLet) {
                 let (tok, span) = self.advance()?;
                 let ident = match tok {
-                    Token::Ident(id) | Token::DefIdent(id) => id,
+                    Token::Ident(id)
+                    | Token::DefIdent(id)
+                    | Token::HiddenIdent(id)
+                    | Token::HiddenDefIdent(id) => id,
                     _ => {
                         return Err(ParseError::UnexpectedToken {
                             found: format!("{tok}"),
@@ -680,8 +705,8 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    /// Parse a list comprehension: `[ for x in src if x > 1 { x * 10 } ]`
-    pub fn parse_list_comprehension(&mut self) -> Result<Expr, ParseError> {
+    /// Parse a list comprehension body: `for x in src if x > 1 { x * 10 }`
+    pub fn parse_list_comprehension_body(&mut self) -> Result<Expr, ParseError> {
         let mut clauses = Vec::new();
 
         while self.peek() == Some(&Token::KwFor)
@@ -689,32 +714,7 @@ impl<'a> Parser<'a> {
             || self.peek() == Some(&Token::KwLet)
         {
             if self.match_token(&Token::KwFor) {
-                let (first_tok, span) = self.advance()?;
-                let (key, val) = match first_tok {
-                    Token::Ident(k_or_v) | Token::DefIdent(k_or_v) => {
-                        if self.match_token(&Token::Comma) {
-                            let (val_tok, val_span) = self.advance()?;
-                            if let Token::Ident(v) = val_tok {
-                                (Some(k_or_v), v)
-                            } else {
-                                return Err(ParseError::UnexpectedToken {
-                                    found: format!("{val_tok}"),
-                                    expected: "value identifier in for-loop".to_string(),
-                                    span: val_span,
-                                });
-                            }
-                        } else {
-                            (None, k_or_v)
-                        }
-                    }
-                    _ => {
-                        return Err(ParseError::UnexpectedToken {
-                            found: format!("{first_tok}"),
-                            expected: "identifier in for-loop".to_string(),
-                            span,
-                        });
-                    }
-                };
+                let (key, val) = self.parse_for_vars()?;
                 self.expect(Token::KwIn)?;
                 let source = self.parse_expr()?;
                 clauses.push(ComprehensionClause::For {
@@ -728,7 +728,10 @@ impl<'a> Parser<'a> {
             } else if self.match_token(&Token::KwLet) {
                 let (tok, span) = self.advance()?;
                 let ident = match tok {
-                    Token::Ident(id) | Token::DefIdent(id) => id,
+                    Token::Ident(id)
+                    | Token::DefIdent(id)
+                    | Token::HiddenIdent(id)
+                    | Token::HiddenDefIdent(id) => id,
                     _ => {
                         return Err(ParseError::UnexpectedToken {
                             found: format!("{tok}"),
@@ -761,13 +764,18 @@ impl<'a> Parser<'a> {
             self.parse_expr()?
         };
 
-        self.match_token(&Token::Comma);
-        self.expect(Token::RBracket)?;
-
         Ok(Expr::ListComp(ListComprehension {
             clauses,
             expr: Box::new(expr),
         }))
+    }
+
+    /// Parse a list comprehension: `[ for x in src if x > 1 { x * 10 } ]`
+    pub fn parse_list_comprehension(&mut self) -> Result<Expr, ParseError> {
+        let comp = self.parse_list_comprehension_body()?;
+        self.match_token(&Token::Comma);
+        self.expect(Token::RBracket)?;
+        Ok(comp)
     }
 
     // --- Expressions (Pratt Precedence) ---
@@ -1026,14 +1034,15 @@ impl<'a> Parser<'a> {
                 Ok(Expr::Struct(StructLit { decls }))
             }
             Token::LBracket => {
-                if self.peek() == Some(&Token::KwFor) || self.peek() == Some(&Token::KwIf) {
-                    return self.parse_list_comprehension();
-                }
-
                 let mut elements = Vec::new();
                 let mut ellipsis = None;
 
                 while !self.match_token(&Token::RBracket) && !self.is_eof() {
+                    if self.peek() == Some(&Token::KwFor) || self.peek() == Some(&Token::KwIf) {
+                        elements.push(self.parse_list_comprehension_body()?);
+                        self.match_token(&Token::Comma);
+                        continue;
+                    }
                     if self.match_token(&Token::Ellipsis) {
                         let elem_type = if self.peek() == Some(&Token::RBracket) {
                             None
@@ -1048,7 +1057,14 @@ impl<'a> Parser<'a> {
                     elements.push(self.parse_expr()?);
                     self.match_token(&Token::Comma);
                 }
-                Ok(Expr::List(ListLit { elements, ellipsis }))
+                if elements.len() == 1
+                    && matches!(elements.first(), Some(Expr::ListComp(_)))
+                    && ellipsis.is_none()
+                {
+                    Ok(elements.pop().unwrap())
+                } else {
+                    Ok(Expr::List(ListLit { elements, ellipsis }))
+                }
             }
             Token::LParen => {
                 let expr = self.parse_expr()?;

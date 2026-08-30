@@ -1,0 +1,18 @@
+-- in.cue --
+import "strings"
+a: strings.Join( [ strings.Join(["1"]), "2" ], "\n") @test(err, code=eval, contains="not enough arguments in call to strings.Join", pos=[0:4, 0:20])
+
+-- out/eval/stats --
+Leaks:  0
+Freed:  7
+Reused: 0
+Allocs: 7
+Retain: 0
+
+Unifications: 6
+Conjuncts:    6
+Disjuncts:    0
+-- out/errors.txt --
+[eval] a: error in call to strings.Join: not enough arguments in call to strings.Join (have 1, want 2):
+    ./in.cue:2:4
+    ./in.cue:2:20

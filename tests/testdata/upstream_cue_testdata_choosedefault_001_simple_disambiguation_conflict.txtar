@@ -1,0 +1,16 @@
+-- in.cue --
+a: *"a" | "b" @test(eq, *"a" | "b")
+b: *"b" | "a" @test(eq, *"b" | "a")
+c: a & b      @test(eq, "a" | "b")
+-- out/eval/stats --
+Leaks:  0
+Freed:  14
+Reused: 5
+Allocs: 9
+Retain: 0
+
+Unifications: 4
+Conjuncts:    17
+Disjuncts:    10
+
+NumCloseIDs: 2

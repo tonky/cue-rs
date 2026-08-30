@@ -1,0 +1,477 @@
+Test various self reference cases.
+-- in.cue --
+@experiment(aliasv2)
+
+// Basic self usage - top level
+a: self.b  @test(eq, "hello")
+b: "hello"
+
+// Nested self usage - should refer to x struct
+x: {
+    y: self.z
+    z: "world"
+}  @test(eq, {y: "world", z: "world"})
+
+// Shorthand notation - self should refer to foo struct
+foo: bar: self.baz    @test(eq, "greeting")
+foo: baz: "greeting"  @test(eq, "greeting") // TODO(inline): reference marking does not work with "self"
+
+// Multiple levels of nesting
+nested: {
+    level1: {
+        field: self.value
+        value: "level1 value"
+    }
+}  @test(eq, {
+	level1: {
+		field: "level1 value"
+		value: "level1 value"
+	}
+})
+
+// Self in list context
+listTest: {
+    items: [1, 2, self[0], self[1]]
+    first: 1
+    second: 2
+}  @test(eq, {
+	items: [1, 2, 1, 2]
+	first: 1
+	second: 2
+})
+
+// Self with computed selectors
+computed: {
+    key: "test"
+    value: self["key"]
+}  @test(eq, {key: "test", value: "test"})
+
+// Cyclic reference detection
+cycle: self.cycle  @test(eq, _)
+
+-- list.cue --
+@experiment(aliasv2)
+import "list"
+
+#IntStrings: {list.Repeat([int, string], div(len(self), 2))}
+listCheck: ok1: #IntStrings
+listCheck: ok1: [1, "foo", 2, "bar"] @test(eq, [1, "foo", 2, "bar"])
+
+listCheck: err: #IntStrings
+listCheck: err: [1, "foo", "bar", 2] @test(err, code=eval, path=2, contains="conflicting values %s and %s (mismatched types %s and %s)", args=["bar", int, string, int], pos=[-5:14, -5:15, -5:28, -1:17, 0:28])
+
+-- withlet.cue --
+@experiment(try,aliasv2)
+
+withLet: {
+	let X = self
+	foo: 1
+
+	bar: {
+		baz: X.foo
+	}
+} @test(eq, {foo: 1, bar: {baz: 1}})
+
+// A let bound to self must capture fields produced by if/for/try
+// comprehensions, not only statically declared ones.
+// See https://cuelang.org/issue/4376.
+withLetComprehension: {
+	let X = self
+	direct: "a"
+	if true {
+		viaIf: "b"
+	}
+	for k, v in {viaFor: "c"} {
+		(k): v
+	}
+	try {
+		viaTry: "d"
+	}
+	seeDirect: X.direct
+	seeIf:     X.viaIf
+	seeFor:    X.viaFor
+	seeTry:    X.viaTry
+} @test(eq, {
+	direct:    "a"
+	viaIf:     "b"
+	viaFor:    "c"
+	viaTry:    "d"
+	seeDirect: "a"
+	seeIf:     "b"
+	seeFor:    "c"
+	seeTry:    "d"
+})
+
+// A comprehension inherited by a `let X = self` copy must fully evaluate
+// a dynamic field whose key interpolation contains a call with a
+// reference argument, such as len(K) below.
+// See https://cuelang.org/issue/4420.
+withLetDynamicField: {
+	let X = self
+	h: [string]~K: c: len(K)
+	h: a: _
+	g: _
+	for x in X.h {
+		// TODO: the language may not always allow a dynamic field key that
+		// can lack a value; an if inside its interpolation would then
+		// require an else branch.
+		g: "\({if true {x.c}})": true
+	}
+	for k, _ in g {
+		G: k
+	}
+	@test(eq, {
+		h: a: c: 1
+		g: "1": true
+		G: "1"
+		s: true
+		x: 1
+	})
+}
+withLetDynamicField: {
+	let Y = self
+	s: true
+	x: {
+		if Y.s {1}
+		if !Y.s {2}
+	}
+}
+
+// Iterating over a let bound to self sees the enclosing struct's full
+// field set, including the field defined by the comprehension itself.
+// This used to hang before the self experiment was folded into aliasv2.
+// See https://cuelang.org/issue/4099.
+letSelfIterate: {
+	let X = self
+	a: 3
+	d: [for k, _ in X {k}]
+	@test(eq, {a: 3, d: ["a", "d"]})
+}
+
+// Variant of the above where the call argument is a regular reference
+// rather than a pattern alias.
+withLetDynamicFieldRef: {
+	let X = self
+	h: [string]: c: len(h.a)
+	h: a: _
+	g: _
+	for x in X.h {
+		g: "\({if true {x.c}})": true
+	}
+	for k, _ in g {
+		G: k
+	}
+	@test(eq, {
+		h: a: c: 1
+		g: "1": true
+		G: "1"
+		s: true
+		x: 1
+	})
+}
+withLetDynamicFieldRef: {
+	let Y = self
+	s: true
+	x: {
+		if Y.s {1}
+		if !Y.s {2}
+	}
+}
+-- validator.cue --
+@experiment(structcmp)
+@experiment(aliasv2)
+
+validator: {
+	err1: {{{{== (self + 1)}}}}  @test(err, code=eval,
+		contains="invalid value %v (out of bound %s)", args=[2, ==3],
+		pos=[0:12, 0:8, 4:8]
+	)
+	err1: 2
+
+	err2: {== (self + 1)}  @test(err, code=eval,
+		contains="invalid value %v (out of bound %s)", args=[2, ==3],
+		pos=[0:9, 0:8, 4:8]
+	)
+	err2: 2
+}
+
+cyclicErr: {
+	err3: == (self + 1)  @test(err, code=eval,
+		contains="invalid operands %s and %s to '%s' (type %s and %s)",
+		pos=[0:12, -1:12, 0:19]
+	)
+	err3: 4
+}
+
+-- comprehension.cue --
+@experiment(aliasv2)
+
+// self inside the body of a field comprehension resolves to the struct that
+// the yielded fields belong to, not to the comprehension's own scope.
+// Issue #4422.
+forComp: {
+	n: 2
+	for i in [1, 2] {"k\(i)": self.n}
+}  @test(eq, {n: 2, k1: 2, k2: 2})
+
+// self inside a list comprehension body refers to the yielded element, not
+// to the enclosing list, so indexing it fails.
+listComp: [10, 20, for _ in [1] {self[0]}]  @test(err, at=2, code=incomplete, pos=[0:39])
+
+// self inside an if comprehension.
+ifComp: {
+	n: 3
+	if true {m: self.n}
+}  @test(eq, {n: 3, m: 3})
+
+// self in a nested struct resolves to that struct, not the outer one.
+nestComp: {
+	outer: {
+		v: 5
+		for i in [1] {"c\(i)": self.v}
+	}
+}  @test(eq, {outer: {v: 5, c1: 5}})
+
+// self across two nested for comprehensions.
+doubleComp: {
+	n: 7
+	for i in [1] for j in [1] {"d\(i)\(j)": self.n}
+}  @test(eq, {n: 7, d11: 7})
+
+-- letselfinline.cue --
+@experiment(aliasv2)
+
+// A let bound to self is a transparent binding to the enclosing struct.
+// Chained references through it must also work when the struct is unified
+// into an inline (dynamic) vertex, where structure sharing is unavailable.
+// See https://cuelang.org/issue/4428.
+letSelfInline: {
+	S: {
+		let this = self
+		raw:  string
+		data: this.raw
+		chk:  this.data
+	}
+	res: (S & {raw: "alice"}).chk @test(eq, "alice")
+}
+
+// Variant with two unified conjuncts, each with its own let-self binding,
+// where one conjunct references a field contributed by the other. This is
+// the shape that cue fix --exp=aliasv2 produces for postfix value aliases.
+letSelfInlineConj: {
+	#T: {
+		let this = self
+		raw:  string
+		data: this.raw
+	}
+	#T: {
+		let this = self
+		chk: this.data
+	}
+	res: (#T & {raw: "alice"}).chk @test(eq, "alice")
+}
+
+-- issue4440.cue --
+@experiment(aliasv2)
+
+// A definition combining a dynamic field whose key, a comprehension whose
+// guard, and a re-export that all read through a let-self binding. Reading
+// the options through the re-export used to make the dynamic field key fail
+// with "undefined field: network": the let vertex mirrored the definition,
+// and the mirror's own nested let-self conjunct was parked as a structural
+// cycle, leaving it without arcs. See https://cuelang.org/issue/4440.
+letSelfDynamic: {
+	#Client: {
+		let this = self
+		network: string
+		opt?:    string
+		options: (this.network): "x"
+		if this.opt != _|_ {
+			options: a: "y"
+		}
+		container: options: this.options
+	}
+	c: #Client & {network: "mainnet"}
+	out: c.container.options @test(eq, {mainnet: "x"})
+}
+
+-- out/evalalpha --
+Errors:
+listCheck.err.2: conflicting values "bar" and int (mismatched types string and int):
+    ./list.cue:4:14
+    ./list.cue:4:15
+    ./list.cue:4:28
+    ./list.cue:8:17
+    ./list.cue:9:28
+listCheck.err.3: conflicting values 2 and string (mismatched types int and string):
+    ./list.cue:4:14
+    ./list.cue:4:15
+    ./list.cue:4:33
+    ./list.cue:8:17
+    ./list.cue:9:35
+validator.err1: invalid value 2 (out of bound ==3):
+    ./validator.cue:5:12
+    ./validator.cue:5:8
+    ./validator.cue:6:8
+validator.err2: invalid value 2 (out of bound ==3):
+    ./validator.cue:8:9
+    ./validator.cue:8:8
+    ./validator.cue:9:8
+cyclicErr.err3: invalid operands {err3:_|_(cyclicErr.err3: invalid operands value at path 'cyclicErr' and 1 to '+' (type struct and int))} and 1 to '+' (type struct and int):
+    ./validator.cue:13:12
+    ./validator.cue:12:12
+    ./validator.cue:13:19
+
+Result:
+(_|_){
+  // [eval]
+  a: (string){ "hello" }
+  b: (string){ "hello" }
+  x: (struct){
+    y: (string){ "world" }
+    z: (string){ "world" }
+  }
+  foo: (struct){
+    bar: (string){ "greeting" }
+    baz: (string){ "greeting" }
+  }
+  nested: (struct){
+    level1: (struct){
+      field: (string){ "level1 value" }
+      value: (string){ "level1 value" }
+    }
+  }
+  listTest: (struct){
+    items: (#list){
+      0: (int){ 1 }
+      1: (int){ 2 }
+      2: (int){ 1 }
+      3: (int){ 2 }
+    }
+    first: (int){ 1 }
+    second: (int){ 2 }
+  }
+  computed: (struct){
+    key: (string){ "test" }
+    value: (string){ "test" }
+  }
+  cycle: (_){ _ }
+  #IntStrings: (#list){
+  }
+  listCheck: (_|_){
+    // [eval]
+    ok1: (#list){
+      0: (int){ 1 }
+      1: (string){ "foo" }
+      2: (int){ 2 }
+      3: (string){ "bar" }
+    }
+    err: (_|_){
+      // [eval]
+      0: (int){ 1 }
+      1: (string){ "foo" }
+      2: (_|_){
+        // [eval] listCheck.err.2: conflicting values "bar" and int (mismatched types string and int):
+        //     ./list.cue:4:14
+        //     ./list.cue:4:15
+        //     ./list.cue:4:28
+        //     ./list.cue:8:17
+        //     ./list.cue:9:28
+      }
+      3: (_|_){
+        // [eval] listCheck.err.3: conflicting values 2 and string (mismatched types int and string):
+        //     ./list.cue:4:14
+        //     ./list.cue:4:15
+        //     ./list.cue:4:33
+        //     ./list.cue:8:17
+        //     ./list.cue:9:35
+      }
+    }
+  }
+  validator: (_|_){
+    // [eval]
+    err1: (_|_){
+      // [eval] validator.err1: invalid value 2 (out of bound ==3):
+      //     ./validator.cue:5:12
+      //     ./validator.cue:5:8
+      //     ./validator.cue:6:8
+    }
+    err2: (_|_){
+      // [eval] validator.err2: invalid value 2 (out of bound ==3):
+      //     ./validator.cue:8:9
+      //     ./validator.cue:8:8
+      //     ./validator.cue:9:8
+    }
+  }
+  cyclicErr: (_|_){
+    // [eval]
+    err3: (_|_){
+      // [eval] cyclicErr.err3: invalid operands {err3:_|_(cyclicErr.err3: invalid operands value at path 'cyclicErr' and 1 to '+' (type struct and int))} and 1 to '+' (type struct and int):
+      //     ./validator.cue:13:12
+      //     ./validator.cue:12:12
+      //     ./validator.cue:13:19
+    }
+  }
+  withLet: (struct){
+    let X#1 = (_|_){
+      // [structural_cycle] withLet.X: structural cycle
+    }
+    foo: (int){ 1 }
+    bar: (struct){
+      baz: (int){ 1 }
+    }
+  }
+}
+-- experiment_test.cue --
+// Test self usage without experiment enabled (should fail)
+
+a: {
+    b: self.c
+    c: 3
+}
+
+-- out/errors.txt --
+[incomplete] listComp.2: index out of range [0] with length 0:
+    ./comprehension.cue:13:39
+[incomplete] letSelfDynamic.#Client.options: key value of dynamic field must be concrete, found string:
+    ./issue4440.cue:14:13
+    ./issue4440.cue:12:12
+[incomplete] letSelfDynamic.#Client.options: key value of dynamic field must be concrete, found string:
+    ./issue4440.cue:14:13
+    ./issue4440.cue:12:12
+[eval] listCheck.err.2: conflicting values "bar" and int (mismatched types string and int):
+    ./list.cue:4:14
+    ./list.cue:4:15
+    ./list.cue:4:28
+    ./list.cue:8:17
+    ./list.cue:9:28
+[eval] listCheck.err.3: conflicting values 2 and string (mismatched types int and string):
+    ./list.cue:4:14
+    ./list.cue:4:15
+    ./list.cue:4:33
+    ./list.cue:8:17
+    ./list.cue:9:35
+[eval] validator.err1: invalid value 2 (out of bound ==3):
+    ./validator.cue:5:12
+    ./validator.cue:5:8
+    ./validator.cue:9:8
+[eval] validator.err2: invalid value 2 (out of bound ==3):
+    ./validator.cue:11:9
+    ./validator.cue:11:8
+    ./validator.cue:15:8
+[eval] cyclicErr.err3: invalid operands {err3:_|_(cyclicErr.err3: invalid operands value at path 'cyclicErr' and 1 to '+' (type struct and int))} and 1 to '+' (type struct and int):
+    ./validator.cue:19:12
+    ./validator.cue:18:12
+    ./validator.cue:19:19
+-- out/eval/stats --
+Leaks:  3
+Freed:  172
+Reused: 134
+Allocs: 41
+Retain: 0
+
+Unifications: 166
+Conjuncts:    262
+Disjuncts:    0
+
+NumCloseIDs: 82

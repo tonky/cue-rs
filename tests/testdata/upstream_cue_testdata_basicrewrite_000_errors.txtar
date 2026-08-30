@@ -1,0 +1,25 @@
+-- in.cue --
+a: _|_ & _|_            @test(err, code=user)
+b: null & _|_           @test(err, code=user)
+c: b.a == _|_           @test(eq, true)
+d: _|_ != b.a           @test(eq, false)
+e: _|_ == _|_           @test(eq, true)
+f: ({} & false) == _|_  @test(eq, true)
+g: _|_ != ({} & false)  @test(eq, false)
+-- out/errors.txt --
+[user] explicit error (_|_ literal) in source:
+    ./in.cue:1:4
+explicit error (_|_ literal) in source:
+    ./in.cue:1:10
+[user] explicit error (_|_ literal) in source:
+    ./in.cue:2:11
+-- out/eval/stats --
+Leaks:  0
+Freed:  10
+Reused: 1
+Allocs: 9
+Retain: 0
+
+Unifications: 10
+Conjuncts:    14
+Disjuncts:    0

@@ -1,0 +1,187 @@
+-- in.cue --
+import (
+	"list"
+	"strings"
+	"text/template"
+)
+
+list1: {
+	// Note that Top is not incomplete, only its first element is.
+	// We allow FlattenN to proceed and pass on the incomplete values.
+	Out1: list.FlattenN(Top, 1) @test(err, at=0, code=incomplete, contains="undefined field: b", pos=[in.cue:19:10])
+	Out2: [...] & list.FlattenN(Top, 1) @test(err, at=0, code=incomplete, contains="undefined field: b", pos=[in.cue:19:10])
+	Out3: list.FlattenN(Top, 1) & [...] @test(err, at=0, code=incomplete, contains="undefined field: b", pos=[in.cue:19:10])
+
+	// This evaluates to a list with an incomplete element.
+	Top: [
+		[for _, F in _Sub {F}],
+	] @test(err, at=0, code=incomplete, contains="undefined field: b", pos=[in.cue:19:10])
+
+	_Sub: a.b @test(err, code=incomplete, contains="undefined field: b", pos=[in.cue:19:10])
+	a: {} // b does not
+}
+
+list2: {
+	Out1: list.FlattenN(_Top, 1)         @test(err, code=incomplete, contains="undefined field: b", pos=[9:10])
+	Out2: [...] & list.FlattenN(_Top, 1) @test(err, code=incomplete, contains="undefined field: b", pos=[8:10])
+	Out3: list.FlattenN(_Top, 1) & [...] @test(err, code=incomplete, contains="undefined field: b", pos=[7:10])
+
+	// This evaluates to a list with an incomplete element.
+	_Top: [
+		for _, F in #Sub {F},
+	] @test(err, code=incomplete, contains="undefined field: b", pos=[4:10])
+
+	#Sub: a.b @test(err, code=incomplete, contains="undefined field: b", pos=[0:10])
+
+	a: {} // b does not
+}
+
+value1: {
+	a: len('sf' | 'dd') @test(err, code=incomplete|eval,
+		hint="this can never be resolve so could be a permanent error"
+		contains="unresolved disjunction", pos=[0:5]) @test(err:todo, code=eval)
+}
+
+value2: {
+	len('sf' | 'dd')
+
+	@test(err, code=incomplete|eval,
+		hint="this can never be resolve so could be a permanent error"
+		contains="unresolved disjunction")
+	@test(err:todo, code=eval)
+}
+
+incompleteArgDecimalList: {
+	a: #a & {param: 123} @test(eq, {param: 123, transformed: 123, max: 123})
+	#a: {
+		param:       int
+		transformed: +param @test(err, code=incomplete, contains="operand param of '+' not concrete", pos=[0:17])
+		max:         list.Max([transformed]) @test(err, code=incomplete, contains="operand param of '+' not concrete", pos=[0:16, -1:17])
+	}
+}
+
+incompleteArgStringList: {
+	a: #a & {param: "123"} @test(eq, {param: "123", transformed: "123", joined: "123"})
+	#a: {
+		param:       string
+		transformed: param + "" @test(err, code=incomplete, contains="non-concrete value string in operand to +", pos=[0:16, -1:16])
+		joined:      strings.Join([transformed], "-") @test(err, code=incomplete, contains="non-concrete value string in operand to +", pos=[0:16, -2:16, -1:16])
+	}
+}
+
+incompleteList: {
+	x:       _
+	decimal: list.Max(x) @test(err, code=incomplete, contains="non-concrete list for argument 0", pos=[0:11])
+	str:     strings.Join(x, "") @test(err, code=incomplete, contains="non-concrete list for argument 0", pos=[0:11])
+}
+
+// TODO: add better error positions.
+incompleteListError: {
+	x:       y + [] @test(err, code=incomplete, contains="non-concrete value _ in operand to +", pos=[0:11, 1:11])
+	y:       _
+	decimal: list.Max(x) @test(err, code=incomplete, contains="non-concrete value _ in operand to +", pos=[-2:11, -1:11])
+	str:     strings.Join(x, "") @test(err, code=incomplete, contains="non-concrete value _ in operand to +", pos=[-3:11, -2:11])
+}
+
+badListType: {
+	x:       2
+	decimal: list.Max(x) @test(err, code=eval, contains="cannot use 2 (type int) as list", pos=[-1:11])
+	str:     strings.Join(x, "") @test(err, code=eval, contains="cannot use 2 (type int) as list", pos=[-2:11])
+}
+
+badListError: {
+	x:       2 + y @test(err, code=eval, contains="invalid operands 2 and \"foo\" to '+'", pos=[0:11, 1:11])
+	y:       "foo"
+	decimal: list.Max(x) @test(err, code=eval, contains="invalid operands 2 and \"foo\" to '+'", pos=[-2:11, -1:11])
+	str:     strings.Join(x, "") @test(err, code=eval, contains="invalid operands 2 and \"foo\" to '+'", pos=[-3:11, -2:11])
+}
+
+// Issue #1095
+// Preserve combined error severity for multiple errors.
+multipleErrors: {
+	#T: {
+		params: {
+			x: string
+			y: string
+		}
+		out: template.Execute("{{.x}} {{.y}}", params) @test(err, code=incomplete, contains="cannot convert non-concrete value string", pos=[0:8, -3:4])
+	}
+}
+-- out/eval/stats --
+Leaks:  0
+Freed:  79
+Reused: 60
+Allocs: 19
+Retain: 0
+
+Unifications: 75
+Conjuncts:    95
+Disjuncts:    4
+
+NumCloseIDs: 7
+-- out/errors.txt --
+[incomplete] list1._Sub: undefined field: b:
+    ./in.cue:19:10
+[incomplete] list1._Sub: undefined field: b:
+    ./in.cue:19:10
+[incomplete] list1._Sub: undefined field: b:
+    ./in.cue:19:10
+[incomplete] list1._Sub: undefined field: b:
+    ./in.cue:19:10
+[incomplete] list1._Sub: undefined field: b:
+    ./in.cue:19:10
+[incomplete] list2.#Sub: undefined field: b:
+    ./in.cue:33:10
+[incomplete] list2.#Sub: undefined field: b:
+    ./in.cue:33:10
+[incomplete] list2.#Sub: undefined field: b:
+    ./in.cue:33:10
+[incomplete] list2.#Sub: undefined field: b:
+    ./in.cue:33:10
+[incomplete] list2.#Sub: undefined field: b:
+    ./in.cue:33:10
+[incomplete] value1.a: unresolved disjunction 'sf' | 'dd' (type bytes):
+    ./in.cue:39:5
+[incomplete] value2: unresolved disjunction 'sf' | 'dd' (type bytes):
+    ./in.cue:45:2
+[incomplete] incompleteArgDecimalList.#a.transformed: operand param of '+' not concrete (was int):
+    ./in.cue:57:17
+[incomplete] incompleteArgDecimalList.#a.max: error in call to list.Max: operand param of '+' not concrete (was int):
+    ./in.cue:58:16
+    ./in.cue:57:17
+[incomplete] incompleteArgStringList.#a.transformed: non-concrete value string in operand to +:
+    ./in.cue:66:16
+    ./in.cue:65:16
+[incomplete] incompleteArgStringList.#a.joined: error in call to strings.Join: non-concrete value string in operand to +:
+    ./in.cue:67:16
+    ./in.cue:65:16
+    ./in.cue:66:16
+[incomplete] incompleteList.decimal: error in call to list.Max: non-concrete list for argument 0:
+    ./in.cue:73:11
+[incomplete] incompleteList.str: error in call to strings.Join: non-concrete list for argument 0:
+    ./in.cue:74:11
+[incomplete] incompleteListError.x: non-concrete value _ in operand to +:
+    ./in.cue:79:11
+    ./in.cue:80:11
+[incomplete] incompleteListError.x: non-concrete value _ in operand to +:
+    ./in.cue:79:11
+    ./in.cue:80:11
+[incomplete] incompleteListError.x: non-concrete value _ in operand to +:
+    ./in.cue:79:11
+    ./in.cue:80:11
+[eval] badListType.decimal: cannot use 2 (type int) as list in argument 1 to list.Max:
+    ./in.cue:86:11
+[eval] badListType.str: cannot use 2 (type int) as list in argument 1 to strings.Join:
+    ./in.cue:86:11
+[eval] badListError.x: invalid operands 2 and "foo" to '+' (type int and string):
+    ./in.cue:92:11
+    ./in.cue:93:11
+[eval] badListError.x: invalid operands 2 and "foo" to '+' (type int and string):
+    ./in.cue:92:11
+    ./in.cue:93:11
+[eval] badListError.x: invalid operands 2 and "foo" to '+' (type int and string):
+    ./in.cue:92:11
+    ./in.cue:93:11
+[incomplete] multipleErrors.#T.out: error in call to text/template.Execute: cannot convert non-concrete value string:
+    ./in.cue:106:8
+    ./in.cue:103:4

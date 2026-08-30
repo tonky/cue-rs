@@ -1,0 +1,21 @@
+-- in.cue --
+Len: len(*[1, 2, 3] | 0) @test(eq, 3)
+Close: close(*{} | 0)    @test(eq, {}) @test(closed)
+And: and(*[1, 1] | int)  @test(eq, 1)
+Or: or(*[1, 1] | int)    @test(eq, 1)
+Div: div(*5 | string, 2) @test(eq, 2)
+Mod: mod(*5 | string, 2) @test(eq, 1)
+Quo: quo(*5 | string, 2) @test(eq, 2)
+Rem: rem(*5 | string, 2) @test(eq, 1)
+-- out/eval/stats --
+Leaks:  1
+Freed:  42
+Reused: 28
+Allocs: 15
+Retain: 0
+
+Unifications: 25
+Conjuncts:    46
+Disjuncts:    18
+
+NumCloseIDs: 4

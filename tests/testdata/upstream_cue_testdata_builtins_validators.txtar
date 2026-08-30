@@ -1,0 +1,368 @@
+-- in.cue --
+import (
+	"encoding/json"
+	"list"
+	"struct"
+)
+
+// non-monotonic builtins must fail with an "incomplete" error if there
+// is a possibility the constraint can get resolved by becoming more specific.
+incompleteError1: {
+	MyType: {
+		kv: struct.MinFields(1)
+	}
+
+	foo: MyType & {
+		kv: joel: "testing"
+	}
+	@test(eq, {
+		MyType: {kv: struct.MinFields(1)}
+		foo: {kv: {joel: "testing"}}
+	})
+}
+
+incompleteError2: {
+	MyType: {
+		kv: [string]: string
+		kv: struct.MinFields(1) @test(err, code=incomplete,
+			contains="does not satisfy struct.MinFields(1)", pos=[0:7, -1:7, 0:24])
+	}
+
+	foo: MyType & {
+		kv: joel: "testing"
+	} @test(eq, {
+		kv: {joel: "testing"}
+	})
+}
+
+incompleteError3: {
+	t: string
+	t: json.Validate(string)
+	@test(eq, {t: string & json.Validate(string)})
+}
+
+uniqueConstrains1: {
+	t: string
+	t: json.Validate(string)
+	t: json.Validate(string)
+	@test(eq, {t: json.Validate(string) & string})
+}
+
+uniqueConstrains2: {
+	t: struct.MaxFields(1)
+	t: struct.MaxFields(1)
+	@test(eq, {t: struct.MaxFields(1)})
+}
+
+violation: {
+	#MyType: {
+		kv: [string]: string
+		kv: struct.MinFields(1) @test(err, code=incomplete, contains="does not satisfy struct.MinFields(1)", pos=[0:7, -1:7, 0:24])
+	}
+
+	foo: #MyType & {
+		kv: joel: "testing"
+		kv: tony: "testing"
+	} @test(eq, {kv: {joel: "testing", tony: "testing"}})
+}
+
+conjuncts: {
+	kv: struct.MinFields(1)
+	kv: struct.MaxFields(3)
+	@test(eq, {kv: struct.MinFields(1) & struct.MaxFields(3)})
+}
+
+// TODO: stripe off conflicting pairs
+// conflicting: {
+//     kv: struct.MinFields(3)
+//     kv: struct.MaxFields(1)
+// }
+
+// Builtins with bool return that can be used as validator.
+
+bareBuiltin: {
+	a: json.Valid
+	a: json.Valid
+	@test(eq, { a: json.Valid() })
+}
+
+bareBuiltinCheck: {
+	a: json.Valid
+	a: "3"
+	@test(eq, {a: "3"})
+}
+
+builtinValidator: {
+	a: json.Valid()
+	a: json.Valid()
+	@test(eq, {a: json.Valid()})
+}
+
+builtinValidatorCheck: {
+	a: json.Valid()
+	a: "3"
+	@test(eq, {a: "3"})
+}
+
+callOfCallToValidator: {
+	a: json.Valid
+	b: a() @test(eq, { json.Valid() })
+	e: b() @test(err, code=eval, contains="cannot call previously called validator", pos=[0:5])
+	e: "5"
+}
+
+validatorAsFunction: {
+	a: json.Valid
+	b: a("3")
+	c: json.Valid("3")
+	@test(eq, {a: json.Valid(), b: true, c: true})
+}
+
+// issue2098: Tests that list.MinItems() does not panic when combined with list
+// embedding and index access. https://cuelang.org/issue/2098
+issue2098: ok1: {
+	_a: [1, ...]
+	_a: list.MinItems(1)
+	_a[0]
+	@test(eq, {_a: [1], 1})
+}
+
+issue2098: incomplete1: {
+	_a: [...]
+	_a: list.MinItems(1)
+	_a[0]
+	@test(err, code=incomplete, contains="index out of range", pos=[3:5])
+}
+
+-- issue3418.cue --
+// issue3418: Tests that matchN correctly reports validation failures when
+// combined with conflicting constraints, regardless of operand order.
+// https://cuelang.org/issue/3418
+issue3418: t1: "foo" & matchN(1, [1&2]) & matchN(1, [_]) @test(err, code=eval,
+	contains="does not satisfy matchN", pos=[0:24, 0:16, 0:31, 0:35, 0:37])
+
+issue3418: t2: "foo" & matchN(1, [_]) & matchN(1, [1&2]) @test(err, code=eval,
+	contains="does not satisfy matchN", pos=[0:41, 0:16, 0:48, 0:52, 0:54])
+
+issue3418: t3: {
+	x: "foo"
+	x: matchN(1, [_])
+	x: matchN(1, [1&2])
+
+	@test(err, code=eval, at=x, contains="does not satisfy matchN", pos=[3:5, 1:5, 2:5, 3:12, 3:16, 3:18])
+
+}
+issue3418: t4: {
+	x: "foo"
+	x: matchN(1, [1&2])
+	x: matchN(1, [_])
+
+	@test(err, code=eval, at=x, contains="does not satisfy matchN", pos=[2:5, 1:5, 2:12, 2:16, 2:18, 3:5])
+}
+
+
+-- issue3474.cue --
+import "struct"
+
+// issue3474: Tests that struct.MinFields/MaxFields validators correctly handle
+// fields added by conditional comprehensions. https://cuelang.org/issue/3474
+issue3474: structValidator: ok: {
+	// Passes only after the comprehension is evaluated.
+	A: struct.MinFields(1)
+	A: {
+		if true {B: true}
+	}
+	@test(eq, {A: {B: true}})
+}
+issue3474: structValidator: failAfter: {
+	// Passes only before the comprehension is evaluated.
+	A: struct.MaxFields(1)
+	A: {
+		C: true
+		if true {B: true}
+	} @test(err, code=eval, contains="does not satisfy struct.MaxFields(1)", pos=[-1:5, -1:22, 0:5])
+}
+issue3474: structValidator: incomplete: {
+	// Passes neither before nor after the comprehension is evaluated.
+	A: struct.MinFields(1)
+	A: {
+		if true {}
+	} @test(err, code=incomplete, contains="len(fields) < MinFields(1) (0 < 1)", pos=[-1:5, -1:22, 0:5])
+}
+issue3474: structValidator: failClosed: {
+	// Passes neither before nor after the comprehension is evaluated.
+	#A: struct.MinFields(1)
+	#A: {
+		if true {}
+	} @test(err, code=eval, contains="does not satisfy struct.MinFields", pos=[-1:6, -1:23, 0:6])
+}
+
+
+issue3474: topValidator: ok: {
+	A: matchN(1, [>10])
+	A: {
+		if true {100}
+	}
+	@test(eq, {A: 100})
+}
+issue3474: topValidator: fail: {
+	A: matchN(1, [>10])
+	A: {
+		if true {1}
+	} @test(err, code=eval, contains="does not satisfy matchN", pos=[-1:5, -1:12, 0:5, 1:12])
+
+}
+issue3474: topValidator: incomplete: {
+	A: matchN(1, [>10])
+	A: {
+		if true {int}
+	}
+	@test(eq, {A: matchN(1, [>10]) & int})
+}
+issue3474: topValidator: failType: {
+	A: matchN(1, [>10])
+	A: {
+		if true {C: 1}
+	} @test(err, code=eval, contains="does not satisfy matchN", pos=[-1:5, -1:12, 0:5])
+}
+
+-- validator_is_top.cue --
+// issue3639: Tests that embedding a matchN validator struct alongside direct
+// application does not cause "field not allowed" errors. https://cuelang.org/issue/3639
+issue3639: {
+	a: {#X} & #X
+	a: b: 1
+	#X: matchN(1, [{b: int}])
+	@test(eq, {
+		a: {b: 1}
+		#X: matchN(1, [{ b: int }])
+	})
+}
+// issue3661: Tests that matchN with a required field validator works when
+// applied via a pattern constraint. https://cuelang.org/issue/3661
+issue3661: {
+	#X: matchN(1, [{ b!: int }])
+	a: b: 1
+	a: #X
+	["a"]: #X
+	@test(eq, {
+		#X: matchN(1, [{ b!: int }])
+		a: {b: 1}
+	})
+}
+// issue3678: Tests that matchN with multiple required-field alternatives does not
+// produce spurious "field not allowed" errors. https://cuelang.org/issue/3678
+issue3678: {
+	#X: matchN(1, [{
+		a!: string
+	}, {
+		c!: string
+	}])
+
+	x: c: "c"
+
+	y: #X
+	y: x
+	x: #X
+	@test(eq, {
+		#X: matchN(1, [{ a!: string }, { c!: string }])
+		x: {c: "c"}
+		y: {c: "c"}
+	})
+}
+// issue3981: Tests that matchN combined with close() correctly handles open
+// struct arguments without topological sort regressions. https://cuelang.org/issue/3981
+issue3981: matchWithClose: {
+	out: {
+		close({
+			f1: matchN(1, [#openStruct])
+		})
+		#openStruct: {...}
+	}
+	out: f1: foo: ["bar"]
+	@test(eq, {
+		out: {#openStruct: {}, f1: {foo: ["bar"]}}
+	})
+}
+-- out/errors.txt --
+[incomplete] incompleteError2.MyType.kv: invalid value {} (does not satisfy struct.MinFields(1)): len(fields) < MinFields(1) (0 < 1):
+    ./in.cue:26:7
+    ./in.cue:25:7
+    ./in.cue:26:24
+[incomplete] violation.#MyType.kv: invalid value {} (does not satisfy struct.MinFields(1)): len(fields) < MinFields(1) (0 < 1):
+    ./in.cue:59:7
+    ./in.cue:58:7
+    ./in.cue:59:24
+[eval] callOfCallToValidator.e: cannot call previously called validator b:
+    ./in.cue:109:5
+[incomplete] issue2098.incomplete1: index out of range [0] with length 0:
+    ./in.cue:132:5
+[eval] issue3418.t1: invalid value "foo" (does not satisfy matchN): conflicting values 2 and 1:
+    ./issue3418.cue:4:24
+    ./issue3418.cue:4:16
+    ./issue3418.cue:4:31
+    ./issue3418.cue:4:35
+    ./issue3418.cue:4:37
+[eval] issue3418.t2: invalid value "foo" (does not satisfy matchN): conflicting values 2 and 1:
+    ./issue3418.cue:7:41
+    ./issue3418.cue:7:16
+    ./issue3418.cue:7:48
+    ./issue3418.cue:7:52
+    ./issue3418.cue:7:54
+[eval] issue3418.t3.x: invalid value "foo" (does not satisfy matchN): conflicting values 2 and 1:
+    ./issue3418.cue:13:5
+    ./issue3418.cue:11:5
+    ./issue3418.cue:12:5
+    ./issue3418.cue:13:12
+    ./issue3418.cue:13:16
+    ./issue3418.cue:13:18
+[eval] issue3418.t4.x: invalid value "foo" (does not satisfy matchN): conflicting values 2 and 1:
+    ./issue3418.cue:20:5
+    ./issue3418.cue:19:5
+    ./issue3418.cue:20:12
+    ./issue3418.cue:20:16
+    ./issue3418.cue:20:18
+    ./issue3418.cue:21:5
+[eval] issue3474.structValidator.failAfter.A: invalid value {C:true,B:true} (does not satisfy struct.MaxFields(1)): len(fields) > MaxFields(1) (2 > 1):
+    ./issue3474.cue:15:5
+    ./issue3474.cue:15:22
+    ./issue3474.cue:16:5
+[incomplete] issue3474.structValidator.incomplete.A: invalid value {} (does not satisfy struct.MinFields(1)): len(fields) < MinFields(1) (0 < 1):
+    ./issue3474.cue:23:5
+    ./issue3474.cue:23:22
+    ./issue3474.cue:24:5
+[eval] issue3474.structValidator.failClosed.#A: invalid value {} (does not satisfy struct.MinFields(1)): len(fields) < MinFields(1) (0 < 1):
+    ./issue3474.cue:30:6
+    ./issue3474.cue:30:23
+    ./issue3474.cue:31:6
+[eval] issue3474.topValidator.fail.A: invalid value 1 (does not satisfy matchN): 0 matched, expected 1:
+    ./issue3474.cue:45:5
+    ./issue3474.cue:45:12
+    ./issue3474.cue:46:5
+    ./issue3474.cue:47:12
+issue3474.topValidator.fail.A: invalid value 1 (out of bound >10):
+    ./issue3474.cue:45:16
+    ./issue3474.cue:47:12
+[eval] issue3474.topValidator.failType.A: conflicting values {C:1} and >10 (mismatched types struct and number):
+    ./issue3474.cue:59:5
+    ./issue3474.cue:59:16
+    ./issue3474.cue:60:5
+issue3474.topValidator.failType.A: invalid value {C:1} (does not satisfy matchN): 0 matched, expected 1:
+    ./issue3474.cue:59:5
+    ./issue3474.cue:59:12
+    ./issue3474.cue:60:5
+-- out/todo.txt --
+issue3474.topValidator.failType.A: v2 reports "conflicting values >10 and {C:1}" (number and struct order), v3 reports "{C:1} and >10" (struct and number order).
+-- out/eval/stats --
+Leaks:  13
+Freed:  175
+Reused: 143
+Allocs: 45
+Retain: 0
+
+Unifications: 180
+Conjuncts:    319
+Disjuncts:    0
+Notifications: 1
+
+NumCloseIDs: 76

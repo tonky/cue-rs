@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use cue_eval::eval_to_json;
 use cue_test_harness::TxtarArchive;
 use std::path::PathBuf;
 
@@ -46,12 +45,18 @@ enum Commands {
     },
     /// Ingest / sync upstream test suites from a local CUE repository checkout
     SyncUpstream {
-        /// Source directory in upstream CUE repo (e.g. /path/to/cue/cue/testdata/resolve)
+        /// Source directory or file in upstream CUE repo (e.g. /path/to/cue/cue/testdata/eval)
         #[arg(short, long)]
         src: PathBuf,
         /// Destination directory in cue-rs
         #[arg(short, long, default_value = "tests/testdata")]
         dest: PathBuf,
+        /// Optional substring filter for fixture filename
+        #[arg(short, long)]
+        filter: Option<String>,
+        /// Automatically run test runner on synced fixtures
+        #[arg(short, long)]
+        test: bool,
     },
 }
 
@@ -114,24 +119,31 @@ fn main() -> Result<()> {
             let data_content = std::fs::read_to_string(&data)
                 .with_context(|| format!("Failed to read data file {}", data.display()))?;
 
-            // Unify schema and data
-            let combined = format!("{schema_content}\n{data_content}");
-            match eval_to_json(&combined) {
-                Ok(_) => {
-                    println!("Validation successful! Data satisfies the schema.");
-                }
-                Err(e) => {
-                    eprintln!("Validation failed: {e}");
-                    std::process::exit(1);
-                }
+            let json_data: serde_json::Value = serde_json::from_str(&data_content)
+                .with_context(|| "Failed to parse data file as JSON")?;
+
+            match cue_eval::validate_json(&schema_content, &json_data) {
+                Ok(()) => println!("Validation successful"),
+                Err(e) => anyhow::bail!("Validation failed: {e}"),
             }
         }
         Commands::TestTxtar { path } => {
             if path.is_file() {
+                println!("Running test: {}", path.display());
                 run_txtar_file(&path)?;
+                println!("PASSED");
             } else if path.is_dir() {
-                let fixtures = TxtarArchive::find_fixtures_in_dir(&path);
-                println!("Found {} txtar fixture(s) in {}", fixtures.len(), path.display());
+                let mut fixtures = Vec::new();
+                for entry in std::fs::read_dir(&path)? {
+                    let entry = entry?;
+                    let p = entry.path();
+                    if p.extension().and_then(|s| s.to_str()) == Some("txtar") {
+                        fixtures.push(p);
+                    }
+                }
+                fixtures.sort();
+                println!("Discovered {} .txtar fixtures\n", fixtures.len());
+
                 let mut passed = 0;
                 let mut failed = 0;
 
@@ -153,14 +165,34 @@ fn main() -> Result<()> {
                 anyhow::bail!("Path {} does not exist", path.display());
             }
         }
-        Commands::SyncUpstream { src, dest } => {
+        Commands::SyncUpstream { src, dest, filter, test } => {
             if !src.exists() {
                 anyhow::bail!("Source path {} does not exist", src.display());
             }
             std::fs::create_dir_all(&dest)?;
-            let mut copied = 0;
-            sync_txtar_recursive(&src, &dest, &mut copied)?;
-            println!("Successfully synced {copied} upstream txtar test fixtures to {}", dest.display());
+            let mut synced = Vec::new();
+            sync_txtar_recursive(&src, &dest, filter.as_deref(), &mut synced)?;
+            println!("Successfully ingested {} upstream txtar test fixtures to {}", synced.len(), dest.display());
+
+            if test {
+                println!("\n--- Running Ingestion Conformance Verification ---");
+                let mut passed = 0;
+                let mut failed = 0;
+                for p in &synced {
+                    print!("Testing {} ... ", p.display());
+                    match run_txtar_file(p) {
+                        Ok(()) => {
+                            println!("PASSED");
+                            passed += 1;
+                        }
+                        Err(e) => {
+                            println!("FAILED: {e}");
+                            failed += 1;
+                        }
+                    }
+                }
+                println!("\nSync Verification Results: {passed} passed, {failed} failed");
+            }
         }
     }
 
@@ -170,35 +202,57 @@ fn main() -> Result<()> {
 fn sync_txtar_recursive(
     src: &std::path::Path,
     dest: &std::path::Path,
-    count: &mut usize,
+    filter: Option<&str>,
+    synced: &mut Vec<PathBuf>,
 ) -> Result<()> {
     if src.is_file() && src.extension().and_then(|s| s.to_str()) == Some("txtar") {
-        let base = src.file_name().unwrap().to_string_lossy();
-        let target_name = format!("upstream_{base}");
-        let target_path = dest.join(target_name);
+        let file_name = src.file_name().unwrap().to_string_lossy();
+        if let Some(f) = filter
+            && !file_name.contains(f)
+            && !src.to_string_lossy().contains(f)
+        {
+            return Ok(());
+        }
+        let clean_name = derive_fixture_name(src);
+        let target_path = dest.join(clean_name);
         std::fs::copy(src, &target_path)?;
-        *count += 1;
+        synced.push(target_path);
     } else if src.is_dir() {
         for entry in std::fs::read_dir(src)? {
             let entry = entry?;
             let path = entry.path();
             if path.is_dir() {
-                sync_txtar_recursive(&path, dest, count)?;
+                sync_txtar_recursive(&path, dest, filter, synced)?;
             } else if path.extension().and_then(|s| s.to_str()) == Some("txtar") {
-                let base = path.file_name().unwrap().to_string_lossy();
-                let dir_name = path
-                    .parent()
-                    .and_then(|p| p.file_name())
-                    .map(|d| d.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "pkg".to_string());
-                let target_name = format!("upstream_{dir_name}_{base}");
-                let target_path = dest.join(target_name);
+                let file_name = path.file_name().unwrap().to_string_lossy();
+                if let Some(f) = filter
+                    && !file_name.contains(f)
+                    && !path.to_string_lossy().contains(f)
+                {
+                    continue;
+                }
+                let clean_name = derive_fixture_name(&path);
+                let target_path = dest.join(clean_name);
                 std::fs::copy(&path, &target_path)?;
-                *count += 1;
+                synced.push(target_path);
             }
         }
     }
     Ok(())
+}
+
+fn derive_fixture_name(path: &std::path::Path) -> String {
+    let p_str = path.to_string_lossy();
+    if let Some(pos) = p_str.find("/cue/testdata/") {
+        let sub = &p_str[pos + 1..];
+        format!("upstream_{}", sub.replace('/', "_"))
+    } else if let Some(pos) = p_str.find("/pkg/") {
+        let sub = &p_str[pos + 1..];
+        format!("upstream_{}", sub.replace('/', "_"))
+    } else {
+        let base = path.file_name().unwrap().to_string_lossy();
+        format!("upstream_{base}")
+    }
 }
 
 fn run_txtar_file(path: &std::path::Path) -> Result<()> {
