@@ -119,8 +119,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **Module Root Discovery** | ✅ | **100% Complete** | Discovers `cue.mod/module.cue` and parses `ModuleInfo` (module path & language version). |
 | **Module Import Resolution** | ✅ | **100% Complete** | Resolves inter-module package imports (`import "example.com/mod/schema"`) and vendored packages (`cue.mod/pkg/...`). |
 | **Deep Arena Value Cloning** | ✅ | **100% Complete** | `clone_value_into` transfers evaluated package ASTs/structs across isolated module arenas. |
-| **Rust Derive Macro (`cue-derive`)** | ✅ | **100% Complete** | `#[derive(CueValidate)]` derive macro with `#[cue(schema = "...")]` & Serde integration. |
-| **CUE CLI (`cue-rs`)** | 🟢 | **100% Complete** | `eval` (JSON & YAML), `vet`, `fmt`, `test-txtar`. |
-| **WebAssembly Target (WASM)** | ⏸️ | **Postponed** | Postponed to the end per user instructions. |
-| **OpenAPI / JSONSchema Importer** | ⏸️ | **Postponed** | Postponed to the end per user instructions. |
-| **Module Management & OCI Registry** | ⏸️ | **Postponed** | Postponed to the end per user instructions. |
+| **CUE CLI (`cue-rs`)** | 🟢 | **100% Complete** | `eval` (JSON & YAML), `vet`, `fmt`, `import` (JSON Schema / OpenAPI), `mod` (init / tidy), `test-txtar`, `sync-upstream`. |
+| **WebAssembly Target (WASM)** | ✅ | **100% Complete** | Dedicated `cue-wasm` crate with `wasm-bindgen` JS bindings for evaluation, validation, and formatting. |
+| **OpenAPI / JSONSchema Importer** | ✅ | **100% Complete** | Native JSON Schema & OpenAPI v3 converters generating idiomatic CUE `#Definitions`. |
+| **Module Management & Manifest Tooling** | ✅ | **100% Complete** | Structured `ModuleManifest` parsing, serialization, and CLI tooling (`cue-rs mod init`, `cue-rs mod tidy`). |

@@ -10,8 +10,8 @@ This document tracks the technical design, milestone progress, and conformance v
 | :--- | :--- | :--- |
 | **Rust Edition** | **2024** | 2024 |
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
-| **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
-| **Unit Test Coverage** | **27 / 27 passing (100%)** | 100% |
+| **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-wasm`, `cue-test-harness`, `cue-cli` | 6 modular crates |
+| **Unit Test Coverage** | **38 / 38 passing (100%)** | 100% |
 | **Txtar Fixture Pass Rate** | **547 / 547 passing (100%)** | >95% upstream parity |
 
 ---
