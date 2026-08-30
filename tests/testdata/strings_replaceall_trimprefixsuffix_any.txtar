@@ -1,0 +1,14 @@
+Test strings.ReplaceAll, strings.TrimPrefixAny, and strings.TrimSuffixAny
+-- in.cue --
+package test
+
+import "strings"
+
+rAll: strings.ReplaceAll("foo bar foo baz foo", "foo", "qux")
+pfxTrim: strings.TrimPrefixAny("http://https://app.dev", ["http://", "https://"])
+sfxTrim: strings.TrimSuffixAny("data.txt.bak.old", [".bak", ".old", ".tmp"])
+
+-- out/eval --
+pfxTrim: "app.dev"
+rAll: "qux bar qux baz qux"
+sfxTrim: "data.txt"

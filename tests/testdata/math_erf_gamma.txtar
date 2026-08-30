@@ -1,0 +1,18 @@
+Test math.Erf, math.Erfc, math.Gamma, and math.LogGamma
+-- in.cue --
+package test
+
+import "math"
+
+erf0: math.Erf(0.0)
+erfc0: math.Erfc(0.0)
+gamma1: math.Gamma(1.0)
+gamma2: math.Gamma(2.0)
+logGamma1: math.LogGamma(1.0)
+
+-- out/eval --
+erf0: 0.0
+erfc0: 1.0
+gamma1: 1.0
+gamma2: 1.0
+logGamma1: 0.0

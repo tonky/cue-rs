@@ -1,0 +1,12 @@
+Test encoding/base32 HexEncode and HexDecode
+-- in.cue --
+package test
+
+import "encoding/base32"
+
+hexEnc: base32.HexEncode("Hello")
+hexDec: base32.HexDecode(hexEnc)
+
+-- out/eval --
+hexDec: "Hello"
+hexEnc: "91IMOR3F"

@@ -1,0 +1,66 @@
+Test list.Chunk, Distinct, Zip, and Unzip
+-- in.cue --
+package test
+
+import "list"
+
+rawList: [1, 2, 2, 3, 1, 4]
+distinctList: list.Distinct(rawList)
+chunkedList: list.Chunk([1, 2, 3, 4, 5], 2)
+zipped: list.Zip(["a", "b", "c"], [1, 2, 3])
+unzipped: list.Unzip(zipped)
+
+-- out/eval --
+chunkedList: [
+    [
+        1,
+        2
+    ],
+    [
+        3,
+        4
+    ],
+    [
+        5
+    ]
+]
+distinctList: [
+    1,
+    2,
+    3,
+    4
+]
+rawList: [
+    1,
+    2,
+    2,
+    3,
+    1,
+    4
+]
+unzipped: [
+    [
+        "a",
+        "b",
+        "c"
+    ],
+    [
+        1,
+        2,
+        3
+    ]
+]
+zipped: [
+    [
+        "a",
+        1
+    ],
+    [
+        "b",
+        2
+    ],
+    [
+        "c",
+        3
+    ]
+]

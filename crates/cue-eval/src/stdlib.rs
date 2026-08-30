@@ -428,6 +428,63 @@ pub fn call_stdlib_func(
                 }
             Err("strings.Replace requires (s, old, new, n) arguments".to_string())
         }
+        ("strings", "ReplaceAll") => {
+            if args.len() >= 3
+                && let (Some(Value::String(s)), Some(Value::String(old)), Some(Value::String(new))) =
+                    (arena.get(args[0]), arena.get(args[1]), arena.get(args[2]))
+                {
+                    return Ok(arena.string(s.replace(old, new)));
+                }
+            Err("strings.ReplaceAll requires (s, old, new) string arguments".to_string())
+        }
+        ("strings", "TrimPrefixAny") => {
+            if args.len() >= 2
+                && let Some(Value::String(s)) = arena.get(args[0])
+                && let Some(Value::List { elements, .. }) = arena.get(args[1]) {
+                    let mut cur = s.clone();
+                    let elems = elements.clone();
+                    'outer: loop {
+                        let mut changed = false;
+                        for &elem in &elems {
+                            if let Some(Value::String(pfx)) = arena.get(elem)
+                                && let Some(stripped) = cur.strip_prefix(pfx.as_str()) {
+                                    cur = stripped.to_string();
+                                    changed = true;
+                                    break;
+                                }
+                        }
+                        if !changed {
+                            break 'outer;
+                        }
+                    }
+                    return Ok(arena.string(cur));
+                }
+            Err("strings.TrimPrefixAny requires (string, list_of_prefixes) arguments".to_string())
+        }
+        ("strings", "TrimSuffixAny") => {
+            if args.len() >= 2
+                && let Some(Value::String(s)) = arena.get(args[0])
+                && let Some(Value::List { elements, .. }) = arena.get(args[1]) {
+                    let mut cur = s.clone();
+                    let elems = elements.clone();
+                    'outer: loop {
+                        let mut changed = false;
+                        for &elem in &elems {
+                            if let Some(Value::String(sfx)) = arena.get(elem)
+                                && let Some(stripped) = cur.strip_suffix(sfx.as_str()) {
+                                    cur = stripped.to_string();
+                                    changed = true;
+                                    break;
+                                }
+                        }
+                        if !changed {
+                            break 'outer;
+                        }
+                    }
+                    return Ok(arena.string(cur));
+                }
+            Err("strings.TrimSuffixAny requires (string, list_of_suffixes) arguments".to_string())
+        }
         ("strings", "Fields") => {
             let words_opt = if let Some(&arg0) = args.first()
                 && let Some(Value::String(s)) = arena.get(arg0) {
@@ -751,6 +808,145 @@ pub fn call_stdlib_func(
                 }
             }
             Err("math.Nextafter requires 2 number arguments".to_string())
+        }
+        ("math", "FMA") => {
+            if args.len() >= 3 {
+                let x_opt = match arena.get(args[0]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                let y_opt = match arena.get(args[1]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                let z_opt = match arena.get(args[2]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let (Some(x), Some(y), Some(z)) = (x_opt, y_opt, z_opt) {
+                    return Ok(arena.float(x.mul_add(y, z)));
+                }
+            }
+            Err("math.FMA requires (x, y, z) number arguments".to_string())
+        }
+        ("math", "Pow10") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::Int(i)) = arena.get(arg0)
+                && let Some(n) = i.to_i32() {
+                    return Ok(arena.float(10.0f64.powi(n)));
+                }
+            Err("math.Pow10 requires 1 integer argument".to_string())
+        }
+        ("math", "Scaleb") => {
+            if args.len() >= 2 {
+                let x_opt = match arena.get(args[0]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                let n_opt = match arena.get(args[1]) {
+                    Some(Value::Int(i)) => i.to_i32(),
+                    _ => None,
+                };
+                if let (Some(x), Some(n)) = (x_opt, n_opt) {
+                    return Ok(arena.float(x * 2.0f64.powi(n)));
+                }
+            }
+            Err("math.Scaleb requires (x number, n int) arguments".to_string())
+        }
+        ("math", "Frexp") => {
+            if let Some(&arg0) = args.first() {
+                let f_opt = match arena.get(arg0) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let Some(f) = f_opt {
+                    let (frac, exp) = frexp_f64(f);
+                    let frac_id = arena.float(frac);
+                    let exp_id = arena.int(exp as i64);
+                    return Ok(arena.alloc(Value::List {
+                        elements: vec![frac_id, exp_id],
+                        ellipsis: None,
+                    }));
+                }
+            }
+            Err("math.Frexp requires 1 number argument".to_string())
+        }
+        ("math", "Modf") => {
+            if let Some(&arg0) = args.first() {
+                let f_opt = match arena.get(arg0) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let Some(f) = f_opt {
+                    let int_part = f.trunc();
+                    let frac_part = f.fract();
+                    let int_id = arena.float(int_part);
+                    let frac_id = arena.float(frac_part);
+                    return Ok(arena.alloc(Value::List {
+                        elements: vec![int_id, frac_id],
+                        ellipsis: None,
+                    }));
+                }
+            }
+            Err("math.Modf requires 1 number argument".to_string())
+        }
+        ("math", "Erf") => {
+            if let Some(&arg0) = args.first() {
+                let f_opt = match arena.get(arg0) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let Some(f) = f_opt {
+                    return Ok(arena.float(erf_approx(f)));
+                }
+            }
+            Err("math.Erf requires 1 number argument".to_string())
+        }
+        ("math", "Erfc") => {
+            if let Some(&arg0) = args.first() {
+                let f_opt = match arena.get(arg0) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let Some(f) = f_opt {
+                    return Ok(arena.float(1.0 - erf_approx(f)));
+                }
+            }
+            Err("math.Erfc requires 1 number argument".to_string())
+        }
+        ("math", "Gamma") => {
+            if let Some(&arg0) = args.first() {
+                let f_opt = match arena.get(arg0) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let Some(f) = f_opt {
+                    return Ok(arena.float(gamma_approx(f)));
+                }
+            }
+            Err("math.Gamma requires 1 number argument".to_string())
+        }
+        ("math", "LogGamma") => {
+            if let Some(&arg0) = args.first() {
+                let f_opt = match arena.get(arg0) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let Some(f) = f_opt {
+                    return Ok(arena.float(gamma_approx(f).abs().ln()));
+                }
+            }
+            Err("math.LogGamma requires 1 number argument".to_string())
         }
         ("math", "Trunc") => {
             if let Some(&arg0) = args.first() {
@@ -1500,6 +1696,93 @@ pub fn call_stdlib_func(
                 }
             Err("list.Compact requires 1 list argument".to_string())
         }
+        ("list", "Chunk") => {
+            if args.len() >= 2
+                && let (Some(Value::List { elements, .. }), Some(Value::Int(n_val))) =
+                    (arena.get(args[0]), arena.get(args[1]))
+                && let Some(chunk_size) = n_val.to_usize()
+                && chunk_size > 0 {
+                    let elems = elements.clone();
+                    let chunked_lists: Vec<ValueId> = elems.chunks(chunk_size).map(|chunk| {
+                        arena.alloc(Value::List {
+                            elements: chunk.to_vec(),
+                            ellipsis: None,
+                        })
+                    }).collect();
+                    return Ok(arena.alloc(Value::List {
+                        elements: chunked_lists,
+                        ellipsis: None,
+                    }));
+                }
+            Err("list.Chunk requires (list, size > 0) arguments".to_string())
+        }
+        ("list", "Distinct") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::List { elements, ellipsis }) = arena.get(arg0) {
+                    let elems = elements.clone();
+                    let el = *ellipsis;
+                    let mut seen = HashSet::new();
+                    let mut unique = Vec::new();
+                    for &e in &elems {
+                        let repr = match arena.get(e) {
+                            Some(Value::Int(i)) => format!("int:{i}"),
+                            Some(Value::Float(f)) => format!("float:{f}"),
+                            Some(Value::String(s)) => format!("str:{s}"),
+                            Some(Value::Bool(b)) => format!("bool:{b}"),
+                            _ => format!("id:{:?}", e),
+                        };
+                        if seen.insert(repr) {
+                            unique.push(e);
+                        }
+                    }
+                    return Ok(arena.alloc(Value::List {
+                        elements: unique,
+                        ellipsis: el,
+                    }));
+                }
+            Err("list.Distinct requires 1 list argument".to_string())
+        }
+        ("list", "Zip") => {
+            if args.len() >= 2
+                && let (Some(Value::List { elements: l1, .. }), Some(Value::List { elements: l2, .. })) =
+                    (arena.get(args[0]), arena.get(args[1])) {
+                    let l1_elems = l1.clone();
+                    let l2_elems = l2.clone();
+                    let pairs: Vec<ValueId> = l1_elems.into_iter().zip(l2_elems).map(|(a, b)| {
+                        arena.alloc(Value::List {
+                            elements: vec![a, b],
+                            ellipsis: None,
+                        })
+                    }).collect();
+                    return Ok(arena.alloc(Value::List {
+                        elements: pairs,
+                        ellipsis: None,
+                    }));
+                }
+            Err("list.Zip requires 2 list arguments".to_string())
+        }
+        ("list", "Unzip") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::List { elements, .. }) = arena.get(arg0) {
+                    let elems = elements.clone();
+                    let mut l1 = Vec::new();
+                    let mut l2 = Vec::new();
+                    for &pair_id in &elems {
+                        if let Some(Value::List { elements: pair, .. }) = arena.get(pair_id)
+                            && pair.len() >= 2 {
+                                l1.push(pair[0]);
+                                l2.push(pair[1]);
+                            }
+                    }
+                    let l1_id = arena.alloc(Value::List { elements: l1, ellipsis: None });
+                    let l2_id = arena.alloc(Value::List { elements: l2, ellipsis: None });
+                    return Ok(arena.alloc(Value::List {
+                        elements: vec![l1_id, l2_id],
+                        ellipsis: None,
+                    }));
+                }
+            Err("list.Unzip requires 1 list of pairs argument".to_string())
+        }
         ("list", "FlattenN") => {
             if args.len() >= 2
                 && let (Some(Value::List { elements, .. }), Some(Value::Int(d_val))) =
@@ -1757,6 +2040,36 @@ pub fn call_stdlib_func(
         ("time", "Millisecond") => Ok(arena.int(1_000_000i64)),
         ("time", "Microsecond") => Ok(arena.int(1_000i64)),
         ("time", "Nanosecond") => Ok(arena.int(1i64)),
+        ("time", "Year") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    if let Some(y) = extract_time_part(s, 0, 4) {
+                        return Ok(arena.int(y));
+                    }
+                    return Err(format!("time.Year: cannot extract year from \"{s}\""));
+                }
+            Err("time.Year requires 1 time string argument".to_string())
+        }
+        ("time", "Month") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    if let Some(m) = extract_time_part(s, 5, 7) {
+                        return Ok(arena.int(m));
+                    }
+                    return Err(format!("time.Month: cannot extract month from \"{s}\""));
+                }
+            Err("time.Month requires 1 time string argument".to_string())
+        }
+        ("time", "Day") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    if let Some(d) = extract_time_part(s, 8, 10) {
+                        return Ok(arena.int(d));
+                    }
+                    return Err(format!("time.Day: cannot extract day from \"{s}\""));
+                }
+            Err("time.Day requires 1 time string argument".to_string())
+        }
 
         // --- encoding/json & json package ---
         ("json" | "encoding/json", "Marshal") => {
@@ -2156,6 +2469,24 @@ pub fn call_stdlib_func(
                     }
                 }
             Err("base32.Decode requires 1 base32 string argument".to_string())
+        }
+        ("base32" | "encoding/base32", "HexEncode") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    return Ok(arena.string(base32_hex_encode(s.as_bytes())));
+                }
+            Err("base32.HexEncode requires 1 string argument".to_string())
+        }
+        ("base32" | "encoding/base32", "HexDecode") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(s)) = arena.get(arg0) {
+                    if let Ok(bytes) = base32_hex_decode(s) {
+                        return Ok(arena.string(String::from_utf8_lossy(&bytes).to_string()));
+                    } else {
+                        return Err("invalid base32 extended hex string".to_string());
+                    }
+                }
+            Err("base32.HexDecode requires 1 string argument".to_string())
         }
 
         // --- encoding/hex package ---
@@ -3558,4 +3889,148 @@ fn parse_time_layout(layout: &str, val: &str) -> Result<String, String> {
         return Ok(val.to_string());
     }
     Err(format!("unsupported layout \"{layout}\""))
+}
+
+fn frexp_f64(f: f64) -> (f64, i32) {
+    if f == 0.0 {
+        return (0.0, 0);
+    }
+    let bits = f.to_bits();
+    let exp_bits = ((bits >> 52) & 0x7FF) as i32;
+    if exp_bits == 0 {
+        // subnormal
+        let (frac, exp) = frexp_f64(f * (1u64 << 54) as f64);
+        return (frac, exp - 54);
+    }
+    if exp_bits == 0x7FF {
+        return (f, 0);
+    }
+    let exp = exp_bits - 1022;
+    let frac_bits = (bits & !(0x7FFu64 << 52)) | (1022u64 << 52);
+    (f64::from_bits(frac_bits), exp)
+}
+
+fn erf_approx(x: f64) -> f64 {
+    // Abramowitz and Stegun formula 7.1.26
+    let sign = if x < 0.0 { -1.0 } else { 1.0 };
+    let x_abs = x.abs();
+    let p = 0.3275911;
+    let a1 = 0.254829592;
+    let a2 = -0.284496736;
+    let a3 = 1.421413741;
+    let a4 = -1.453152027;
+    let a5 = 1.061405429;
+    let t = 1.0 / (1.0 + p * x_abs);
+    let poly = t * (a1 + t * (a2 + t * (a3 + t * (a4 + t * a5))));
+    let y = 1.0 - poly * (-x_abs * x_abs).exp();
+    sign * y
+}
+
+fn gamma_approx(z: f64) -> f64 {
+    // Lanczos approximation for Gamma function (g=7, n=9)
+    if z < 0.5 {
+        std::f64::consts::PI / ((std::f64::consts::PI * z).sin() * gamma_approx(1.0 - z))
+    } else {
+        let z = z - 1.0;
+        let p = [
+            0.999_999_999_999_809_9,
+            676.520_368_121_885_1,
+            -1_259.139_216_722_402_8,
+            771.323_428_777_653_1,
+            -176.615_029_162_140_6,
+            12.507_343_278_686_905,
+            -0.138_571_095_836_526_25,
+            9.984_369_578_019_572e-6,
+            1.505_632_735_149_311_6e-7,
+        ];
+        let mut x = p[0];
+        for (i, &p_val) in p.iter().enumerate().skip(1) {
+            x += p_val / (z + i as f64);
+        }
+        let t = z + 7.5;
+        (2.0 * std::f64::consts::PI).sqrt() * t.powf(z + 0.5) * (-t).exp() * x
+    }
+}
+
+fn extract_time_part(s: &str, start: usize, end: usize) -> Option<i64> {
+    if s.len() >= end {
+        s[start..end].parse::<i64>().ok()
+    } else {
+        None
+    }
+}
+
+const B32_HEX_CHARS: &[u8; 32] = b"0123456789ABCDEFGHIJKLMNOPQRSTUV";
+
+fn base32_hex_encode(input: &[u8]) -> String {
+    let mut out = String::new();
+    let mut i = 0;
+    while i < input.len() {
+        let b0 = input[i] as u64;
+        let b1 = if i + 1 < input.len() { input[i + 1] as u64 } else { 0 };
+        let b2 = if i + 2 < input.len() { input[i + 2] as u64 } else { 0 };
+        let b3 = if i + 3 < input.len() { input[i + 3] as u64 } else { 0 };
+        let b4 = if i + 4 < input.len() { input[i + 4] as u64 } else { 0 };
+
+        let chunk = (b0 << 32) | (b1 << 24) | (b2 << 16) | (b3 << 8) | b4;
+        let rem_len = input.len() - i;
+
+        out.push(B32_HEX_CHARS[((chunk >> 35) & 31) as usize] as char);
+        out.push(B32_HEX_CHARS[((chunk >> 30) & 31) as usize] as char);
+
+        if rem_len >= 2 {
+            out.push(B32_HEX_CHARS[((chunk >> 25) & 31) as usize] as char);
+            out.push(B32_HEX_CHARS[((chunk >> 20) & 31) as usize] as char);
+        } else {
+            out.push_str("======");
+            break;
+        }
+
+        if rem_len >= 3 {
+            out.push(B32_HEX_CHARS[((chunk >> 15) & 31) as usize] as char);
+        } else {
+            out.push_str("====");
+            break;
+        }
+
+        if rem_len >= 4 {
+            out.push(B32_HEX_CHARS[((chunk >> 10) & 31) as usize] as char);
+            out.push(B32_HEX_CHARS[((chunk >> 5) & 31) as usize] as char);
+        } else {
+            out.push_str("===");
+            break;
+        }
+
+        if rem_len >= 5 {
+            out.push(B32_HEX_CHARS[(chunk & 31) as usize] as char);
+        } else {
+            out.push('=');
+            break;
+        }
+
+        i += 5;
+    }
+    out
+}
+
+fn base32_hex_decode(input: &str) -> Result<Vec<u8>, ()> {
+    let clean = input.trim().trim_end_matches('=');
+    let mut out = Vec::new();
+    let mut buffer: u64 = 0;
+    let mut bits_left = 0;
+
+    for c in clean.chars() {
+        let val = match c.to_ascii_uppercase() {
+            '0'..='9' => (c as u8 - b'0') as u64,
+            'A'..='V' => (c as u8 - b'A' + 10) as u64,
+            _ => return Err(()),
+        };
+        buffer = (buffer << 5) | val;
+        bits_left += 5;
+        if bits_left >= 8 {
+            bits_left -= 8;
+            out.push((buffer >> bits_left) as u8);
+        }
+    }
+    Ok(out)
 }

@@ -2,7 +2,7 @@
 
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Clippy Clean](https://img.shields.io/badge/clippy-0%20warnings-brightgreen.svg)](https://github.com/rust-lang/rust-clippy)
-[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-112%2F112%20passing-brightgreen.svg)](tests/testdata/)
+[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-118%2F118%20passing-brightgreen.svg)](tests/testdata/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
 
 A high-performance, modular implementation of the [CUE configuration language](https://cuelang.org/) in **Rust (2024 Edition)**.
@@ -25,7 +25,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
 │   └── cue-cli/                # CLI binary (`cue-rs eval`, `cue-rs vet`, `cue-rs fmt`, `cue-rs test-txtar`)
 ├── tests/
-│   └── testdata/               # 112 conformance .txtar suites (100% passing)
+│   └── testdata/               # 118 conformance .txtar suites (100% passing)
 └── examples/                   # Sample CUE schemas and data files
 ```
 
@@ -34,22 +34,13 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 ## 2. Key Features
 
 - **Lattice Unification ($\sqcap$)**: Greatest lower bound calculation over scalar values, recursive structs, bounds (`>1024 & <65535`), regex constraints (`=~ "^[a-z]+$"`), and closed `#Definitions`.
-- **Lexical Path Cleaning & Multi-Split**: `path.Clean(p)`, `strings.SplitN(s, sep, n)`, `strings.HasPrefixAny(s, prefixes)`, `strings.HasSuffixAny(s, suffixes)`.
-- **Advanced Math Functions**: `math.RoundToEven(x)`, `math.Logb(x)`, `math.Ilogb(x)`, `math.Nextafter(x, y)`, `math.Mod(x, y)`, `math.Ldexp(f, exp)`, `math.IsNaN(x)`, `math.IsInf(x)`.
-- **Time Format & Reference Parsing**: `time.Parse(layout, val)`, `time.FormatDuration(nanos)`, `time.Unix(sec, nsec)`.
-- **Regex & Network Utilities**: `regexp.QuoteMeta(s)`, `regexp.FindSubmatch(pat, s)`, `net.FQDN(s)`, `net.ParseIP(s)`, `net.SplitHostPort(s)`, `net.JoinHostPort(h, p)`.
-- **Hex & Base Encoding Helpers**: `hex.EncodedLen(n)`, `hex.DecodedLen(n)`, `hex.Dump(s)`, `hex.Encode`, `hex.Decode`.
-- **Hyperbolic Math & Bitwise Logic**: `math.Sinh`, `math.Cosh`, `math.Tanh`, `math.Asinh`, `math.Acosh`, `math.Atanh`, `bits.Len`, `bits.LeadingZeros`, `bits.TrailingZeros`, `bits.Reverse`.
-- **String Cutset Trimming & Sorting**: `strings.TrimSpace(s)`, `strings.TrimLeft(s, cutset)`, `strings.TrimRight(s, cutset)`, `list.SortStrings(l)`, `list.Reverse(l)`, `list.Compact(l)`.
-- **JSON & YAML Validation Helpers**: `json.Valid(s)`, `json.Validate(s, schema)`, `yaml.Valid(s)`, `yaml.Validate(s, schema)`, `json.Indent`, `json.Compact`.
-- **Extended Math Powers & Roots**: `math.Cbrt(x)`, `math.Exp(x)`, `math.Exp2(x)`, `math.Expm1(x)`, `math.Log1p(x)`, `math.Sign(x)`, `math.Dim(x, y)`, `math.Copysign(x, y)`.
-- **Deep List Operations**: `list.Flatten(l)` recursive flattening, `list.Slice(l, low, high)`, `list.Concat([l1, l2])`, `list.Repeat(elem, count)`.
-- **Logical Boolean Operators**: Full `&&` (logical AND) and `||` (logical OR) support across expressions, conditionals, and comprehensions.
-- **Module-Aware Package Imports**: Seamless resolution and evaluation of module packages (`import "myorg.com/app/schema"`) and vendored packages (`cue.mod/pkg/...`).
-- **Inter-Arena Deep Value Cloning (`clone_value_into`)**: Recursive value allocation across isolated package evaluation arenas.
-- **Parenthesized Selector & Index Chaining**: `({ cluster: { id: "p1" } }).cluster.id`, `(["alpha", "beta"])[1]`, `(inlineMap["prod"]).ports[1]`.
-- **Comprehensions with `let` Bindings & Dynamic Labels**: `for k, v in map let uk = strings.ToUpper(k) if strings.HasPrefix(uk, "P_") { (strings.ToLower(uk)): v }`.
-- **Rust Derive Macro (`cue-derive`)**: Automatic deserialization-time schema validation on Rust structs via Serde:
+- **String Transformations & Prefix/Suffix Trimming**: `strings.ReplaceAll(s, old, new)`, `strings.TrimPrefixAny(s, prefixes)`, `strings.TrimSuffixAny(s, suffixes)`, `strings.SplitN(s, sep, n)`, `strings.HasPrefixAny(s, prefixes)`, `strings.HasSuffixAny(s, suffixes)`.
+- **Math & Numeric Functions**: `math.FMA(x, y, z)`, `math.Pow10(n)`, `math.Frexp(x)`, `math.Modf(x)`, `math.Scaleb(x, n)`, `math.Erf(x)`, `math.Erfc(x)`, `math.Gamma(x)`, `math.LogGamma(x)`, `math.RoundToEven(x)`, `math.Logb(x)`, `math.Ilogb(x)`, `math.Nextafter(x, y)`.
+- **List Operations**: `list.Chunk(l, n)`, `list.Distinct(l)`, `list.Zip(l1, l2)`, `list.Unzip(l)`, `list.Compact(l)`, `list.Reverse(l)`, `list.SortStrings(l)`.
+- **Time Field Extraction & Reference Parsing**: `time.Year(t)`, `time.Month(t)`, `time.Day(t)`, `time.Parse(layout, val)`, `time.FormatDuration(nanos)`, `time.Unix(sec, nsec)`.
+- **Extended Encodings**: `base32.HexEncode(s)`, `base32.HexDecode(s)`, `hex.EncodedLen(n)`, `hex.DecodedLen(n)`, `hex.Dump(s)`.
+- **Path Cleaning**: `path.Clean(p)`.
+- **Rust Derive Macro (`cue-derive`)**: Deserialization schema validation on Rust structs via Serde:
   ```rust
   #[derive(Deserialize, CueValidate)]
   #[cue(schema = "#User: { id: uint32, name: string, email: =~\"@\" }")]
@@ -78,7 +69,7 @@ cargo test --workspace
 # Run clippy lint verification (0 warnings)
 cargo clippy --workspace --all-targets
 
-# Run the 112 txtar conformance suites (112/112 passing)
+# Run the 118 txtar conformance suites (118/118 passing)
 cargo run -p cue-cli -- test-txtar tests/testdata
 ```
 
