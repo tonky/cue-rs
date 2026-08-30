@@ -1,0 +1,84 @@
+# Tests that list.Sort with complex type definitions involving defaults works.
+# Issue: https://cuelang.org/issue/4000
+-- in.cue --
+import "list"
+
+items: list.Sort(#List.items, {
+	x:    {}
+	y:    {}
+	less: x.kind < y.kind
+}) @test(eq, [{
+		spec: [{rules: [{expr: "x"}]}]
+		kind: *"default" | string
+
+		@test(shareID=L0)
+	},{
+		spec: [{rules: [{expr: "y"}]}]
+		kind: *"default" | string
+
+		@test(shareID=L1)
+	}]
+)
+
+#List: items: list.Concat(_items)
+
+_items: [#VMRuleList]
+
+// This is an alternative way of writing sharing.
+@test(shareID=L0, at=items.0)
+@test(shareID=L1, at=items.1)
+@test(shareID=L0, at=#VMRuleList.0)
+@test(shareID=L1, at=#VMRuleList.1)
+
+#VMRuleList: [...null | #VMRule] & [{
+	spec: [{
+		rules: [{expr: "x"}]
+	}]
+}, {
+	spec: [{
+		rules: [{expr: "y"}]
+	}]
+}] @test(eq, [{
+	@test(shareID=L0)
+
+	kind: *"default" | string
+	spec: [{
+		rules: [{
+			expr: "x"
+		}]
+	}]
+}, {
+	@test(shareID=L1)
+
+	kind: *"default" | string
+	spec: [{
+		rules: [{
+			expr: "y"
+		}]
+	}]
+}])
+
+#RuleGroup: rules: [...#Rule]
+
+#Rule: expr: string @test(eq, string)
+
+#VMRule: {
+	#TypeMeta
+	spec: [...#RuleGroup]
+}
+#TypeMeta: kind: string | *"default"
+-- out/eval/stats --
+Leaks:  18
+Freed:  36
+Reused: 20
+Allocs: 34
+Retain: 0
+
+Unifications: 38
+Conjuncts:    77
+Disjuncts:    12
+
+NumCloseIDs: 17
+-- out/diff-v2-v3.txt --
+Structure sharing: v3 uses ~(#VMRuleList.0) etc. for items list elements.
+Default disjunction: kind field uses *"default" | string — needs @test(final) for precise testing.

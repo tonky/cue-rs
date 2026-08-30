@@ -1,0 +1,18 @@
+-- in.cue --
+root: input: #deps: root: {}
+{root.input.#deps}
+
+@test(eq, { root: input: #deps: root: {} })
+-- out/eval/stats --
+Leaks:  0
+Freed:  5
+Reused: 0
+Allocs: 5
+Retain: 0
+
+Unifications: 5
+Conjuncts:    9
+Disjuncts:    0
+Notifications: 1
+
+NumCloseIDs: 3

@@ -1,0 +1,117 @@
+-- in.cue --
+package p
+
+excludeLet: {
+	// Two lets with the same name should not unify and checked by definition.
+	#D: { let X = {}, #foo: X, f: _ }
+	a: #D
+	a: { let X = { a: 1 }, f: X } @test(debugCheck, """
+		(#struct){
+		  let X#2 = (struct){
+		    a: (int){ 1 }
+		  }
+		  f: (#struct){
+		    a: (int){ 1 }
+		  }
+		  let X#1 = (#struct){
+		  }
+		  #foo: (#struct){
+		  }
+		}
+		""")
+
+	@test(eq, {
+		#D: {
+			#foo: {}
+			f: _
+		}
+		a: {
+			#foo: {}
+			f: a: 1
+		}
+	})
+}
+
+definition: {
+	// Check a definition only if it s contained withing a definition.
+	err1: {
+		#D: { #foo: a: int }
+		a: #D
+		a: { #foo: b: int @test(err, code=eval, contains="field not allowed", pos=[0:14]) }
+	}
+	ok1: {
+		#D: {}
+		a: #D
+		a: { #foo: b: int }
+		@test(eq, {
+			#D: {}
+			a: #foo: b: int
+		})
+	}
+}
+
+hidden: {
+	// Check a hidden field only if it s contained withing a definition.
+	err1: {
+		#D: { _foo: a: int }
+		a: #D
+		a: { _foo: b: int } @test(err, code=eval, at=_foo$p, contains="field not allowed", pos=[0:14])
+	}
+	ok1: {
+		#D: {}
+		a: #D
+		a: { _foo: b: int }
+	} @test(eq, {#D: {}, a: {_foo$p: {b: int}}})
+}
+-- regress.cue --
+package p
+
+import "encoding/json"
+
+definition: ok2: {
+	#Tree: {
+		#Leaf: leaf: string
+		#Branch: branch?: #Leaf
+		root: #Branch
+	}
+	out: json.Marshal(#Tree & {root: {}}) @test(eq, #"{"root":{}}"#)
+}
+
+hidden: ok2: {
+	out: #Workflow & {
+		_hidden: #step & {
+			run: "foo bar"
+		}
+	}
+	#Workflow: {
+	}
+	#step: matchN(1, [{
+		"run"!: _
+	}])
+
+	@test(eq, {
+		out: _hidden$p: run: "foo bar"
+		#Workflow: {}
+		#step: matchN(1, [{ run!: _ }])
+	})
+}
+-- out/errors.txt --
+[eval] definition.err1.a.#foo.b: field not allowed:
+    ./in.cue:39:14
+[eval] hidden.err1.a._foo.b: field not allowed:
+    ./in.cue:57:14
+-- out/diff-v2-v3.txt --
+Reordering.
+Missing error positions: v3 reports fewer positions than v2.
+-- out/eval/stats --
+Leaks:  1
+Freed:  71
+Reused: 57
+Allocs: 15
+Retain: 0
+
+Unifications: 71
+Conjuncts:    104
+Disjuncts:    0
+
+NumCloseIDs: 17

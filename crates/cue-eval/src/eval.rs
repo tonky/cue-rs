@@ -180,6 +180,22 @@ impl Evaluator {
             pending_decls = next_pending;
         }
 
+        // Apply pattern constraints to matching fields
+        let pattern_constraints = target_struct.pattern_constraints.clone();
+        for pc in pattern_constraints {
+            let field_names: Vec<String> = target_struct.fields.keys().cloned().collect();
+            for field_name in field_names {
+                let name_id = self.arena.string(field_name.clone());
+                let match_res = crate::unify::unify(&mut self.arena, pc.pattern_val, name_id);
+                if !matches!(self.arena.get(match_res), Some(Value::Bottom(_)))
+                    && let Some(entry) = target_struct.fields.get_mut(&field_name)
+                {
+                    let new_val = crate::unify::unify(&mut self.arena, entry.val, pc.target_val);
+                    entry.val = new_val;
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -1024,8 +1040,8 @@ impl Evaluator {
             Some(Value::Disjunction { branches }) => {
                 if let Some(default_branch) = branches.iter().find(|b| b.default) {
                     self.to_json(default_branch.val)
-                } else if branches.len() == 1 {
-                    self.to_json(branches[0].val)
+                } else if let Some(first_branch) = branches.first() {
+                    self.to_json(first_branch.val)
                 } else {
                     Err("cannot export non-concrete disjunction to JSON".to_string())
                 }

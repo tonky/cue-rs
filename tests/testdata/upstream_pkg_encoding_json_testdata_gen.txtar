@@ -1,0 +1,302 @@
+# generated from the original tests.
+# Henceforth it may be nicer to group tests into separate files.
+-- in.cue --
+import "encoding/json"
+
+validate: [string]: {
+	str:    string | *"{\"a\":10}"
+	schema: _
+	result: json.Validate(str, schema)
+}
+validate: t1: schema: {b: string}
+validate: t2: schema: {a: <3}
+
+validate: disjunctionRequired: schema: {a!: int} | {b!: int}
+validate: disjunctionClosed: schema:   close({a: int}) | close({b: int})
+
+validate: invalidDisjuntion: schema: {a: 1 | 2}
+
+// Issue #2395
+validate: enforceRequired: {
+	str:    "{}"
+	schema: {x!: int}
+}
+
+// Validate must report every conflict, not just the first one.
+// Regression test for https://cuelang.org/issue/2079.
+validate: multiConflict: {
+	str:    #"{"field1": "bad1", "field2": "bad2"}"#
+	schema: {field1: int, field2: int}
+}
+
+issue3932: {
+	f: json.Validate({name!: string})
+	f: json.Marshal({name: "foo"})
+}
+
+valid: [string]: {
+	string // input
+	#result: json.Valid(string)
+}
+valid: t1: "1"
+
+compact: [string]: {
+	let X = self
+	_ // input
+	#result: json.Compact(X)
+}
+compact: t1: "[1, 2]"
+
+indent: [string]: {
+	let X = self
+	string // input
+	#initial: *"" | string
+	#indent:  *"  " | string
+	#result:  json.Indent(X, #initial, #indent)
+}
+indent: t1: #"{"a": 1, "b": 2}"#
+
+unmarshal: [string]: {
+	let X = self
+	string // input
+	#result: json.Unmarshal(X)
+}
+unmarshal: t1: "1"
+unmarshal: {
+	trailingValid:   #"{"a": 1}{"b": 2}"#
+	trailingInvalid: #"{"a": 1}}invalid json"#
+}
+
+marshalStream: [string]: {
+	let X = self
+	[...] // input
+	#result: json.MarshalStream(X)
+}
+marshalStream: t1: [{a: 1}, {b: 2}]
+marshalStream: t2: [{a: 1}, {b: int | *2}]
+marshalStream: t3: [{a: #"\ " & < >"#}, {b: ""}]
+
+marshal: [string]: {
+	let X = self
+	_ // input
+	#result: json.Marshal(X)
+}
+marshal: t1: {
+	#x: int
+	a:  #x
+}
+
+marshal: t2: {a: #"\ " & < >"#}
+
+htmlEscape: [string]: {
+	let X = self
+	string // input
+	#result: json.HTMLEscape(X)
+}
+htmlEscape: t1: marshal.t2.#result
+htmlEscape: t2: marshalStream.t3.#result
+
+unmarshalStream: [string]: {
+	let X = self
+	string | bytes // input
+	#result: json.UnmarshalStream(X)
+}
+unmarshalStream: {
+	t1:     #"{"a": 1}{"b": 2}"#
+	t2:     #'{"a": 1}{"b": 2}'#
+	empty1: ''
+	empty2: ""
+	nums1:  '1 2'
+	nums2:  "1 2"
+}
+-- out/json --
+Errors:
+validate.invalidDisjuntion.result: error in call to encoding/json.Validate: 2 errors in empty disjunction::
+    ./in.cue:6:10
+validate.invalidDisjuntion.result: error in call to encoding/json.Validate: conflicting values 1 and 10:
+    ./in.cue:6:10
+    ./in.cue:14:42
+    json.Validate:1:1
+    json.Validate:1:6
+validate.invalidDisjuntion.result: error in call to encoding/json.Validate: conflicting values 2 and 10:
+    ./in.cue:6:10
+    ./in.cue:14:46
+    json.Validate:1:1
+    json.Validate:1:6
+validate.multiConflict.result: error in call to encoding/json.Validate: conflicting values "bad1" and int (mismatched types string and int):
+    ./in.cue:6:10
+    ./in.cue:26:19
+    json.Validate:1:1
+    json.Validate:1:12
+validate.multiConflict.result: error in call to encoding/json.Validate: conflicting values "bad2" and int (mismatched types string and int):
+    ./in.cue:6:10
+    ./in.cue:26:32
+    json.Validate:1:1
+    json.Validate:1:30
+validate.t2.result: error in call to encoding/json.Validate: invalid value 10 (out of bound <3):
+    ./in.cue:6:10
+    ./in.cue:9:27
+    json.Validate:1:6
+unmarshal.trailingInvalid.#result: error in call to encoding/json.Unmarshal: json: invalid JSON:
+    ./in.cue:59:11
+unmarshal.trailingValid.#result: error in call to encoding/json.Unmarshal: json: invalid JSON:
+    ./in.cue:59:11
+
+Result:
+import "encoding/json"
+
+validate: {
+	t1: {
+		str: *"{\"a\":10}" | string
+		schema: b: string
+		result: true
+	}
+	t2: {
+		str: *"{\"a\":10}" | string
+		schema: a: <3
+		result: _|_ // validate.t2.result: error in call to encoding/json.Validate: validate.t2.result.a: invalid value 10 (out of bound <3)
+	}
+	disjunctionRequired: {
+		str:    *"{\"a\":10}" | string
+		schema: {a!: int} | {b!: int}
+		result: true
+	}
+	disjunctionClosed: {
+		str:    *"{\"a\":10}" | string
+		schema: {a: int} | {b: int}
+		result: true
+	}
+	invalidDisjuntion: {
+		str: *"{\"a\":10}" | string
+		schema: a: 1 | 2
+		result: _|_ // validate.invalidDisjuntion.result: error in call to encoding/json.Validate: validate.invalidDisjuntion.result.a: 2 errors in empty disjunction: (and 2 more errors)
+	}
+
+	// Issue #2395
+	enforceRequired: {
+		str: "{}"
+		schema: x!: int
+		result: json.Validate(str, schema)
+	}
+
+	// Validate must report every conflict, not just the first one.
+	// Regression test for https://cuelang.org/issue/2079.
+	multiConflict: {
+		str: "{\"field1\": \"bad1\", \"field2\": \"bad2\"}"
+		schema: {
+			field1: int
+			field2: int
+		}
+		result: _|_ // validate.multiConflict.result: error in call to encoding/json.Validate: validate.multiConflict.result.field1: conflicting values "bad1" and int (mismatched types string and int) (and 1 more errors)
+	}
+}
+issue3932: f: "{\"name\":\"foo\"}"
+valid: t1: {
+	"1"
+	#result: json.Valid(string)
+}
+compact: t1: {
+	"[1, 2]"
+	#result: "[1,2]"
+}
+indent: t1: {
+	"{\"a\": 1, \"b\": 2}"
+	#initial: *"" | string
+	#indent:  *"  " | string
+	#result: """
+		{
+		  "a": 1,
+		  "b": 2
+		}
+		"""
+}
+unmarshal: {
+	t1: {
+		"1"
+		#result: 1
+	}
+	trailingValid: #result:   _|_ // unmarshal.trailingValid.#result: error in call to encoding/json.Unmarshal: json: invalid JSON
+	trailingInvalid: #result: _|_ // unmarshal.trailingInvalid.#result: error in call to encoding/json.Unmarshal: json: invalid JSON
+}
+marshalStream: {
+	t1: {
+		#result: """
+			{"a":1}
+			{"b":2}
+
+			"""
+		[{a: 1}, {b: 2}]
+	}
+	t2: {
+		#result: """
+			{"a":1}
+			{"b":2}
+
+			"""
+		[{a: 1}, {b: *2 | int}]
+	}
+	t3: {
+		#result: """
+			{"a":"\\\\ \\" & < >"}
+			{"b":""}
+
+			"""
+		[{a: "\\ \" & < >"}, {b: ""}]
+	}
+}
+marshal: {
+	t1: {
+		let X = self
+		#result: json.Marshal(X)
+		#x:      int
+		a:       int
+	}
+	t2: {
+		#result: "{\"a\":\"\\\\ \\\" & < >\"}"
+		a:       "\\ \" & < >"
+	}
+}
+htmlEscape: {
+	t1: {
+		"{\"a\":\"\\\\ \\\" & < >\"}"
+		#result: "{\"a\":\"\\\\ \\\" \\u0026 \\u003c \\u003e\"}"
+	}
+	t2: {
+		"""
+			{"a":"\\\\ \\" & < >"}
+			{"b":""}
+
+			"""
+		#result: """
+			{"a":"\\\\ \\" \\u0026 \\u003c \\u003e"}
+			{"b":""}
+
+			"""
+	}
+}
+unmarshalStream: {
+	t1: {
+		"{\"a\": 1}{\"b\": 2}"
+		#result: [{a: 1}, {b: 2}]
+	}
+	t2: {
+		'{"a": 1}{"b": 2}'
+		#result: [{a: 1}, {b: 2}]
+	}
+	empty1: {
+		''
+		#result: []
+	}
+	empty2: {
+		""
+		#result: []
+	}
+	nums1: {
+		'1 2'
+		#result: [1, 2]
+	}
+	nums2: {
+		"1 2"
+		#result: [1, 2]
+	}
+}

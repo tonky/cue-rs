@@ -1,0 +1,40 @@
+exec cue eval ./pkg:foo
+-- cue.mod/module.cue --
+module: "mod.test"
+language: version: "v0.9.0"
+-- in.cue --
+package foo
+
+import "mod.test/pkg:bar"
+
+bar
+z: 3
+
+@test(eq, {z: 3, foo: {y: 2, x: 1}, y: 2, x: 1})
+-- pkg/bar.cue --
+package bar
+
+import "mod.test/pkg:baz"
+
+foo: {
+	baz
+	y: 2
+}
+foo
+-- pkg/baz.cue --
+package baz
+
+x: 1
+-- out/eval/stats --
+Leaks:  2
+Freed:  23
+Reused: 0
+Allocs: 25
+Retain: 0
+
+Unifications: 23
+Conjuncts:    31
+Disjuncts:    0
+Notifications: 1
+
+NumCloseIDs: 9

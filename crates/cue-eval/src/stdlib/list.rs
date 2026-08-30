@@ -40,6 +40,13 @@ pub fn call_list(
                 target: dummy,
             }))
         }
+        ("list", "MatchN") => {
+            let dummy = arena.alloc(Value::Top);
+            Ok(arena.alloc(Value::BuiltinValidator {
+                name: "list.MatchN".to_string(),
+                target: dummy,
+            }))
+        }
         ("list", "Contains") => {
             if args.len() >= 2
                 && let Some(Value::List { elements, .. }) = arena.get(args[0]) {

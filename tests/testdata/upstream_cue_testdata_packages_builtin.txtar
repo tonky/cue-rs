@@ -1,0 +1,11 @@
+#inlinetest:exclude imports an undefined package "x/y"; the inline runner cannot
+# compile the source when package resolution fails.
+-- x.cue --
+import "x/y"
+
+foo: [
+	y,
+]
+-- out/evalalpha --
+builtin package "x/y" undefined:
+    ./x.cue:1:8

@@ -1,0 +1,37 @@
+# Tests that embedding a definition (#C1) inside another definition (#C2) and
+# then unifying with a concrete struct correctly validates all fields.
+# https://cuelang.org/issue/370
+-- x.cue --
+package x
+
+#C1: {
+	name: string
+}
+
+#C2: {
+	#C1
+	age: int
+}
+
+c1: #C1 & {
+	name: "cueckoo"
+} @test(eq, {name: "cueckoo"})
+
+c2: #C2 & {
+	c1
+	age: 5
+} @test(eq, {age: 5, name: "cueckoo"})
+-- out/eval/stats --
+Leaks:  0
+Freed:  11
+Reused: 4
+Allocs: 7
+Retain: 0
+
+Unifications: 11
+Conjuncts:    25
+Disjuncts:    0
+
+NumCloseIDs: 12
+-- out/diff-v2-v3.txt --
+Reordering

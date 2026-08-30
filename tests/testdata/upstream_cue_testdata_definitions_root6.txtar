@@ -1,0 +1,41 @@
+-- in.cue --
+c: "foo"
+a: b: int
+#Schema
+#Schema: close({ a: b: int}) @test(closed)
+
+x: {
+	c: "foo"
+	a: b: int
+	#Schema
+	#Schema: close({ a: b: int})
+} @test(closed)
+
+@test(eq, {
+	a: b: int
+	c: "foo"
+	#Schema: { a: b: int }
+	x: {
+		a: b: int
+		c: "foo"
+		#Schema: a: b: int
+	}
+})
+-- out/eval/stats --
+Leaks:  0
+Freed:  30
+Reused: 8
+Allocs: 22
+Retain: 0
+
+Unifications: 22
+Conjuncts:    34
+Disjuncts:    0
+Notifications: 2
+
+NumCloseIDs: 11
+
+ConjunctInfos:       29
+MaxConjunctInfos:    3
+MaxReqSets:          7
+MaxRedirect:         2

@@ -1,0 +1,40 @@
+-- in.cue --
+#schema: a!: bool
+_hidden & #schema // must fail here, but not elsewhere
+_hidden: {
+	"a": true,
+	notAllowed: true
+}
+allowed: true
+
+@test(eq, {
+	a: true
+	#schema: a!: bool
+	_hidden: {
+		a: true
+		notAllowed: true
+	}
+	allowed: true
+	notAllowed: _|_
+})
+@test(err, code=eval, contains="field not allowed", pos=[in.cue:5:2])
+-- out/errors.txt --
+[eval] notAllowed: field not allowed:
+    ./in.cue:5:2
+-- out/eval/stats --
+Leaks:  0
+Freed:  9
+Reused: 1
+Allocs: 8
+Retain: 0
+
+Unifications: 9
+Conjuncts:    14
+Disjuncts:    0
+Notifications: 2
+
+NumCloseIDs: 3
+-- out/diff-v2-v3.txt --
+Positions: v3 reports fewer positions than v2 for the "field not allowed" error.
+Reordering.
+notAllowed error: cannot add @test(err) to field created by embedding.

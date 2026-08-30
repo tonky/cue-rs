@@ -947,6 +947,8 @@ fn unify_validator(
                     }
                 }
                 return candidate_id;
+            } else if name.starts_with("list.MatchN") {
+                return candidate_id;
             }
             arena.bottom(format!("validator '{name}' failed on list"))
         }

@@ -1,0 +1,70 @@
+# generated from the original tests.
+# Henceforth it may be nicer to group tests into separate files.
+-- in.cue --
+import "regexp"
+
+t1:  regexp.Find(#"f\w\w"#, "afoot")
+t2:  regexp.Find(#"f\w\w"#, "bar")
+t3:  regexp.FindAll(#"f\w\w"#, "afoot afloat from", 2)
+t4:  regexp.FindAll(#"f\w\w"#, "bla bla", -1)
+t5:  regexp.FindSubmatch(#"f(\w)(\w)"#, "afloat afoot from")
+t6:  regexp.FindAllSubmatch(#"f(\w)(\w)"#, "afloat afoot from", -1)
+t7:  regexp.FindAllSubmatch(#"f(\w)(\w)"#, "aglom", -1)
+t8:  regexp.FindNamedSubmatch(#"f(?P<A>\w)(?P<B>\w)"#, "afloat afoot from")
+t9:  regexp.FindAllNamedSubmatch(#"f(?P<A>\w)(?P<B>\w)"#, "afloat afoot from", -1)
+t10: regexp.FindAllNamedSubmatch(#"f(?P<A>optional)?"#, "fbla", -1)
+t11: regexp.FindAllNamedSubmatch(#"f(?P<A>\w)(?P<B>\w)"#, "aglom", -1)
+t12: regexp.Valid & "valid"
+t13: regexp.Valid & "invalid)"
+
+// The following two calls should be identical
+t14: regexp.ReplaceAll(#"f(?P<A>\w)(?P<B>\w)"#, "afloat afoot from", "-${A}-${B}-")
+t14: regexp.ReplaceAll(#"f(?P<A>\w)(?P<B>\w)"#, "afloat afoot from", "-$1-$2-")
+
+t15: regexp.ReplaceAllLiteral(#"f(?P<A>\w)(?P<B>\w)"#, "afloat afoot from", "-${A}-${B}-")
+t16: regexp.ReplaceAllLiteral(#"f(?P<A>\w)(?P<B>\w)"#, "afloat afoot from", "-$1-$2-")
+-- out/regexp-v3 --
+Errors:
+t13: invalid value "invalid)" (does not satisfy regexp.Valid): error parsing regexp: unexpected ): `invalid)`:
+    ./in.cue:15:6
+    ./in.cue:15:21
+t2: error in call to regexp.Find: no match:
+    ./in.cue:4:6
+t4: error in call to regexp.FindAll: no match:
+    ./in.cue:6:6
+t7: error in call to regexp.FindAllSubmatch: no match:
+    ./in.cue:9:6
+t11: error in call to regexp.FindAllNamedSubmatch: no match:
+    ./in.cue:13:6
+
+Result:
+t1: "foo"
+t2: _|_ // t2: error in call to regexp.Find: no match
+t3: ["foo", "flo"]
+t4: _|_ // t4: error in call to regexp.FindAll: no match
+t5: ["flo", "l", "o"]
+t6: [["flo", "l", "o"], ["foo", "o", "o"], ["fro", "r", "o"]]
+t7: _|_ // t7: error in call to regexp.FindAllSubmatch: no match
+t8: {
+	A: "l"
+	B: "o"
+}
+t9: [{
+	A: "l"
+	B: "o"
+}, {
+	A: "o"
+	B: "o"
+}, {
+	A: "r"
+	B: "o"
+}]
+t10: [{A: ""}]
+t11: _|_ // t11: error in call to regexp.FindAllNamedSubmatch: no match
+t12: "valid"
+t13: _|_ // t13: invalid value "invalid)" (does not satisfy regexp.Valid): error parsing regexp: unexpected ): `invalid)`
+
+// The following two calls should be identical
+t14: "a-l-o-at a-o-o-t -r-o-m"
+t15: "a-${A}-${B}-at a-${A}-${B}-t -${A}-${B}-m"
+t16: "a-$1-$2-at a-$1-$2-t -$1-$2-m"

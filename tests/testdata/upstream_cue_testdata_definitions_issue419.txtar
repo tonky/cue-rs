@@ -1,0 +1,38 @@
+# Tests that a list constrained with [...#X] where #X is a disjunction of
+# definitions correctly accepts values matching either branch of the disjunction.
+# https://cuelang.org/issue/419
+-- in.cue --
+#A: {
+	a: string
+}
+
+#B: {
+	b: string
+}
+
+#X: #A | #B
+
+l: [...#X]
+
+l: [
+	{b: "bar"},
+]
+
+@test(eq, {
+	#A: {a: string}
+	#B: {b: string}
+	#X: {a: string} | {b: string}
+	l: [{ b: "bar" }]
+})
+-- out/eval/stats --
+Leaks:  2
+Freed:  16
+Reused: 8
+Allocs: 10
+Retain: 0
+
+Unifications: 12
+Conjuncts:    24
+Disjuncts:    4
+
+NumCloseIDs: 5

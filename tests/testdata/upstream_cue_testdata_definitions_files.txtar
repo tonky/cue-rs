@@ -1,0 +1,50 @@
+// Treat fields of different files as belonging to the same struct.
+// This means that a closed embedding in one file should not restrict the
+// fields of another.
+-- in.cue --
+package foo
+
+#theme: {
+	color:   string
+	ctermbg: string
+}
+dark: #theme & {
+	color:   "dark"
+	ctermbg: "239"
+} @test(eq, {color: "dark", ctermbg: "239"})
+
+light: #theme & {
+	color:   "light"
+	ctermbg: "254"
+} @test(eq, {color: "light", ctermbg: "254"})
+
+#Config: {
+	console: dark | *light
+} @test(eq, {
+	console: *{color: "light", ctermbg: "254"} | {color: "dark", ctermbg: "239"}
+})
+-- box.cue --
+package foo
+
+#Config & {
+	console: dark
+}
+
+@test(eq, {color: "dark", ctermbg: "239"}, at=console)
+
+-- out/eval/stats --
+Leaks:  3
+Freed:  24
+Reused: 11
+Allocs: 16
+Retain: 0
+
+Unifications: 19
+Conjuncts:    55
+Disjuncts:    4
+Notifications: 1
+
+NumCloseIDs: 13
+-- out/diff-v2-v3.txt --
+Reordering.
+Disjunctions with defaults: needs @test(final) for console field.

@@ -1,0 +1,23 @@
+-- in.cue --
+x: _
+#D: b: x
+#D & { b: _ }
+
+@test(eq, {
+	x: _
+	#D: b: _
+	b: _
+})
+-- out/eval/stats --
+Leaks:  0
+Freed:  5
+Reused: 0
+Allocs: 5
+Retain: 0
+
+Unifications: 5
+Conjuncts:    11
+Disjuncts:    0
+Notifications: 1
+
+NumCloseIDs: 4

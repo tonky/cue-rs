@@ -1,0 +1,300 @@
+-- in.cue --
+import "list"
+
+issue563: {
+	#MyDef: {
+		name: string
+		...
+	}
+
+	_all: [
+		_a,
+		_b,
+	]
+
+	_a: [...#MyDef] & [
+		{name: "a"},
+		{name: "b"},
+		{name: "c"},
+	]
+
+	_b: [...#MyDef] & [
+		{name: "1"},
+		{name: "2"},
+		{name: "3"},
+	]
+
+	output: [...#MyDef] & list.FlattenN(_all, 1)
+}
+issue1404: {
+	a:   *1 | 2
+	sum: list.Sum([a])
+}
+issue3541: {
+	_test: {
+		one: {
+			num: 2
+			test: num: 6
+		}
+		two: {
+			num: 3
+			test: num: 7
+		}
+		three: {
+			num: 4
+			test: num: 8
+		}
+		four: {
+			num: 5
+			test: num: 9
+		}
+	}
+
+	list.Sum([for key, val in _test {
+		val.num + val.test
+	}])
+}
+
+issue2594: sumFirst: {
+	#Def: {
+		number & list.Sum(#In)
+		#In: [...number]
+	}
+
+	x!: 6
+	x:  #Def & {_
+		#In: [1, 2, 3]
+	}
+}
+issue2594: sumSecond: {
+	#Def: {
+		#In: [...number]
+		number & list.Sum(#In)
+	}
+
+	x!: 6
+	x:  #Def & {_
+		#In: [1, 2, 3]
+	}
+}
+
+issue3416: sumFirst: {
+	a: b: {_, _c: x: 100}
+	a: b: {
+		list.Sum([for _, v in _c {v}])
+		_c: {
+			y: 1
+			z: 10
+		}
+	}
+}
+issue3416: sumSecond: {
+	a: b: {_, _c: x: 100}
+	a: b: {
+		_c: {
+			y: 1
+			z: 10
+		}
+		list.Sum([for _, v in _c {v}])
+	}
+}
+
+// The default "yes" is selected, so the list contains "yes": expect true.
+issue3950: list.Contains(["no", "no"|*"yes"], "yes")
+-- out/list-v3 --
+Errors:
+issue3541: error in call to list.Sum: invalid operands 2 and {num:6} to '+' (type int and struct):
+    ./in.cue:52:2
+    ./in.cue:35:9
+    ./in.cue:36:10
+    ./in.cue:53:3
+
+Result:
+issue563: {
+	#MyDef: name: string
+	output: [{name: "a"}, {name: "b"}, {name: "c"}, {name: "1"}, {name: "2"}, {name: "3"}]
+}
+issue1404: {
+	a:   *1 | 2
+	sum: 1
+}
+issue3541: _|_ // issue3541: error in call to list.Sum: 0: invalid operands 2 and {num:6} to '+' (type int and struct)
+issue2594: {
+	sumFirst: {
+		#Def: {
+			0
+			#In: [...number]
+		}
+		x: {
+			6
+			#In: [1, 2, 3]
+		}
+	}
+	sumSecond: {
+		#Def: {
+			0
+			#In: [...number]
+		}
+		x: {
+			6
+			#In: [1, 2, 3]
+		}
+	}
+}
+issue3416: {
+	sumFirst: a: b:  {111}
+	sumSecond: a: b: {111}
+}
+
+// The default "yes" is selected, so the list contains "yes": expect true.
+issue3950: true
+-- diff/-out/list-v3<==>+out/list --
+diff old new
+--- old
++++ new
+@@ -1,36 +1,20 @@
+ Errors:
+-issue2594.sumSecond.x: conflicting values 0 and 6:
+-    ./in.cue:71:3
+-    ./in.cue:71:12
+-    ./in.cue:74:6
+-    ./in.cue:75:6
+-issue3416.sumFirst.a.b: field y not allowed by earlier comprehension or reference cycle
+-issue3416.sumFirst.a.b: field z not allowed by earlier comprehension or reference cycle
++issue3541: error in call to list.Sum: invalid operands 2 and {num:6} to '+' (type int and struct):
++    ./in.cue:52:2
++    ./in.cue:35:9
++    ./in.cue:36:10
++    ./in.cue:53:3
+ 
+ Result:
+ issue563: {
+-	#MyDef: {
+-		name: string
+-	}
+-	output: [{
+-		name: "a"
+-	}, {
+-		name: "b"
+-	}, {
+-		name: "c"
+-	}, {
+-		name: "1"
+-	}, {
+-		name: "2"
+-	}, {
+-		name: "3"
+-	}]
++	#MyDef: name: string
++	output: [{name: "a"}, {name: "b"}, {name: "c"}, {name: "1"}, {name: "2"}, {name: "3"}]
+ }
+ issue1404: {
+ 	a:   *1 | 2
+ 	sum: 1
+ }
+-issue3541: {}
++issue3541: _|_ // issue3541: error in call to list.Sum: 0: invalid operands 2 and {num:6} to '+' (type int and struct)
+ issue2594: {
+ 	sumFirst: {
+ 		#Def: {
+@@ -47,20 +31,16 @@
+ 			0
+ 			#In: [...number]
+ 		}
+-		x: _|_ // issue2594.sumSecond.x: conflicting values 0 and 6
++		x: {
++			6
++			#In: [1, 2, 3]
++		}
+ 	}
+ }
+ issue3416: {
+-	sumFirst: {
+-		a: {
+-			b: _|_ // issue3416.sumFirst.a.b: field y not allowed by earlier comprehension or reference cycle (and 1 more errors)
+-		}
+-	}
+-	sumSecond: {
+-		a: {
+-			b: {
+-				111
+-			}
+-		}
+-	}
+-}
++	sumFirst: a: b:  {111}
++	sumSecond: a: b: {111}
++}
++
++// The default "yes" is selected, so the list contains "yes": expect true.
++issue3950: true
+-- diff/explanation --
+issue3541: evalv3 correctly spots an invalid operand error which evalv2 drops on the floor.
+issue2594: evalv3 fixes an ordering issue present in evalv2.
+-- out/list --
+Errors:
+issue2594.sumSecond.x: conflicting values 0 and 6:
+    ./in.cue:71:3
+    ./in.cue:71:12
+    ./in.cue:74:6
+    ./in.cue:75:6
+issue3416.sumFirst.a.b: field y not allowed by earlier comprehension or reference cycle
+issue3416.sumFirst.a.b: field z not allowed by earlier comprehension or reference cycle
+
+Result:
+issue563: {
+	#MyDef: {
+		name: string
+	}
+	output: [{
+		name: "a"
+	}, {
+		name: "b"
+	}, {
+		name: "c"
+	}, {
+		name: "1"
+	}, {
+		name: "2"
+	}, {
+		name: "3"
+	}]
+}
+issue1404: {
+	a:   *1 | 2
+	sum: 1
+}
+issue3541: {}
+issue2594: {
+	sumFirst: {
+		#Def: {
+			0
+			#In: [...number]
+		}
+		x: {
+			6
+			#In: [1, 2, 3]
+		}
+	}
+	sumSecond: {
+		#Def: {
+			0
+			#In: [...number]
+		}
+		x: _|_ // issue2594.sumSecond.x: conflicting values 0 and 6
+	}
+}
+issue3416: {
+	sumFirst: {
+		a: {
+			b: _|_ // issue3416.sumFirst.a.b: field y not allowed by earlier comprehension or reference cycle (and 1 more errors)
+		}
+	}
+	sumSecond: {
+		a: {
+			b: {
+				111
+			}
+		}
+	}
+}

@@ -1,0 +1,23 @@
+
+#name: recursive closing starting at non-definition
+#evalPartial
+-- in.cue --
+z: a: {
+	#B: {
+		c: d: 1
+		c: f: 1
+	}
+}
+A: z & {a: {#B: {c: e: 2}}} @test(eq, {a: #B: c: {e: 2, d: 1, f: 1}})
+-- out/eval/stats --
+Leaks:  0
+Freed:  14
+Reused: 5
+Allocs: 9
+Retain: 0
+
+Unifications: 14
+Conjuncts:    21
+Disjuncts:    0
+
+NumCloseIDs: 1

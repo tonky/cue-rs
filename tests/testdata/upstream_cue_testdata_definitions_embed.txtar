@@ -1,0 +1,105 @@
+-- in.cue --
+deployment: [string]: #Deployment
+
+deployment: foo: spec: replicas: 1
+
+@test(eq, {
+	[string]: spec: replicas: int
+	foo: spec: replicas: 1
+}, at=deployment)
+
+#Deployment: {
+	#TypeMeta
+
+	spec: #Spec
+}
+
+#Spec: replicas: int
+
+#TypeMeta: {}
+
+recloseSimple: {
+	#foo: {}
+	a: {#foo} & {b: int} @test(err, at=b, code=eval, contains="field not allowed", pos=[0:15])
+}
+
+// Reclosing
+reclose1: {
+	#D: {
+		x: int
+		y: int
+	}
+	#a: {
+		#D
+		b: {
+			c: int
+		}
+	}
+
+	z: #a.b
+	z: d: 3 @test(err, code=eval, contains="field not allowed", pos=[0:5])
+}
+
+reclose2: {
+	#D: {
+		x: int
+		y: int
+	}
+	a: {
+		#D
+		b: {// keep open
+			c: int
+		}
+	}
+
+	z: a.b @test(eq, { c: int, d: 3 })
+	z: d: 3
+}
+
+reclose3: {
+	#Step: {
+		(#A | #B)
+		#Common
+	}
+	#Common: {
+		Name: string
+	}
+	#A: {
+		#Common
+		Something: int
+	}
+	#B: {
+		#Common
+		Else: int
+	}
+	x: #Step
+	x: #A & {
+		Name:      "a"
+		Something: 4
+	} @test(eq, {Name: "a", Something: 4})
+}
+-- out/errors.txt --
+[eval] recloseSimple.a.b: field not allowed:
+    ./in.cue:22:15
+[eval] reclose1.z.d: field not allowed:
+    ./in.cue:39:5
+-- out/eval/stats --
+Leaks:  3
+Freed:  62
+Reused: 42
+Allocs: 23
+Retain: 0
+
+Unifications: 55
+Conjuncts:    103
+Disjuncts:    4
+
+NumCloseIDs: 48
+
+ConjunctInfos:       85
+MaxConjunctInfos:    7
+MaxReqSets:          12
+MaxRedirect:         2
+-- out/diff-v2-v3.txt --
+Reordering.
+Missing error positions: v3 reports fewer positions than v2.

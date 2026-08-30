@@ -1,0 +1,54 @@
+# generated from the original tests.
+# Henceforth it may be nicer to group tests into separate files.
+-- in.cue --
+import "math"
+
+t2:  math.Floor(math.Pi)
+t3:  math.Pi(3)
+t6:  math.Jacobi(1000, 2000)
+t7:  math.Jacobi(1000, 201)
+t8:  math.Asin(2.0e400)
+t16: math.Pow(8, 4)
+t17: math.Pow10(4)
+t18: math.Signbit(-4)
+t23: math.Abs(2.5)
+t24: math.Abs(-2.2)
+t25: math.Cbrt(2)
+t26: math.Copysign(5, -2.2)
+t27: math.Exp(3)
+t28: math.Exp2(3.5)
+t29: math.Log(4)
+t30: math.Log10(4)
+t31: math.Log2(5)
+t32: math.Dim(3, 2.5)
+t33: math.Dim(5, 7.2)
+-- out/math-v3 --
+Errors:
+t3: cannot call non-function math.Pi (type float):
+    ./in.cue:4:6
+t6: error in call to math.Jacobi: big: invalid 2nd argument to Int.Jacobi: need odd integer but got 2000:
+    ./in.cue:5:6
+t8: error in call to math.Asin: cannot use 2.0E+400 (type float) as float64 in argument 0: value was rounded up:
+    ./in.cue:7:6
+    ./in.cue:7:16
+
+Result:
+t2:  3
+t3:  _|_ // t3: cannot call non-function math.Pi (type float)
+t6:  _|_ // t6: error in call to math.Jacobi: big: invalid 2nd argument to Int.Jacobi: need odd integer but got 2000
+t7:  1
+t8:  _|_ // t8: error in call to math.Asin: t8: cannot use 2.0E+400 (type float) as float64 in argument 0: value was rounded up
+t16: 4096
+t17: 10000
+t18: true
+t23: 2.5
+t24: 2.2
+t25: 1.259921049894873164767210607278228
+t26: -5
+t27: 20.08553692318766774092852965458172
+t28: 11.31370849898476039041350979367758
+t29: 1.386294361119890618834464242916353
+t30: 0.6020599913279623904274777894489861
+t31: 2.321928094887362347870319429489391
+t32: 0.5
+t33: 0

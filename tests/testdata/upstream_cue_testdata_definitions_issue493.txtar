@@ -1,0 +1,29 @@
+# Tests that a disjunction of identical definitions (#Both: #App | #Atom where
+# both alias the same type) correctly unifies with an additional constraint.
+# https://cuelang.org/issue/493
+-- in.cue --
+#Artifact: {
+	body: _
+	other: [string]: int
+} @test(shareID=appAtom)
+
+#App:  #Artifact @test(shareID=appAtom)
+#Atom: #Artifact @test(shareID=appAtom)
+
+#Both: #App | #Atom
+
+t1: #Both & {body: 3} @test(eq, {body: 3, other: {}})
+-- out/eval/stats --
+Leaks:  6
+Freed:  15
+Reused: 5
+Allocs: 16
+Retain: 0
+
+Unifications: 15
+Conjuncts:    27
+Disjuncts:    4
+
+NumCloseIDs: 5
+-- out/diff-v2-v3.txt --
+Reordering

@@ -1,0 +1,69 @@
+-- in.cue --
+import "list"
+
+t1: {
+	[=~"^l"]: [1, 2, 3, "str", [1], { foo: 1 }]
+
+	l1: list.MatchN(>0, [string])
+	l2: list.MatchN(1, number)
+	l3: list.MatchN(>1, string)
+	l4: list.MatchN(0, number)
+	l5: list.MatchN(string, [int])
+	l6: list.MatchN(>0, #TOO)
+}
+
+issue3519: {
+    a: [{}]
+    a: list.MatchN(1, {a!: _})
+}
+
+#TOO: {too: int}
+-- out/list-v3 --
+Errors:
+t1.l1: invalid value [1,2,3,"str",[1],{foo:1}] (does not satisfy list.MatchN): [string] matches 0 list items, want >0:
+    ./in.cue:6:6
+    ./in.cue:4:12
+    ./in.cue:6:18
+    ./in.cue:6:22
+t1.l2: invalid value [1,2,3,"str",[1],{foo:1}] (does not satisfy list.MatchN): number matches 3 list items, want 1:
+    ./in.cue:7:6
+    ./in.cue:4:12
+    ./in.cue:7:18
+    ./in.cue:7:21
+t1.l3: invalid value [1,2,3,"str",[1],{foo:1}] (does not satisfy list.MatchN): string matches 1 list items, want >1:
+    ./in.cue:8:6
+    ./in.cue:4:12
+    ./in.cue:8:18
+    ./in.cue:8:22
+t1.l4: invalid value [1,2,3,"str",[1],{foo:1}] (does not satisfy list.MatchN): number matches 3 list items, want 0:
+    ./in.cue:9:6
+    ./in.cue:4:12
+    ./in.cue:9:18
+    ./in.cue:9:21
+t1.l5: invalid value [1,2,3,"str",[1],{foo:1}] (does not satisfy list.MatchN): [int] matches 1 list items, want string:
+    ./in.cue:10:6
+    ./in.cue:4:12
+    ./in.cue:10:18
+    ./in.cue:10:26
+t1.l6: invalid value [1,2,3,"str",[1],{foo:1}] (does not satisfy list.MatchN): {too:int} matches 0 list items, want >0:
+    ./in.cue:11:6
+    ./in.cue:4:12
+    ./in.cue:11:18
+    ./in.cue:19:7
+issue3519.a: invalid value [{}] (does not satisfy list.MatchN): {a!:_} matches 0 list items, want 1:
+    ./in.cue:16:8
+    ./in.cue:15:8
+    ./in.cue:16:20
+    ./in.cue:16:23
+
+Result:
+t1: {
+	l1: _|_ // t1.l1: invalid value [1,2,3,"str",[1],{foo:1}] (does not satisfy list.MatchN): t1.l1: [string] matches 0 list items, want >0
+	l2: _|_ // t1.l2: invalid value [1,2,3,"str",[1],{foo:1}] (does not satisfy list.MatchN): t1.l2: number matches 3 list items, want 1
+	l3: _|_ // t1.l3: invalid value [1,2,3,"str",[1],{foo:1}] (does not satisfy list.MatchN): t1.l3: string matches 1 list items, want >1
+	l4: _|_ // t1.l4: invalid value [1,2,3,"str",[1],{foo:1}] (does not satisfy list.MatchN): t1.l4: number matches 3 list items, want 0
+	l5: _|_ // t1.l5: invalid value [1,2,3,"str",[1],{foo:1}] (does not satisfy list.MatchN): t1.l5: [int] matches 1 list items, want string
+	l6: _|_ // t1.l6: invalid value [1,2,3,"str",[1],{foo:1}] (does not satisfy list.MatchN): t1.l6: {too:int} matches 0 list items, want >0
+}
+issue3519: a: _|_ // issue3519.a: invalid value [{}] (does not satisfy list.MatchN): issue3519.a: {a!:_} matches 0 list items, want 1
+#TOO: too:    int

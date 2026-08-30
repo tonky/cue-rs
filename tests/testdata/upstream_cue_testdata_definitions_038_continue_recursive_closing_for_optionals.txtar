@@ -1,0 +1,28 @@
+-- in.cue --
+#S: {
+	[string]: {a: int}
+}
+a: #S & {
+	v: {b: int}
+} @test(err, at=v.b, code=eval, contains="field not allowed", pos=[1:6])
+-- out/errors.txt --
+[eval] a.v.b: field not allowed:
+    ./in.cue:5:6
+-- out/eval/stats --
+Leaks:  0
+Freed:  6
+Reused: 0
+Allocs: 6
+Retain: 0
+
+Unifications: 6
+Conjuncts:    9
+Disjuncts:    0
+
+NumCloseIDs: 1
+-- out/diff-v2-v3.txt --
+Missing positions: v3 reports fewer positions than v2 for the "field not allowed" error.
+ a.v.b: field not allowed:
+-    ./in.cue:2:12
+-    ./in.cue:4:4
+     ./in.cue:5:6

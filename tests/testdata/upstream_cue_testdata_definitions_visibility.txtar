@@ -1,0 +1,30 @@
+-- in.cue --
+#foo: {
+	name: string
+}
+foo: #foo & {
+	// These should all be allowed.
+	_name:  "foo"
+	_#name: "bar"
+
+	#name: "baz"
+} @test(closed) @test(eq, {
+	_name: "foo"
+	_#name: "bar"
+	#name: "baz"
+	name: string
+})
+-- out/eval/stats --
+Leaks:  0
+Freed:  8
+Reused: 1
+Allocs: 7
+Retain: 0
+
+Unifications: 8
+Conjuncts:    10
+Disjuncts:    0
+
+NumCloseIDs: 1
+-- out/diff-v2-v3.txt --
+Reordering: v3 outputs fields in different order than v2 (name appears after hidden fields in v3).

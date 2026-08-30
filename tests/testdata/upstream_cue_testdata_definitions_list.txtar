@@ -1,0 +1,19 @@
+-- in.cue --
+c: #R & {
+	w: [{}, {b: int}]
+} @test(eq, {w: [{}, {b: int}]})
+#R: {
+	w: [{}, ...]
+}
+-- out/eval/stats --
+Leaks:  0
+Freed:  9
+Reused: 2
+Allocs: 7
+Retain: 0
+
+Unifications: 9
+Conjuncts:    14
+Disjuncts:    0
+
+NumCloseIDs: 1

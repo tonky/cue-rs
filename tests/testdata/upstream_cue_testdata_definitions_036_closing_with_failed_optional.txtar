@@ -1,0 +1,55 @@
+-- in.cue --
+#k1: {a: int, b?: int} & #A @test(eq, {a: int}) @test(closed)
+
+#k2: #A & {a: int, b?: int} @test(eq, {a: int}) @test(closed)
+
+o1: {a?: 3} & {a?: 4} @test(eq, {a?: _|_}) @test(closed=false)
+
+// Optional fields with error values can be eliminated when closing
+#o2: {a?: 3} & {a?: 4} @test(eq, {}) @test(closed)
+
+#d1: {a?: 2, b: 4} | {a?: 3, c: 5} @test(closed) @test(eq, {
+		a?: 2
+		b:  4
+	} | {
+		a?: 3
+		c:  5
+	})
+
+// Note: a? can be discarded safely.
+v1: #d1 & {a?: 3, b: 4} @test(closed) @test(eq, {b: 4}) @test(debug, """
+	(#struct){
+	  a?: (_|_){
+	    // [eval] v1.a: conflicting values 2 and 3:
+	    //     in.cue:10:11
+	    //     in.cue:19:5
+	    //     in.cue:19:16
+	  }
+	  b: (int){ 4 }
+	}
+	""")
+
+#A: {a: int}
+-- out/errors.txt --
+[eval] #k1.b: field not allowed:
+    ./in.cue:1:15
+[eval] #k2.b: field not allowed:
+    ./in.cue:3:20
+[eval] o1.a: conflicting values 4 and 3:
+    ./in.cue:5:10
+    ./in.cue:5:20
+[eval] #o2.a: conflicting values 4 and 3:
+    ./in.cue:8:11
+    ./in.cue:8:21
+-- out/eval/stats --
+Leaks:  3
+Freed:  27
+Reused: 13
+Allocs: 17
+Retain: 0
+
+Unifications: 22
+Conjuncts:    41
+Disjuncts:    4
+
+NumCloseIDs: 3

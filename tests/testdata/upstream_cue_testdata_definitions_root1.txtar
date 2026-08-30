@@ -1,0 +1,24 @@
+-- in.cue --
+// Test embedding at root of file
+root1: 1
+#Root1: x: {}
+#Root1 & { }
+
+@test(eq, {
+	root1: 1
+	#Root1: x: {}
+	x: {}
+})
+-- out/eval/stats --
+Leaks:  0
+Freed:  5
+Reused: 0
+Allocs: 5
+Retain: 0
+
+Unifications: 5
+Conjuncts:    8
+Disjuncts:    0
+Notifications: 1
+
+NumCloseIDs: 2
