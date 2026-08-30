@@ -58,6 +58,57 @@ enum Commands {
         #[arg(short, long)]
         test: bool,
     },
+    /// Import schema definitions from other formats (JSON Schema, OpenAPI)
+    Import {
+        #[command(subcommand)]
+        command: ImportCommands,
+    },
+    /// CUE module and dependency management
+    Mod {
+        #[command(subcommand)]
+        command: ModCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ImportCommands {
+    /// Convert a JSON Schema file to CUE definitions
+    JsonSchema {
+        /// Input JSON Schema file
+        file: PathBuf,
+        /// Root definition name (default: Schema)
+        #[arg(short, long)]
+        root: Option<String>,
+        /// Output file to write CUE schema to (defaults to stdout)
+        #[arg(short, long)]
+        write: Option<PathBuf>,
+    },
+    /// Convert an OpenAPI v3 specification to CUE definitions
+    Openapi {
+        /// Input OpenAPI specification file (JSON or YAML)
+        file: PathBuf,
+        /// Output file to write CUE schema to (defaults to stdout)
+        #[arg(short, long)]
+        write: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ModCommands {
+    /// Initialize a new CUE module in the current directory or specified path
+    Init {
+        /// Module path / name (e.g. example.com/mymod@v0)
+        module: String,
+        /// Target directory
+        #[arg(short, long, default_value = ".")]
+        dir: PathBuf,
+    },
+    /// Verify and tidy module dependencies in cue.mod/module.cue
+    Tidy {
+        /// Target directory
+        #[arg(short, long, default_value = ".")]
+        dir: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -194,6 +245,68 @@ fn main() -> Result<()> {
                 println!("\nSync Verification Results: {passed} passed, {failed} failed");
             }
         }
+        Commands::Import { command } => match command {
+            ImportCommands::JsonSchema { file, root, write } => {
+                let content = std::fs::read_to_string(&file)
+                    .with_context(|| format!("Failed to read JSON Schema file {}", file.display()))?;
+                let json_val: serde_json::Value = serde_json::from_str(&content)
+                    .with_context(|| "Failed to parse file as valid JSON")?;
+
+                let cue_output = cue_eval::json_schema_to_cue(&json_val, root.as_deref())
+                    .map_err(|e| anyhow::anyhow!("JSON Schema conversion error: {e}"))?;
+
+                if let Some(out_path) = write {
+                    std::fs::write(&out_path, &cue_output)
+                        .with_context(|| format!("Failed to write CUE file to {}", out_path.display()))?;
+                    println!("Generated CUE schema at {}", out_path.display());
+                } else {
+                    print!("{cue_output}");
+                }
+            }
+            ImportCommands::Openapi { file, write } => {
+                let content = std::fs::read_to_string(&file)
+                    .with_context(|| format!("Failed to read OpenAPI file {}", file.display()))?;
+
+                let json_val: serde_json::Value = if file.extension().and_then(|s| s.to_str()) == Some("yaml")
+                    || file.extension().and_then(|s| s.to_str()) == Some("yml")
+                {
+                    serde_yaml::from_str(&content).with_context(|| "Failed to parse file as valid YAML")?
+                } else {
+                    serde_json::from_str(&content).with_context(|| "Failed to parse file as valid JSON")?
+                };
+
+                let cue_output = cue_eval::openapi_to_cue(&json_val)
+                    .map_err(|e| anyhow::anyhow!("OpenAPI conversion error: {e}"))?;
+
+                if let Some(out_path) = write {
+                    std::fs::write(&out_path, &cue_output)
+                        .with_context(|| format!("Failed to write CUE file to {}", out_path.display()))?;
+                    println!("Generated CUE schema at {}", out_path.display());
+                } else {
+                    print!("{cue_output}");
+                }
+            }
+        },
+        Commands::Mod { command } => match command {
+            ModCommands::Init { module, dir } => {
+                let manifest_path = cue_eval::ModuleManifest::init(&dir, &module)
+                    .map_err(|e| anyhow::anyhow!("Failed to initialize CUE module: {e}"))?;
+                println!("Initialized CUE module '{}' at {}", module, manifest_path.display());
+            }
+            ModCommands::Tidy { dir } => {
+                let cue_mod = dir.join("cue.mod").join("module.cue");
+                if !cue_mod.is_file() {
+                    anyhow::bail!("No cue.mod/module.cue found in {}", dir.display());
+                }
+                let content = std::fs::read_to_string(&cue_mod)
+                    .with_context(|| format!("Failed to read {}", cue_mod.display()))?;
+                let manifest = cue_eval::ModuleManifest::from_cue_string(&content)
+                    .map_err(|e| anyhow::anyhow!("Failed to parse module manifest: {e}"))?;
+                std::fs::write(&cue_mod, manifest.to_cue_string())
+                    .with_context(|| format!("Failed to update {}", cue_mod.display()))?;
+                println!("Tidied {}", cue_mod.display());
+            }
+        },
     }
 
     Ok(())

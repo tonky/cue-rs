@@ -1,10 +1,14 @@
 pub mod eval;
+pub mod importer;
+pub mod manifest;
 pub mod package;
 pub mod stdlib;
 pub mod unify;
 pub mod value;
 
 pub use eval::{EvalError, Evaluator};
+pub use importer::{json_schema_to_cue, openapi_to_cue};
+pub use manifest::{DependencyInfo, ModuleManifest};
 pub use package::PackageLoader;
 pub use stdlib::{is_known_package, StdlibFn, StdlibValidator};
 pub use unify::unify;

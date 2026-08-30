@@ -213,7 +213,7 @@ This document tracks the technical design, milestone progress, and conformance v
 
 ---
 
-### Phase 6: Ecosystem & Tooling (Postponed per User Direction)
-- [ ] **WASM Target**: Compile `cue-eval` to WebAssembly (`wasm32-unknown-unknown` / `wasm-bindgen`).
-- [ ] **OpenAPI / JSONSchema Importer**: Converting JSON Schema & OpenAPI v3 specs into CUE `#Definitions`.
-- [ ] **Module Management & OCI Registry**: `cue.mod/module.cue` parser and OCI artifact fetching.
+### Phase 6: Ecosystem & Tooling
+- [x] **WASM Target (`cue-wasm`)**: Compile CUE engine to WebAssembly (`wasm32-unknown-unknown` / `wasm-bindgen`) with JS bindings for evaluation, JSON validation, and formatting.
+- [x] **OpenAPI / JSONSchema Importer**: Converting JSON Schema & OpenAPI v3 specs into CUE `#Definitions` via `cue-rs import json-schema` and `cue-rs import openapi`.
+- [x] **Module Management & Manifest Tooling**: `cue.mod/module.cue` manifest generation, parsing, and initialization (`cue-rs mod init`, `cue-rs mod tidy`).

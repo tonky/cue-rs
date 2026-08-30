@@ -20,12 +20,13 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 ├── CUE_RUST_LEARNINGS.md       # Comparative architecture & design trade-offs
 ├── crates/
 │   ├── cue-syntax/             # Lexer (logos), ASI, Pratt parser, AST pretty-printer (`fmt`)
-│   ├── cue-eval/               # Arena-based lattice unification (⊓) engine & 24 stdlib packages
+│   ├── cue-eval/               # Arena lattice engine, 24 stdlib packages, OpenAPI/JSONSchema importer, manifest
 │   ├── cue-derive/             # Procedural macro `#[derive(CueValidate)]` with Serde
+│   ├── cue-wasm/               # WebAssembly bindings (`wasm-bindgen`) for browser and Node.js
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
-│   └── cue-cli/                # CLI binary (`cue-rs eval`, `cue-rs vet`, `cue-rs fmt`, `cue-rs test-txtar`)
+│   └── cue-cli/                # CLI binary (`eval`, `vet`, `fmt`, `import`, `mod`, `test-txtar`, `sync-upstream`)
 ├── tests/
-│   └── testdata/               # 158 conformance .txtar suites (100% passing)
+│   └── testdata/               # 547 upstream conformance .txtar suites (100% passing)
 └── examples/                   # Sample CUE schemas and data files
 ```
 
