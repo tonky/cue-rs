@@ -44,6 +44,15 @@ enum Commands {
         /// Path to .txtar file or directory containing .txtar files
         path: PathBuf,
     },
+    /// Ingest / sync upstream test suites from a local CUE repository checkout
+    SyncUpstream {
+        /// Source directory in upstream CUE repo (e.g. /path/to/cue/cue/testdata/resolve)
+        #[arg(short, long)]
+        src: PathBuf,
+        /// Destination directory in cue-rs
+        #[arg(short, long, default_value = "tests/testdata")]
+        dest: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -138,8 +147,51 @@ fn main() -> Result<()> {
                 anyhow::bail!("Path {} does not exist", path.display());
             }
         }
+        Commands::SyncUpstream { src, dest } => {
+            if !src.exists() {
+                anyhow::bail!("Source path {} does not exist", src.display());
+            }
+            std::fs::create_dir_all(&dest)?;
+            let mut copied = 0;
+            sync_txtar_recursive(&src, &dest, &mut copied)?;
+            println!("Successfully synced {copied} upstream txtar test fixtures to {}", dest.display());
+        }
     }
 
+    Ok(())
+}
+
+fn sync_txtar_recursive(
+    src: &std::path::Path,
+    dest: &std::path::Path,
+    count: &mut usize,
+) -> Result<()> {
+    if src.is_file() && src.extension().and_then(|s| s.to_str()) == Some("txtar") {
+        let base = src.file_name().unwrap().to_string_lossy();
+        let target_name = format!("upstream_{base}");
+        let target_path = dest.join(target_name);
+        std::fs::copy(src, &target_path)?;
+        *count += 1;
+    } else if src.is_dir() {
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                sync_txtar_recursive(&path, dest, count)?;
+            } else if path.extension().and_then(|s| s.to_str()) == Some("txtar") {
+                let base = path.file_name().unwrap().to_string_lossy();
+                let dir_name = path
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .map(|d| d.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "pkg".to_string());
+                let target_name = format!("upstream_{dir_name}_{base}");
+                let target_path = dest.join(target_name);
+                std::fs::copy(&path, &target_path)?;
+                *count += 1;
+            }
+        }
+    }
     Ok(())
 }
 
