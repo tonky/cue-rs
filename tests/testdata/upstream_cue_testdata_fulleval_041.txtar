@@ -1,0 +1,24 @@
+-- in.cue --
+t: {
+	#ok: *true | bool
+	if #ok {
+		x: int
+	}
+	@test(eq, {
+		#ok: *true | bool
+		x:   int
+	})
+}
+s: t & {#ok: false} @test(eq, {#ok: false})
+-- out/eval/stats --
+Leaks:  4
+Freed:  7
+Reused: 3
+Allocs: 8
+Retain: 0
+
+Unifications: 7
+Conjuncts:    14
+Disjuncts:    4
+
+NumCloseIDs: 5

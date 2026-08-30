@@ -1,0 +1,39 @@
+#name: label and field aliases
+#evalFull
+-- in.cue --
+p: [string]~(ID,_): {name: ID}
+p: q:               _ @test(eq, {name: "q"})
+"foo=bar"~(A): "str"  // TODO(inline): make this work @test(eq, at="foo=bar", "str")
+a:             A @test(eq, "str")
+bb~(B):        4
+@test(eq, at=bb, 4)
+b1:         B @test(eq, 4)
+b1:         bb
+"\(a)"~(C): 5
+c:          C @test(eq, 5)
+
+@test(debugCheck, """
+	(struct){
+	  p: (struct){
+	    q: (struct){
+	      name: (string){ "q" }
+	    }
+	  }
+	  "foo=bar": (string){ "str" }
+	  a: (string){ "str" }
+	  bb: (int){ 4 }
+	  b1: (int){ 4 }
+	  c: (int){ 5 }
+	  str: (int){ 5 }
+	}
+	""")
+-- out/eval/stats --
+Leaks:  0
+Freed:  10
+Reused: 0
+Allocs: 10
+Retain: 0
+
+Unifications: 10
+Conjuncts:    13
+Disjuncts:    0

@@ -1,0 +1,29 @@
+#name: optional expanded before lookup
+#evalFull
+-- in.cue --
+test: [_]~(ID,_): {
+	name: ID
+}
+
+test: A: {
+	field1: "1"
+	field2: "2"
+}
+
+B: test.A & {} @test(eq, {
+	field1: "1"
+	field2: "2"
+	name: "A"
+})
+-- out/eval/stats --
+Leaks:  0
+Freed:  10
+Reused: 3
+Allocs: 7
+Retain: 0
+
+Unifications: 10
+Conjuncts:    15
+Disjuncts:    0
+
+NumCloseIDs: 1

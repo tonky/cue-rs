@@ -1,0 +1,37 @@
+# Tests that a disjunction inside a definition resolves correctly when a
+# discriminant field is set. After unifying #Task with {op: "pull"}, the
+# "pull" branch is selected and expressions using the defaulted tag
+# field (tag: *"latest" | string) evaluate concretely.
+#evalFull
+-- in.cue --
+#Task: {
+	{
+		op:          "pull"
+		tag:         *"latest" | string
+		refToTag:    tag
+		tagExpr:     tag + "dd"
+		tagInString: "\(tag)"
+	} | {
+		op: "scratch"
+	}
+}
+
+foo: #Task & {"op": "pull"} @test(eq, {
+	op: "pull"
+	tag: *"latest" | string
+	refToTag: *"latest" | string
+	tagExpr: "latestdd"
+	tagInString: "latest"
+})
+-- out/eval/stats --
+Leaks:  8
+Freed:  16
+Reused: 10
+Allocs: 14
+Retain: 0
+
+Unifications: 14
+Conjuncts:    28
+Disjuncts:    8
+
+NumCloseIDs: 5

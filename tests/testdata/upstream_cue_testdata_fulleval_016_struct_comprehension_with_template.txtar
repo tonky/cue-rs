@@ -1,0 +1,47 @@
+-- in.cue --
+result: [for _, v in service {v}] @test(eq, [{
+	name: *"foo" | string
+	type: "service"
+	port: *7080 | int
+}, {
+	port: 8000
+	name: *"bar" | string
+	type: "service"
+}, {
+	name: "foobar"
+	type: "service"
+	port: *7080 | int
+}])
+
+service: [string]~(Name,_): {
+	name: *Name | string
+	type: "service"
+	port: *7080 | int
+}
+service: foo: {}               @test(eq, {
+	name: *"foo" | string
+	type: "service"
+	port: *7080 | int
+})
+service: bar: {port: 8000}     @test(eq, {
+	port: 8000
+	name: *"bar" | string
+	type: "service"
+})
+service: baz: {name: "foobar"} @test(eq, {
+	name: "foobar"
+	type: "service"
+	port: *7080 | int
+})
+-- out/eval/stats --
+Leaks:  4
+Freed:  47
+Reused: 26
+Allocs: 25
+Retain: 0
+
+Unifications: 27
+Conjuncts:    70
+Disjuncts:    24
+
+NumCloseIDs: 9

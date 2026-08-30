@@ -1,0 +1,67 @@
+-- in.cue --
+package x
+
+import (
+	"strings"
+)
+
+_#matchPattern: {
+	#pattern: string
+	[
+		// can't remove this builtin call
+		if strings.HasSuffix(#pattern, "*") {
+
+			// this let is required _within_ the if block
+			// i.e. it can't be "inlined" with the if that
+			// currently contains it
+			let prefix = strings.TrimSuffix(#pattern, "*")
+
+			prefix
+		},
+		"'\(#pattern)'",
+	][0]
+}
+
+_#isReleaseTag: _#matchPattern & {#pattern: "refs/tags/v*", _}
+
+#step: {
+	if: number | string
+}
+
+m: #step & {
+	if: _#isReleaseTag
+}
+@test(eq, {
+	_#matchPattern$x: {_|_, #pattern: string}
+	_#isReleaseTag$x: {
+		"refs/tags/v"
+		#pattern: "refs/tags/v*"
+	}
+	#step: {if: number | string}
+	m: {
+		if: {
+			"refs/tags/v"
+			#pattern: "refs/tags/v*"
+		}
+	}
+})
+-- out/eval/stats --
+Leaks:  6
+Freed:  29
+Reused: 18
+Allocs: 17
+Retain: 0
+
+Unifications: 18
+Conjuncts:    46
+Disjuncts:    4
+Notifications: 3
+
+NumCloseIDs: 23
+-- diff/explanation --
+New evaluator should ultimately disallow new definitions in closed structs
+and not allow #pattern in #step
+-- out/errors.txt --
+[incomplete] error in call to strings.HasSuffix: non-concrete value string:
+    ./in.cue:11:6
+    ./in.cue:8:12

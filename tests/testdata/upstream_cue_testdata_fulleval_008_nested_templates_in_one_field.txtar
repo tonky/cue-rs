@@ -1,0 +1,22 @@
+-- in.cue --
+a: [string]~(A,_): b: [string]~(B,_): {
+	name: A
+	kind: B
+}
+a: "A": b: "B":   _          @test(eq, {name: "A", kind: "B"})
+a: "C": b: "D":   _          @test(eq, {name: "C", kind: "D"})
+a: "EE": b: "FF": {c: "bar"} @test(eq, {
+	c:    "bar"
+	name: "EE"
+	kind: "FF"
+})
+-- out/eval/stats --
+Leaks:  0
+Freed:  18
+Reused: 8
+Allocs: 10
+Retain: 0
+
+Unifications: 18
+Conjuncts:    30
+Disjuncts:    0

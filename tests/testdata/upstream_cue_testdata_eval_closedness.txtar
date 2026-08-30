@@ -1,0 +1,1097 @@
+// Issue #852
+-- in.cue --
+#E: {
+	c: int
+}
+#A: {
+	b: int
+	q: {
+		#E
+		d: int
+	}
+}
+a: #A & {
+	b: 3
+	q: {
+		c: 2
+		e: 43
+	}
+} @test(err, code=eval, contains="field not allowed", pos=[4:3])
+
+// A constraint validation error fails to trigger when a field violating a
+// regex pattern constraint is duplicated via a for-loop comprehension.
+// https://cuelang.org/issue/852
+// `a` is evaluated through the comprehension first. Ensure that
+// this does not bypass closedness checks.
+issue852: {
+	#A: {
+		[=~"^a-z$"]: string
+	}
+
+	a: #A
+
+	a: Foo: "foo"
+
+	for k, v in a {
+		b: "\(k)": v
+	}
+} @test(err, code=eval, contains="field not allowed", pos=[7:5])
+
+dynamic: {
+	#D: {
+		key:   "foo"
+		(key): int
+	}
+	d: #D & {foo: 3}
+	@test(eq, {
+		#D: {key: "foo", foo: int}
+		d: {foo: 3, key: "foo"}
+	})
+}
+
+// Closedness appeared to be lost when using a comprehension: CUE incorrectly
+// produced "incomplete value" errors for disjunctions inside if/for blocks.
+// https://cuelang.org/issue/4180
+// The `if true` comprehension would lead to ambiguity in out.iter.FooOrBar,
+// even though {foo: "is foo"} does not unify with `#Bar & {...}`.
+issue4180: {
+	out: {
+	    if true {
+			iter: #Schema & {
+				FooOrBar: foo: "is foo"
+			}
+		}
+	}
+
+	#Foo: foo: string
+	#Bar: bar: string
+	#Schema: {
+		FooOrBar: {...}
+		FooOrBar: #Foo | #Bar
+	}
+	@test(eq, {
+		out: {iter: {FooOrBar: {foo: "is foo"}}}
+		#Foo: {foo: string}
+		#Bar: {bar: string}
+		#Schema: {
+			FooOrBar: {foo: string} | {bar: string}
+		}
+	})
+}
+-- embed.cue --
+// evalv3: ordering of embedded structs affects template definition evaluation,
+// causing validation errors that shouldn't occur when structs are reordered.
+// https://cuelang.org/issue/3325
+issue3325: ok: {
+	#Items: [string]~(Name,_): {
+		name: Name
+	}
+
+	#Base: {
+		name: "base"
+		type: string
+
+		items: #Items
+	}
+
+	#Extended: #Base & {
+		type: "extended"
+		items: "my-item": {}
+	}
+
+	broken: {
+		#Base
+		#Extended
+	}
+
+	works: {
+		#Extended
+		#Base
+	}
+	@test(eq, {
+		#Items: {}
+		#Base: {name: "base", type: string, items: {}}
+		#Extended: {
+			type: "extended"
+			items: {"my-item": {name: "my-item"}}
+			name: "base"
+		}
+		broken: {
+			name: "base"
+			type: "extended"
+			items: {"my-item": {name: "my-item"}}
+		}
+		works: {
+			type: "extended"
+			items: {"my-item": {name: "my-item"}}
+			name: "base"
+		}
+	})
+}
+
+patterns: shallow: {
+	#a: [>="k"]: int
+	#b: [<="m"]: int
+	#c: [>="w"]: int
+	#d: [<="y"]: int
+
+	single: {
+		X:   #a  // "k" <= x
+		err: X @test(err, code=eval, path=j, contains="field not allowed", pos=[1:8])
+		err: j: 3
+
+		ok: X @test(eq, {k: 3})
+		ok: k: 3
+	}
+
+	and: p1: {
+		X: #a & #b // "k" <= x && x <= "m"
+
+		err: X @test(err, code=eval, path=j, contains="field not allowed", pos=[-16:6, 1:8])
+		err: j: 3
+
+		ok: X @test(eq, {k: 3})
+		ok: k: 3
+	}
+
+	and: p2: {
+		X:   #b & #a  // "k" <= x && x <= "m"
+		err: X @test(err, code=eval, path=j, contains="field not allowed", pos=[-25:6, 1:8])
+		err: j: 3
+
+		ok: X @test(eq, {k: 3})
+		ok: k: 3
+	}
+
+	andEmbed: p1: {
+		X: {#a & #b} // "k" <= x && x <= "m"
+
+		err: X @test(err, code=eval, path=j, contains="field not allowed", pos=[-35:6, 1:8])
+		err: j: 3
+
+		ok: X @test(eq, {k: 3})
+		ok: k: 3
+	}
+
+	andEmbed: p2: {
+		X:   {#b & #a}  // "k" <= x && x <= "m"
+		err: X @test(err, code=eval, path=j, contains="field not allowed", pos=[-44:6, 1:8])
+		err: j: 3
+
+		ok: X @test(eq, {k: 3})
+		ok: k: 3
+	}
+
+	orEmbed: p1: {
+		X: {#a, #b} // "k" <= x && x <= "m"
+
+		ok1: X @test(eq, {j: 3})
+		ok1: j: 3
+
+		ok2: X @test(eq, {k: 3})
+		ok2: k: 3
+	}
+
+	orEmbed: p2: {
+		X:   {#b, #a}  // "k" <= x && x <= "m"
+		ok1: X @test(eq, {j: 3})
+		ok1: j: 3
+
+		ok2: X @test(eq, {k: 3})
+		ok2: k: 3
+	}
+
+	andOrEmbed: t1: p1: {
+		// ("k" <= x && x <= "m")  || ("w" <= x && x <= "y")
+		X: {
+			#a & #b
+			#c & #d
+		}
+		err1: X @test(eq, {j: 3})
+		err1: j: 3
+
+		ok1: X @test(eq, {k: 3})
+		ok1: k: 3
+	}
+
+	andOrEmbed: t1: p2: {
+		// ("k" <= x && x <= "m")  || ("w" <= x && x <= "y")
+		X: {
+			#c & #d
+			#a & #b
+		}
+		err1: X @test(eq, {j: 3})
+		err1: j: 3
+
+		ok1: X @test(eq, {k: 3})
+		ok1: k: 3
+	}
+
+	andOrEmbed: t2: {
+		// ("k" <= x && x <= "m")  || ("w" <= x && x <= "y") || x == "p"
+		X: {
+			#a & #b
+			#c & #d
+			["p"]: int
+		}
+		err1: X @test(eq, {j: 3})
+		err1: j: 3
+
+		ok1: X @test(eq, {k: 3})
+		ok1: k: 3
+
+		ok2: X @test(eq, {p: 3})
+		ok2: p: 3
+	}
+
+	// The last indirection is not a definition.
+	indirect: {
+		a: [>="k"]: int
+		#a: a
+
+		p1: { // XXX // link to code
+			X:    #a
+			err1: X @test(err, code=eval, path=j, contains="field not allowed", pos=[1:10])
+			err1: j: 3
+
+			err2: X & __no_sharing
+			err2: j: 3 @test(err, code=eval, contains="field not allowed", pos=[0:10])
+
+			ok: X
+			ok: k: 3 @test(eq, 3)
+		}
+
+		p2: {
+			#a: a & __no_sharing
+			X:  #a
+
+			err1: X
+			err1: j: 3 @test(err, code=eval, contains="field not allowed", pos=[0:10])
+
+			err2: X & __no_sharing @test(err, code=eval, path=j, contains="field not allowed", pos=[1:10])
+			err2: j: 3
+
+			ok: X @test(eq, {k: 3})
+			ok: k: 3
+		}
+
+		p3: {
+			X: #a & __no_sharing
+
+			err1: X @test(err, code=eval, path=j, contains="field not allowed", pos=[1:10])
+			err1: j: 3
+
+			err2: X & __no_sharing @test(err, code=eval, path=j, contains="field not allowed", pos=[1:10])
+			err2: j: 3
+
+			ok: X @test(eq, {k: 3})
+			ok: k: 3
+		}
+
+		p4: {
+			#a: a & __no_sharing
+			X:  #a
+			X:  #a & __no_sharing
+
+			err1: X @test(err, code=eval, path=j, contains="field not allowed", pos=[1:10])
+			err1: j: 3
+
+			err2: X & __no_sharing @test(err, code=eval, path=j, contains="field not allowed", pos=[1:10])
+			err2: j: 3
+
+			ok: X @test(eq, {k: 3})
+			ok: k: 3
+		}
+	}
+}
+
+patterns: nested: {
+	#a: x: y: [>="k"]: int
+	#b: x: y: [<="m"]: int
+	#c: x: y: [>="w"]: int
+	#d: x: y: [<="y"]: int
+
+	single: {
+		X:   #a  // "k" <= x
+		err: X @test(err, code=eval, path=x.y.j, contains="field not allowed", pos=[1:14])
+		err: x: y: j: 3
+
+		ok: X @test(eq, {x: {y: {k: 3}}})
+		ok: x: y: k: 3
+	}
+
+	and: p1: {
+		X: #a & #b // "k" <= x && x <= "m"
+
+		err: X @test(err, code=eval, path=x.y.j, contains="field not allowed", pos=[-16:12, 1:14])
+		err: x: y: j: 3
+
+		ok: X @test(eq, {x: {y: {k: 3}}})
+		ok: x: y: k: 3
+	}
+
+	and: p2: {
+		X:   #b & #a  // "k" <= x && x <= "m"
+		err: X @test(err, code=eval, path=x.y.j, contains="field not allowed", pos=[-25:12, 1:14])
+		err: x: y: j: 3
+
+		ok: X @test(eq, {x: {y: {k: 3}}})
+		ok: x: y: k: 3
+	}
+
+	andEmbed: p1: {
+		X: {#a & #b} // "k" <= x && x <= "m"
+
+		err: X @test(err, code=eval, path=x.y.j, contains="field not allowed", pos=[-35:12, 1:14])
+		err: x: y: j: 3
+
+		ok: X @test(eq, {x: {y: {k: 3}}})
+		ok: x: y: k: 3
+	}
+
+	andEmbed: p2: {
+		X:   {#b & #a}  // "k" <= x && x <= "m"
+		err: X @test(err, code=eval, path=x.y.j, contains="field not allowed", pos=[-44:12, 1:14])
+		err: x: y: j: 3
+
+		ok: X @test(eq, {x: {y: {k: 3}}})
+		ok: x: y: k: 3
+	}
+
+	orEmbed: p1: {
+		X: {#a, #b} // "k" <= x && x <= "m"
+
+		ok1: X @test(eq, {x: {y: {j: 3}}})
+		ok1: x: y: j: 3
+
+		ok2: X @test(eq, {x: {y: {k: 3}}})
+		ok2: x: y: k: 3
+	}
+
+	orEmbed: p2: {
+		X:   {#b, #a}  // "k" <= x && x <= "m"
+		ok1: X @test(eq, {x: {y: {j: 3}}})
+		ok1: x: y: j: 3
+
+		ok2: X @test(eq, {x: {y: {k: 3}}})
+		ok2: x: y: k: 3
+	}
+
+	andOrEmbed: t1: p1: {
+		// ("k" <= x && x <= "m")  || ("w" <= x && x <= "y")
+		X: {
+			#a & #b
+			#c & #d
+		}
+		err1: X @test(eq, {x: {y: {j: 3}}})
+		err1: x: y: j: 3
+
+		ok1: X @test(eq, {x: {y: {k: 3}}})
+		ok1: x: y: k: 3
+	}
+
+	andOrEmbed: t1: p2: {
+		// ("k" <= x && x <= "m")  || ("w" <= x && x <= "y")
+		X: {
+			#c & #d
+			#a & #b
+		}
+		err1: X @test(eq, {x: {y: {j: 3}}})
+		err1: x: y: j: 3
+
+		ok1: X @test(eq, {x: {y: {k: 3}}})
+		ok1: x: y: k: 3
+	}
+
+	andOrEmbed: t2: {
+		// ("k" <= x && x <= "m")  || ("w" <= x && x <= "y") || x == "p"
+		X: {
+			#a & #b
+			#c & #d
+			["p"]: int
+		}
+		err1: X @test(eq, {x: {y: {j: 3}}})
+		err1: x: y: j: 3
+
+		ok1: X @test(eq, {x: {y: {k: 3}}})
+		ok1: x: y: k: 3
+
+		ok2: X @test(eq, {x: {y: {p: 3}}})
+		ok2: x: y: p: 3
+	}
+
+	// The last indirection is not a definition.
+	indirect: {
+		a: x: y: [>="k"]: int
+		#a: a
+
+		p1: {
+			X:    #a
+			err1: X @test(err, code=eval, path=x.y.j, contains="field not allowed", pos=[1:16])
+			err1: x: y: j: 3
+
+			err2: X & __no_sharing @test(err, code=eval, path=x.y.j, contains="field not allowed", pos=[1:16])
+			err2: x: y: j: 3
+
+			ok: X @test(eq, {x: {y: {k: 3}}})
+			ok: x: y: k: 3
+		}
+
+		p2: {
+			#a: a & __no_sharing
+			X:  #a
+
+			err1: X @test(err, code=eval, path=x.y.j, contains="field not allowed", pos=[1:16])
+			err1: x: y: j: 3
+
+			err2: X & __no_sharing @test(err, code=eval, path=x.y.j, contains="field not allowed", pos=[1:16])
+			err2: x: y: j: 3
+
+			ok: X @test(eq, {x: {y: {k: 3}}})
+			ok: x: y: k: 3
+		}
+
+		p3: {
+			X: #a & __no_sharing
+
+			err1: X @test(err, code=eval, path=x.y.j, contains="field not allowed", pos=[1:16])
+			err1: x: y: j: 3
+
+			err2: X & __no_sharing @test(err, code=eval, path=x.y.j, contains="field not allowed", pos=[1:16])
+			err2: x: y: j: 3
+
+			ok: X @test(eq, {x: {y: {k: 3}}})
+			ok: x: y: k: 3
+		}
+
+		p4: {
+			#a: a & __no_sharing
+			X:  #a
+			X:  #a & __no_sharing
+
+			err1: X @test(err, code=eval, path=x.y.j, contains="field not allowed", pos=[1:16])
+			err1: x: y: j: 3
+
+			err2: X & __no_sharing @test(err, code=eval, path=x.y.j, contains="field not allowed", pos=[1:16])
+			err2: x: y: j: 3
+
+			ok: X @test(eq, {x: {y: {k: 3}}})
+			ok: x: y: k: 3
+		}
+	}
+} @test(err, code=eval, contains="field not allowed", pos=[168:16])
+
+// Embedding a definition doesn't recursively close the embedder: closedness
+// is not propagated correctly when a definition is embedded in an open struct.
+// https://cuelang.org/issue/2241
+issue2241: {
+	#close: {}
+
+	a: {
+		x: q: 2
+		#close
+	}
+
+	b: a
+	b: x: r: 4
+} @test(err, code=eval, path=b.x.r, contains="field not allowed", pos=[9:8])
+
+-- ellipsis.cue --
+// evalv3 regression: unification with {...} allowed extra fields where evalv2
+// correctly rejected them as "field not allowed".
+// https://cuelang.org/issue/3778
+issue3778: full: {
+	#x: a?: string
+	#y: #x & { ... }
+	z: #y & {
+		a: "ok"
+		b: "something"
+	}
+	@test(err, code=eval, path=z.b, contains="field not allowed", pos=[5:3])
+}
+issue3778: {
+	keepOpen: {
+		#x: { a?: string, ... }
+		#y: #x & { ... }
+		z: #y & {
+			a: "ok"
+			b: "something"
+		}
+		@test(eq, {
+			#x: {a?: string}
+			#y: {a?: string}
+			z: {a: "ok", b: "something"}
+		})
+	}
+}
+
+// Unification of a closed struct in a subfield does not close it: the evaluator
+// incorrectly allows adding fields to a closed struct unified with ellipsis.
+// https://cuelang.org/issue/1867
+// All three reproducers below should fail with "field not allowed".
+issue1867: one: {
+	#T: close({})
+	#T: {...}
+	x: #T
+	x: foo: "foo"
+	@test(err, code=eval, path=x.foo, contains="field not allowed", pos=[4:5])
+}
+issue1867: two: {
+	#S: {}
+	#T: s: #S
+	#T: s: {...}
+	x: #T.s
+	x: foo: "foo"
+	@test(err, code=eval, path=x.foo, contains="field not allowed", pos=[5:5])
+}
+// This third version used to not fail as expected on evalv2.
+issue1867: three: {
+	#T: s: close({})
+	#T: s: {...}
+	x: #T.s
+	x: foo: "foo"
+	@test(err, code=eval, contains="field not allowed", pos=[4:5])
+}
+// evalv3 regression in detecting closedness: "field not allowed" errors were
+// incorrectly suppressed when validating nested structures with closedness constraints.
+// https://cuelang.org/issue/3924
+issue3924: one: {
+	#Schema: {
+		...
+		{[string]: #SchemaInner}
+	}
+	#SchemaInner: allowed?: string
+
+	out: #Schema & {foo: disallowed: "foo"} // should fail
+	@test(err, code=eval, path=out.foo.disallowed, contains="field not allowed", pos=[7:23])
+}
+issue3924: two: {
+	#Schema: {
+		{[string]: #job}
+
+		#job: matchN(1, [{
+			other?: string
+			...
+		}]) & close({
+			allowed?: string
+		})
+	}
+	out: #Schema & {foo: disallowed: "bar"} // should fail
+	@test(err, code=eval, path=out.foo.disallowed, contains="field not allowed", pos=[4:9, 11:23])
+}
+issue3924: three: t1: {
+	{foo: #job & {disallowed: "bar"}}
+	#job: { other?: string }
+	#job: #def
+	#def: allowed?: string
+	@test(err, code=eval, path=foo.disallowed, contains="field not allowed", pos=[1:16])
+}
+issue3924: three: t2: {
+	{foo: #job & {disallowed: "bar"}}
+	#job: { other?: string, ... }
+	#job: #def
+	#def: allowed?: string
+	@test(err, code=eval, path=foo.disallowed, contains="field not allowed", pos=[1:16])
+}
+issue3924: three: t3: {
+	#job: { ... }
+	#job: #def
+	#def: {}
+	foo: #job & {disallowed: "bar"}
+	@test(err, code=eval, path=foo.disallowed, contains="field not allowed", pos=[4:15])
+}
+issue3924: four: {
+	A: { {foo: #B} }
+	#B: allowed?: string
+	out: A & {foo: disallowed: "foo"} // should fail
+	@test(err, code=eval, contains="field not allowed", pos=[3:17])
+}
+-- reroot.cue --
+import "list"
+
+// evalv3 panic "unexpected uninitialized node" while processing certain
+// config files using list.Concat with definitions.
+// https://cuelang.org/issue/3330
+issue3330: {
+	let: ok: {
+		#struct: {
+			let empty = {}
+
+			field: null | { n: int }
+			field: empty & { n: 3 }
+		}
+
+		out: list.Concat([[#struct]])
+		@test(eq, {
+			#struct: {field: {n: 3}}
+			out: [{
+				field: n: 3
+			}]
+		})
+	}
+	matthew: ok1: {
+		#struct: {
+			field: { n: 3 } & g
+			g: {}
+		}
+
+		out: #struct & {}
+		@test(eq, {
+			#struct: {field: {n: 3}, g: {}}
+			out: {field: {n: 3}, g: {}}
+		})
+	}
+	matthew: ok2: {
+		#struct: {
+			field: { n: 3 } & g
+			g: {}
+		}
+
+		out: #struct
+		out2: out & {}
+		@test(eq, {
+			#struct: {field: {n: 3}, g: {}}
+			out: {field: {n: 3}, g: {}}
+			out2: {field: {n: 3}, g: {}}
+		})
+	}
+}
+// evalv3 "field not allowed" regression: a valid struct with a let binding and
+// field unification incorrectly produces "field not allowed".
+// https://cuelang.org/issue/3331
+issue3331: {
+	original: ok: {
+		#A: {
+			let b = {}
+			c: b & {
+				d: 1
+			}
+		}
+		list.Concat([[#A]])
+		@test(eq, {
+			#A: {c: {d: 1}}
+			[{c: {d: 1}}]
+		})
+	}
+	variant1: ok: {
+		#A: {
+			let b = {}
+			c: b & {
+				d: 1
+			}
+		}
+		[[#A]]
+		@test(eq, {
+			#A: {c: {d: 1}}
+			[[{c: {d: 1}}]]
+		})
+	}
+	@test(eq, {
+		original: {ok: {
+			#A: {c: {d: 1}}
+			[{c: {d: 1}}]
+		}}
+		variant1: {ok: {
+			#A: {c: {d: 1}}
+			[[{c: {d: 1}}]]
+		}}
+	})
+}
+
+// indirect tests cases where a reference indirectly crosses a node that
+// references a definition, thereby indirectly referencing it.
+indirect: {
+	embed: err1: {
+		#A: {
+			x: {#x, #y}
+			zx: x.a
+		}
+
+		#x: {a: b: 1}
+		#y: {a: c: 2}
+
+		b: #A
+
+		b1: b.zx
+		b1: d: 1 // This should fail as b.zx crosses a reference to definition.
+		@test(err:todo)
+		@test(eq, {
+			#A: {x: {a: {b: 1, c: 2}}, zx: {b: 1, c: 2}}
+			#x: {a: {b: 1}}
+			#y: {a: {c: 2}}
+			b: {x: {a: {b: 1, c: 2}}, zx: {b: 1, c: 2}}
+			b1: {d: 1, b: 1, c: 2}
+		})
+	}
+	closed: err1: {
+		X: {
+			// refer to a value that will be closed after unification in another struct.
+			a: b
+			b: {}
+			a: e: 1
+		}
+		Y: X
+		Y: {
+			b: c
+			c: #X
+		}
+		#X: {}
+		@test(err, at=Y.a.e, code=eval, contains="field not allowed", pos=[5:7])
+	}
+}
+// nested.a
+nested: ok1: {
+	#A: {
+	b: {}
+
+	#B: {
+		c: b & {
+			d: 1
+			}
+		}
+	}
+	x: #A
+	@test(eq, {
+		#A: {b: {}, #B: {c: {d: 1}}}
+		x: {b: {}, #B: {c: {d: 1}}}
+	})
+}
+nested: embed: ok: {
+	x: #A
+	#A: {
+		k
+	}
+	k: {
+		d: b & {e: int}
+		b: {}
+	}
+	@test(eq, {
+		x:  {d: {e: int}, b: {}}
+		#A: {d: {e: int}, b: {}}
+		k:  {d: {e: int}, b: {}}
+	})
+}
+// nested.b tests insertion of a field (b) that has a conjunct rooted within
+// the tree it is referred in as well as a conjunct outside of it that refers
+// to a definition.
+nested: err1: {
+	x: #A
+	#A: {
+		b: f: 1
+		v: #V
+		#V: {
+			c: b & { // Fails as #B is not compatible.
+				d: 1
+			}
+		}
+	}
+	x: b: #B
+	#B: g: 1
+	@test(err, at=x.#V.c.d, code=eval, contains="field not allowed", pos=[7:5])
+}
+
+nested: err2: {
+	#A: {
+		b: {} // error only reported here.
+		c: b & {
+			// error (g not allowed) not reported here, as it would be okay if b
+			// were valid. Instead, it is reported at b only. This is conform
+			// the spec.
+			d: 1
+		}
+	}
+	x: #A
+	x: b: g: 1
+	@test(err, at=x.b.g, code=eval, contains="field not allowed", pos=[11:8])
+}
+
+inline: {
+	#x: y: z?: name: string
+
+	// TODO: not an error!?
+	err1: (#x & {y: z: _}).y.z & {
+		name: "a"
+		age1: 5 // not allowed
+	} @test(err:todo, code=eval, contains="field not allowed")
+	err2: (#x.y & {z: _}).z & {
+		name: "a"
+		age2: 5 // not allowed
+	} @test(err:todo, code=eval, contains="field not allowed")
+	@test(eq, {
+		#x: {y: {z?: {name: string}}}
+		err1: {name: "a", age1: 5}
+		err2: {name: "a", age2: 5}
+	})
+}
+
+// minInDef defines examples where a definition is mixed into an open struct,
+// where then this struct refers to a field that is closed by the definition.
+mixInDef: {
+	refInside: {
+		#x: b: c: {d: {}, e: f: {} }
+		a: #x
+		a: b: c: d: {}
+		a: b: c: e: c.d
+		@test(eq, {
+			#x: {b: {c: {d: {}, e: {f: {}}}}}
+			a: {b: {c: {d: {}, e: {f: {}}}}}
+		})
+	}
+	refEdge: {
+		#x: c: {d: {}, e: f: {} }
+		a: #x
+		a: c: d: {}
+		a: c: e: c.d
+		@test(eq, {
+			#x: {c: {d: {}, e: {f: {}}}}
+			a: {c: {d: {}, e: {f: {}}}}
+		})
+	}
+	refOutside: {
+		#x: c: {d: {}, e: f: {} }
+		a: #x
+		a: c: d: {}
+		a: c: e: a.c.d // crosses definition
+		@test(eq, {
+			#x: {c: {d: {}, e: {f: {}}}}
+			a: {c: {d: {}, e: {f: {}}}}
+		})
+	}
+}
+
+// evalv3 "field not allowed" regression: out.foo.final.version incorrectly
+// rejected when embedding a definition's output through a transformed struct.
+// https://cuelang.org/issue/3601
+issue3601: original: {
+	out: {
+		#Transform.output
+	}
+	#Transform: output: (#Patch & {}).output
+	#Patch: {
+		target: {}
+		output: foo: {
+			final: target
+			final: version: "v1"
+		}
+	}
+	@test(eq, {
+		out: {foo: {final: {version: "v1"}}}
+		#Transform: {
+			output: {foo: {final: {version: "v1"}}}
+		}
+		#Patch: {
+			target: {}
+			output: {foo: {final: {version: "v1"}}}
+		}
+	})
+}
+issue3601: originalNoShare: {
+	// Like the original, but with explicit no sharing.
+	out: {
+		#Transform.output
+	}
+	#Transform: output: (#Patch & __no_sharing).output
+	#Patch: {
+		target: {}
+		output: foo: {
+			final: target
+			final: version: "v1"
+		}
+	}
+	@test(eq, {
+		out: {foo: {final: {version: "v1"}}}
+		#Transform: {
+			output: {foo: {final: {version: "v1"}}}
+		}
+		#Patch: {
+			target: {}
+			output: {foo: {final: {version: "v1"}}}
+		}
+	})
+}
+issue3601: reduced: {
+	#X: {
+		a: b: c: "v1"
+		a: b: empty
+		empty: {}
+	}
+
+	original: {
+		Y: (#X & __no_sharing).a
+		out: Y & __no_sharing
+	}
+	moreInlining: {
+		out: (#X & {}).a & {}
+	}
+	noInline: {
+		Y: #X & __no_sharing
+		Z: Y & __no_sharing
+		out: Z.a & __no_sharing
+	}
+	moreNesting: {
+		#X: {
+			a: b: c: d: "v1"
+			a: b: c: empty
+			empty: {}
+		}
+		Y: (#X.a & __no_sharing).b
+		Z: Y & __no_sharing
+	}
+	@test(eq, {
+		#X: {a: {b: {c: "v1"}}, empty: {}}
+		original: {Y: {b: {c: "v1"}}, out: {b: {c: "v1"}}}
+		moreInlining: {out: {b: {c: "v1"}}}
+		noInline: {
+			Y: {a: {b: {c: "v1"}}, empty: {}}
+			Z: {a: {b: {c: "v1"}}, empty: {}}
+			out: {b: {c: "v1"}}
+		}
+		moreNesting: {
+			#X: {a: {b: {c: {d: "v1"}}}, empty: {}}
+			Y: {c: {d: "v1"}}
+			Z: {c: {d: "v1"}}
+		}
+	})
+}
+
+-- validation.cue --
+import "list"
+
+// evalv3: struct with only list.MinItems does not allow a valid list field to
+// exist, reporting "field not allowed" instead of accepting it.
+// https://cuelang.org/issue/3332
+issue3332: {
+	#def: field: list.MinItems(1)
+	use: #def & {
+	  field: ["value"]
+	}
+	@test(eq, {
+		#def: {field: list.MinItems(1)}
+		use: {field: ["value"]}
+	})
+}
+
+-- out/errors.txt --
+[eval] issue3778.full.z.b: field not allowed:
+    ./ellipsis.cue:9:3
+[eval] issue1867.one.x.foo: field not allowed:
+    ./ellipsis.cue:37:5
+[eval] issue1867.two.x.foo: field not allowed:
+    ./ellipsis.cue:45:5
+[eval] issue1867.three.x.foo: field not allowed:
+    ./ellipsis.cue:53:5
+[eval] issue3924.one.out.foo.disallowed: field not allowed:
+    ./ellipsis.cue:66:23
+[eval] issue3924.two.out.foo.disallowed: field not allowed:
+    ./ellipsis.cue:73:9
+    ./ellipsis.cue:80:23
+[eval] issue3924.three.t1.foo.disallowed: field not allowed:
+    ./ellipsis.cue:84:16
+[eval] issue3924.three.t1.foo.other: field not allowed:
+    ./ellipsis.cue:85:10
+[eval] issue3924.three.t1.#job.other: field not allowed:
+    ./ellipsis.cue:85:10
+[eval] issue3924.three.t2.foo.disallowed: field not allowed:
+    ./ellipsis.cue:91:16
+[eval] issue3924.three.t2.foo.other: field not allowed:
+    ./ellipsis.cue:92:10
+[eval] issue3924.three.t2.#job.other: field not allowed:
+    ./ellipsis.cue:92:10
+[eval] issue3924.three.t3.foo.disallowed: field not allowed:
+    ./ellipsis.cue:101:15
+[eval] issue3924.four.out.foo.disallowed: field not allowed:
+    ./ellipsis.cue:107:17
+[eval] patterns.shallow.single.err.j: field not allowed:
+    ./embed.cue:60:8
+[eval] patterns.shallow.and.p1.err.j: field not allowed:
+    ./embed.cue:53:6
+    ./embed.cue:70:8
+[eval] patterns.shallow.and.p2.err.j: field not allowed:
+    ./embed.cue:53:6
+    ./embed.cue:79:8
+[eval] patterns.shallow.andEmbed.p1.err.j: field not allowed:
+    ./embed.cue:53:6
+    ./embed.cue:89:8
+[eval] patterns.shallow.andEmbed.p2.err.j: field not allowed:
+    ./embed.cue:53:6
+    ./embed.cue:98:8
+[eval] patterns.shallow.indirect.p1.err1.j: field not allowed:
+    ./embed.cue:174:10
+[eval] patterns.shallow.indirect.p1.err2.j: field not allowed:
+    ./embed.cue:177:10
+[eval] patterns.shallow.indirect.p2.err1.j: field not allowed:
+    ./embed.cue:188:10
+[eval] patterns.shallow.indirect.p2.err2.j: field not allowed:
+    ./embed.cue:191:10
+[eval] patterns.shallow.indirect.p3.err1.j: field not allowed:
+    ./embed.cue:201:10
+[eval] patterns.shallow.indirect.p3.err2.j: field not allowed:
+    ./embed.cue:204:10
+[eval] patterns.shallow.indirect.p4.err1.j: field not allowed:
+    ./embed.cue:216:10
+[eval] patterns.shallow.indirect.p4.err2.j: field not allowed:
+    ./embed.cue:219:10
+[eval] patterns.nested.single.err.x.y.j: field not allowed:
+    ./embed.cue:236:14
+[eval] patterns.nested.and.p1.err.x.y.j: field not allowed:
+    ./embed.cue:229:12
+    ./embed.cue:246:14
+[eval] patterns.nested.and.p2.err.x.y.j: field not allowed:
+    ./embed.cue:229:12
+    ./embed.cue:255:14
+[eval] patterns.nested.andEmbed.p1.err.x.y.j: field not allowed:
+    ./embed.cue:229:12
+    ./embed.cue:265:14
+[eval] patterns.nested.andEmbed.p2.err.x.y.j: field not allowed:
+    ./embed.cue:229:12
+    ./embed.cue:274:14
+[eval] patterns.nested.indirect.p1.err1.x.y.j: field not allowed:
+    ./embed.cue:350:16
+[eval] patterns.nested.indirect.p1.err2.x.y.j: field not allowed:
+    ./embed.cue:353:16
+[eval] patterns.nested.indirect.p2.err1.x.y.j: field not allowed:
+    ./embed.cue:364:16
+[eval] patterns.nested.indirect.p2.err2.x.y.j: field not allowed:
+    ./embed.cue:367:16
+[eval] patterns.nested.indirect.p3.err1.x.y.j: field not allowed:
+    ./embed.cue:377:16
+[eval] patterns.nested.indirect.p3.err2.x.y.j: field not allowed:
+    ./embed.cue:380:16
+[eval] patterns.nested.indirect.p4.err1.x.y.j: field not allowed:
+    ./embed.cue:392:16
+[eval] patterns.nested.indirect.p4.err2.x.y.j: field not allowed:
+    ./embed.cue:395:16
+[eval] issue2241.b.x.r: field not allowed:
+    ./embed.cue:415:8
+[eval] a.q.e: field not allowed:
+    ./in.cue:15:3
+[eval] issue852.a.Foo: field not allowed:
+    ./in.cue:31:5
+[eval] issue852.a.Foo: field not allowed:
+    ./in.cue:31:5
+[eval] indirect.closed.err1.Y.a.e: field not allowed:
+    ./reroot.cue:122:7
+[eval] nested.err1.x.b.f: field not allowed:
+    ./reroot.cue:171:6
+[eval] nested.err1.x.b.g: field not allowed:
+    ./reroot.cue:180:6
+[eval] nested.err1.x.#V.c.d: field not allowed:
+    ./reroot.cue:175:5
+[eval] nested.err1.x.#V.c.f: field not allowed:
+    ./reroot.cue:171:6
+[eval] nested.err2.x.b.g: field not allowed:
+    ./reroot.cue:195:8
+-- out/todo.txt --
+v3 reports fewer position references in "field not allowed" errors (e.g. a.q.e has 1 position vs v2's 5). v3 correctly handles issue1867.three (close({}) + {...}) while v2 did not. v3 reports issue2241.b.x.r error vs v2 which also reports it. issue3924.three.t1 and t2 have extra "field not allowed" errors for #job.other in v3. v3 shows issue3924.four.A.foo as ~(issue3924.four.#B) via structure sharing.
+-- out/eval/stats --
+Leaks:  6
+Freed:  817
+Reused: 774
+Allocs: 49
+Retain: 0
+
+Unifications: 788
+Conjuncts:    1940
+Disjuncts:    6
+
+NumCloseIDs: 585

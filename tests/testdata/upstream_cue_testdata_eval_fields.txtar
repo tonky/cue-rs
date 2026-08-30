@@ -1,0 +1,27 @@
+-- in.cue --
+bulkToSelf: {
+	a: {
+		foo: [string]: int
+		foo: bar:      "3" @test(err, any, code=eval, contains="conflicting values")
+	}
+}
+intField: {
+	@test(err, code=eval, contains="integer fields not supported", pos=[2:3])
+	(2): string
+}
+-- out/errors.txt --
+[eval] bulkToSelf.a.foo.bar: conflicting values "3" and int (mismatched types string and int):
+    ./in.cue:3:18
+    ./in.cue:4:18
+[eval] intField: integer fields not supported:
+    ./in.cue:9:3
+-- out/eval/stats --
+Leaks:  0
+Freed:  6
+Reused: 0
+Allocs: 6
+Retain: 0
+
+Unifications: 6
+Conjuncts:    8
+Disjuncts:    0

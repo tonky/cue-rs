@@ -1,0 +1,31 @@
+
+TODO: Should #Bar result in string or #Foo | string?
+
+
+raw: true
+eval: true
+#inlinetest:exclude skip — tests export format, not evaluator semantics
+-- in.cue --
+{
+	#Foo: {
+		#Bar: #Foo | string
+	}
+}
+-- out/eval/stats --
+Leaks:  1
+Freed:  4
+Reused: 1
+Allocs: 4
+Retain: 0
+
+Unifications: 3
+Conjuncts:    6
+Disjuncts:    2
+
+NumCloseIDs: 1
+-- out/evalalpha --
+(struct){
+  #Foo: (#struct){
+    #Bar: (string){ string }
+  }
+}

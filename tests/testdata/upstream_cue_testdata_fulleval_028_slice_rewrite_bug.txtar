@@ -1,0 +1,30 @@
+-- in.cue --
+t1: {
+	fn: {
+		arg: [...int] & [1]
+		out: arg[1:]
+	}
+	fn1: fn & {arg: [1]}
+	@test(eq, {
+		fn: {
+			arg: [1]
+			out: []
+		}
+		fn1: {
+			arg: [1]
+			out: []
+		}
+	})
+}
+-- out/eval/stats --
+Leaks:  0
+Freed:  10
+Reused: 3
+Allocs: 7
+Retain: 0
+
+Unifications: 10
+Conjuncts:    18
+Disjuncts:    0
+
+NumCloseIDs: 1

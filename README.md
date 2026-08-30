@@ -2,7 +2,7 @@
 
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Clippy Clean](https://img.shields.io/badge/clippy-0%20warnings-brightgreen.svg)](https://github.com/rust-lang/rust-clippy)
-[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-230%2F230%20passing-brightgreen.svg)](tests/testdata/)
+[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-476%2F476%20passing-brightgreen.svg)](tests/testdata/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
 
 A high-performance, modular implementation of the [CUE configuration language](https://cuelang.org/) in **Rust (2024 Edition)**.

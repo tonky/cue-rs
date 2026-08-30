@@ -1,0 +1,35 @@
+-- in.cue --
+a: {
+	for k, v in b
+	if k < "d"
+	if v > b.a {
+		"\(k)": v
+	}
+	@test(eq, {b: 2, c: 3})
+}
+b: {
+	a: 1
+	b: 2
+	c: 3
+	d: 4
+}
+c: {
+	for k, v in b
+	if k < "d"
+	if v > b.a {
+		"\(k)": v
+	}
+	@test(eq, {b: 2, c: 3})
+}
+-- out/eval/stats --
+Leaks:  0
+Freed:  12
+Reused: 2
+Allocs: 10
+Retain: 0
+
+Unifications: 12
+Conjuncts:    16
+Disjuncts:    0
+
+NumCloseIDs: 4

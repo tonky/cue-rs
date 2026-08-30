@@ -1,0 +1,27 @@
+#inlinetest:exclude skip — tests export format, not evaluator semantics
+-- in.cue --
+{
+	$type:  3
+	"_":    int
+	"_foo": int
+	_bar:   int
+}
+-- out/eval/stats --
+Leaks:  0
+Freed:  5
+Reused: 0
+Allocs: 5
+Retain: 0
+
+Unifications: 5
+Conjuncts:    6
+Disjuncts:    0
+
+NumCloseIDs: 1
+-- out/evalalpha --
+(struct){
+  $type: (int){ 3 }
+  "_": (int){ int }
+  "_foo": (int){ int }
+  _bar: (int){ int }
+}

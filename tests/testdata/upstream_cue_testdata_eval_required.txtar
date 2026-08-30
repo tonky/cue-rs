@@ -1,0 +1,170 @@
+-- in.cue --
+self: t1: {
+	a?: int
+	@test(eq, {a?: int})
+}
+
+self: t2: {
+	a!: int
+	a!: int
+	@test(eq, {a!: int})
+}
+
+unify: t1: {
+	@test(permute, count=2)
+	a!: int
+	a: int
+	@test(eq, {a: int})
+}
+
+unify: t2: {
+	@test(permute)
+	a!: int
+	a?: int
+	@test(eq, {a!: int})
+}
+
+#Def: t1: {
+	a!: int
+	@test(eq, {a!: int})
+}
+
+// Required fields do not cause vet to fail with definitions: a required field
+// in one definition should block a disallowed field from another definition.
+// https://cuelang.org/issue/2306
+allowed: {
+	issue2306: {
+		#A: a!: int
+		#A: #B @test(err, code=eval, path=a, contains="field not allowed", pos=[-1:7])
+
+		#B: b!: int
+	}
+}
+
+reference: {
+	toWithinDefinition: {
+		@test(permute, count=2)
+		#Foo: a!: int
+		b: #Foo.a @test(err, code=incomplete, contains="required field missing: %s", args=[a], pos=[0:11])
+	}
+	toFieldFromDefinition: {
+		@test(permute, count=6)
+		#Foo: a!: int
+		b: #Foo
+		c: b.a @test(err, code=incomplete, contains="required field missing: %s", args=[a], pos=[0:8])
+	}
+	toNonDefinition: {
+		@test(permute, count=2)
+		x: y!: _
+		b: x.y @test(err, code=incomplete, contains="required field missing: %s", args=[y], pos=[0:8])
+	}
+	toConcrete: {
+		@test(permute, count=2)
+		a!: 1
+		b: a + 1 @test(err, code=incomplete, contains="required field missing: %s", args=[a], pos=[0:6])
+	}
+	// A reference to a required-but-missing field reports "required field
+	// missing", not "cannot reference optional field".
+	// https://cuelang.org/issue/2937
+	issue2937: {
+		min!: number
+		max!: number & >min @test(err, code=incomplete, contains="required field missing: %s", args=[min], pos=[0:19])
+		max:  10
+	}
+}
+-- issue3918.cue --
+import "strings"
+
+// Required fields do not work on the function pattern: a required field used
+// as an input to a definition-based function was not satisfied at the call site.
+// https://cuelang.org/issue/3918
+issue3918: {
+	reduced: {
+		#disjuncts: {
+			in!: [...string]
+			out: strings.Join(in, "|") @test(err, code=incomplete, contains="required field missing: %s", args=[in], pos=[0:22])
+		}
+
+		x: (#disjuncts & {
+			in: ["foo", "bar"]
+		}).out
+		@test(eq, {
+			#disjuncts: {
+				in!: []
+				out: _|_
+			}
+			x: "foo|bar"
+		})
+	}
+	noFunction: {
+		#disjuncts: {
+			in!: [...string]
+			out: in @test(err, code=incomplete, contains="required field missing: %s", args=[in], pos=[0:9])
+		}
+		_foo: #disjuncts & {} @test(err, at=out, code=incomplete, contains="required field missing: %s", args=[in], pos=[-2:9])
+		x: _foo.out @test(err, code=incomplete, path=_foo.out, contains="required field missing: %s", args=[in], pos=[-3:9])
+		@test(eq, {
+			#disjuncts: {
+				in!: []
+				out: _|_
+			}
+			_foo: {
+				in!: []
+				out: _|_
+			}
+			x: _|_
+		})
+	}
+}
+// A required field error is incomplete error. Ensure that setting a vertex
+// to this error does not escalate it to an evaluation error.
+doNotEscalateError: {
+	a: {
+		in:  _
+		out: in.self @test(err, code=incomplete, contains="%s undefined as %s is incomplete (type %s)", args=[in.self, in, _], pos=[0:8])
+	}
+	b: {
+		required!: _
+		pass:    (a & {in: required}).out @test(err, code=incomplete, contains="undefined field: %s", args=[self], pos=[-4:11])
+	}
+}
+-- out/errors.txt --
+[eval] allowed.issue2306.#A.a: field not allowed:
+    ./in.cue:36:7
+[incomplete] reference.toWithinDefinition.b: required field missing: a:
+    ./in.cue:47:11
+[incomplete] reference.toFieldFromDefinition.c: required field missing: a:
+    ./in.cue:53:8
+[incomplete] reference.toNonDefinition.b: required field missing: y:
+    ./in.cue:58:8
+[incomplete] reference.toConcrete.b: required field missing: a:
+    ./in.cue:63:6
+[incomplete] reference.issue2937.max: required field missing: min:
+    ./in.cue:70:19
+[incomplete] issue3918.reduced.#disjuncts.out: required field missing: in:
+    ./issue3918.cue:10:22
+[incomplete] issue3918.noFunction.#disjuncts.out: required field missing: in:
+    ./issue3918.cue:27:9
+[incomplete] issue3918.noFunction._foo.out: required field missing: in:
+    ./issue3918.cue:27:9
+[incomplete] issue3918.noFunction._foo.out: required field missing: in:
+    ./issue3918.cue:27:9
+[incomplete] doNotEscalateError.a.out: in.self undefined as in is incomplete (type _):
+    ./issue3918.cue:49:8
+[incomplete] doNotEscalateError.b.pass: undefined field: self:
+    ./issue3918.cue:49:11
+-- out/eval/stats --
+Leaks:  0
+Freed:  70
+Reused: 53
+Allocs: 17
+Retain: 0
+
+Unifications: 68
+Conjuncts:    96
+Disjuncts:    0
+
+NumCloseIDs: 12
+-- out/todo.txt --
+v3 reports incomplete errors for reference.toWithinDefinition, toFieldFromDefinition, toNonDefinition, toConcrete sub-fields (required field missing), whereas v2 resolved those fields to concrete values. v3 also shows structure sharing (~) for reference.toFieldFromDefinition.p1.b and p2.b.
+issue3918.noFunction.x: v3 evaluates x as a structure-shared reference to _foo.in (formatted as a bare identifier "in" that cannot be compiled standalone); the expected struct only asserts on #disjuncts and _foo.

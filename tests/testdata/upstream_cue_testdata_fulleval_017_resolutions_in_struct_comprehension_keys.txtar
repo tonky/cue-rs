@@ -1,0 +1,14 @@
+-- in.cue --
+a: {for _, b in ["c"] {"\(b+".")": "a"}} @test(eq, {"c.": "a"})
+-- out/eval/stats --
+Leaks:  0
+Freed:  5
+Reused: 0
+Allocs: 5
+Retain: 0
+
+Unifications: 5
+Conjuncts:    6
+Disjuncts:    0
+
+NumCloseIDs: 2

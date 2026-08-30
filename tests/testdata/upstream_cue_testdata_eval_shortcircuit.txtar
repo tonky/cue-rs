@@ -1,0 +1,42 @@
+# Tests for @experiment(shortcircuit): short-circuit evaluation of && and ||.
+# When the left operand alone determines the result, the right operand is not
+# evaluated and any error or incomplete value it carries is suppressed.
+-- cue.mod/module.cue --
+module: "test.com"
+language: version: "v0.17.0"
+-- in.cue --
+@experiment(shortcircuit)
+
+// Incomplete fields used as right operands in short-circuit tests.
+incompleteInt:  int
+incompleteBool: bool
+
+// Short-circuit && : false && anything = false.
+// Right operand not evaluated; errors/incomplete values suppressed.
+andFalseBottom:     false && _|_           @test(eq, false)
+andFalseIncomplete: false && incompleteInt  @test(eq, false)
+andFalseTrue:       false && true           @test(eq, false)
+
+// No short-circuit: && falls through when left is true.
+andTrueTrue:  true && true  @test(eq, true)
+andTrueFalse: true && false @test(eq, false)
+
+// Short-circuit || : true || anything = true.
+// Right operand not evaluated; errors/incomplete values suppressed.
+orTrueBottom:     true || _|_            @test(eq, true)
+orTrueIncomplete: true || incompleteBool  @test(eq, true)
+orTrueTrue:       true || true            @test(eq, true)
+
+// No short-circuit: || falls through when left is false.
+orFalseFalse: false || false @test(eq, false)
+orFalseTrue:  false || true  @test(eq, true)
+-- out/eval/stats --
+Leaks:  0
+Freed:  21
+Reused: 0
+Allocs: 21
+Retain: 0
+
+Unifications: 21
+Conjuncts:    21
+Disjuncts:    0

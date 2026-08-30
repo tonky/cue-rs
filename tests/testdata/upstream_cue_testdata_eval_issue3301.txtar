@@ -1,0 +1,44 @@
+# Tests that closedness is correctly propagated through multiple levels of
+# embedded definitions with optional fields and conditional comprehensions.
+# #Leaf embeds #Mid (which embeds #Base), all with optional fields. The nested
+# if comprehensions inside #Leaf reference optional fields without triggering
+# spurious closedness errors.
+-- in.cue --
+object: #Leaf & {} @test(eq, {extra?: {}, more?: int}) @test(closed)
+
+#Base: {
+	extra?: {...}
+	@test(eq, {extra?: {}})
+	@test(closed)
+}
+
+#Mid: {
+	#Base
+	@test(eq, {extra?: {}})
+	@test(closed)
+}
+
+#Leaf: {
+	#Mid
+	extra?:  {...}
+	more?: int
+	if extra.foo != _|_ {
+		if more != _|_ {
+			foo: "bar"
+		}
+	}
+	@test(eq, {extra?: {}, more?: int})
+	@test(closed)
+}
+-- out/eval/stats --
+Leaks:  2
+Freed:  11
+Reused: 4
+Allocs: 9
+Retain: 0
+
+Unifications: 13
+Conjuncts:    25
+Disjuncts:    0
+
+NumCloseIDs: 16

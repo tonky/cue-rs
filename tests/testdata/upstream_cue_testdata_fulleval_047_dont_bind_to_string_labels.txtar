@@ -1,0 +1,17 @@
+-- in.cue --
+
+x: 1
+y: {
+	"x": 2
+	z:   x @test(eq, 1)
+}
+-- out/eval/stats --
+Leaks:  0
+Freed:  5
+Reused: 0
+Allocs: 5
+Retain: 0
+
+Unifications: 5
+Conjuncts:    5
+Disjuncts:    0

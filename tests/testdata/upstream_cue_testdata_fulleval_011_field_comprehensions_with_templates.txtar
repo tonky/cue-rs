@@ -1,0 +1,29 @@
+-- in.cue --
+num: 1
+a: {
+	if num < 5 {
+		[string]~(A,_): [string]~(B,_): {
+			name: A
+			kind: B
+		}
+	}
+} @test(eq, {
+	b: c: {
+		d:    "bar"
+		name: "b"
+		kind: "c"
+	}
+})
+a: b: c: d: "bar"
+-- out/eval/stats --
+Leaks:  0
+Freed:  8
+Reused: 0
+Allocs: 8
+Retain: 0
+
+Unifications: 8
+Conjuncts:    12
+Disjuncts:    0
+
+NumCloseIDs: 2

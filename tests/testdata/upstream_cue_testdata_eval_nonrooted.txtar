@@ -1,0 +1,110 @@
+# Tests non-rooted inline expressions and let bindings where the inline
+# expression conflicts with a definition constraint. The evaluation should
+# use the local context (overriding the definition's value), even when
+# that creates a conflict detectable from the root.
+# https://cuelang.org/issue/3977
+-- in.cue --
+issue3977: inlineExpr: {
+	#NetworkID: 1
+	#fn: {
+		x:   #NetworkID
+		out: x + 1
+	}
+
+	err: (#fn & {x: 2}).out @test(err, code=eval,
+		contains="conflicting values", args=[1, 2])
+}
+issue3977: inlineDisj1: {
+	#NetworkID: "2" | "3" | "4"
+	#fn: {
+		x:   #NetworkID
+		out: "value=\(x)"
+	}
+
+	err: (#fn & {x: "invalid"}).out @test(err, code=eval,
+		suberr=(code=eval, path=x, contains="conflicting values %s and %s", args=["2", "invalid"], pos=[-6:14, -4:8, 0:8, 0:18]),
+		suberr=(code=eval, path=x, contains="conflicting values %s and %s", args=["3", "invalid"], pos=[-6:20, -4:8, 0:8, 0:18]),
+		suberr=(code=eval, path=x, contains="conflicting values %s and %s", args=["4", "invalid"], pos=[-6:26, -4:8, 0:8, 0:18]),
+	)
+}
+issue3977: inlineDisj2: {
+	#NetworkID: 1
+	#fn: {
+		x:   #NetworkID
+		out: x + 10
+	}
+
+	err: (#fn & {x: *2 | 4}).out @test(err, code=eval,
+		suberr=(contains="conflicting values", args=[1, 2]),
+		suberr=(contains="conflicting values", args=[4, 1]))
+}
+issue3977: inlineDisj3: {
+	#NetworkID: 1
+	#fn: {
+		x:   #NetworkID
+		out: x + 10
+	}
+
+	ok: (#fn & {x: *2 | int}).out @test(eq, 11)
+}
+issue3977: inlineLet: {
+	#NetworkID: 1
+	let p = {
+		x:   #NetworkID
+		out: x + 10
+	} & {
+		x: 2
+	}
+
+	err: p.out @test(eq, 12, incorrect) @test(err:todo, p=1, code=eval,
+		contains="conflicting values", args=[1, 2])
+}
+-- out/eval/stats --
+Leaks:  4
+Freed:  53
+Reused: 43
+Allocs: 14
+Retain: 0
+
+Unifications: 43
+Conjuncts:    82
+Disjuncts:    10
+
+NumCloseIDs: 13
+-- out/errors.txt --
+[eval] x: conflicting values 1 and 2:
+    ./in.cue:2:14
+    ./in.cue:4:8
+    ./in.cue:8:8
+    ./in.cue:8:18
+[incomplete] issue3977.inlineDisj1.#fn.out: invalid interpolation: unresolved disjunction "2" | "3" | "4" (type string):
+    ./in.cue:15:8
+[eval] x: conflicting values "2" and "invalid":
+    ./in.cue:12:14
+    ./in.cue:14:8
+    ./in.cue:18:8
+    ./in.cue:18:18
+x: conflicting values "3" and "invalid":
+    ./in.cue:12:20
+    ./in.cue:14:8
+    ./in.cue:18:8
+    ./in.cue:18:18
+x: conflicting values "4" and "invalid":
+    ./in.cue:12:26
+    ./in.cue:14:8
+    ./in.cue:18:8
+    ./in.cue:18:18
+x: 3 errors in empty disjunction::
+    ./in.cue:15:8
+[eval] x: conflicting values 2 and 1:
+    ./in.cue:25:14
+    ./in.cue:27:8
+    ./in.cue:31:8
+    ./in.cue:31:19
+x: conflicting values 4 and 1:
+    ./in.cue:25:14
+    ./in.cue:27:8
+    ./in.cue:31:8
+    ./in.cue:31:23
+x: 2 errors in empty disjunction::
+    ./in.cue:28:8

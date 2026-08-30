@@ -1,0 +1,33 @@
+#name: retain references with interleaved embedding
+#evalFull
+-- in.cue --
+a: d: {
+	#base
+	#info: {...}
+	Y:     #info.X
+} @test(eq, {
+	#info: {X: "foo"}
+	Y: "foo"
+}) @test(closed)
+
+#base: {
+	#info: {...} @test(closed)
+} @test(eq, { #info: {} })
+
+a: [string]~(Name,_): {
+	#info: {
+		X: "foo"
+	}
+}
+-- out/eval/stats --
+Leaks:  0
+Freed:  8
+Reused: 1
+Allocs: 7
+Retain: 0
+
+Unifications: 8
+Conjuncts:    14
+Disjuncts:    0
+
+NumCloseIDs: 3

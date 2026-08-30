@@ -1,0 +1,108 @@
+-- in.cue --
+t1: {
+	@test(permute)
+	a
+	a: a: 2|1
+	// TODO(inline): fix args passing: match brackets
+	@test(err, code=eval, contains="empty disjunction",
+		suberr=(code=eval, contains="conflicting values", pos=[0:5, 2:2, 3:10]),
+		suberr=(code=eval, contains="conflicting values", pos=[0:5, 2:2, 3:8]),
+	)
+}
+t2: {
+	@test(permute, count=2)
+	d: d.a
+	d: a: a: 2|1
+	@test(err, code=eval, contains="empty disjunction",
+		suberr=(code=eval, contains="conflicting values", pos=[2:5, 3:5, 3:13]),
+		suberr=(code=eval, contains="conflicting values", pos=[2:5, 3:5, 3:11]),
+	)
+}
+t3: {
+	@test(permute, count=6)
+	b: a
+	b: (1|2) | 2
+	a: 1 | 2
+	@test(eq, {b: 1 | 2, a: 1 | 2})
+}
+-- issue3437.cue --
+// Panic with a structurally recursive disjunction where a field aliases to
+// itself via a self-referential disjunction path.
+// https://cuelang.org/issue/3437
+issue3437: {
+	r: {let L = self, L.a}
+	d: a: a: a: {b: 4} | d
+	out: r & d
+	// TODO(perf): either use structure sharing or stronger pruning. This seems
+	// disproportional.
+	@test(eq, {
+		r: _|_ @test(err, code=incomplete, contains="issue3437.r: undefined field: a", pos=[1:22])
+		d: {a: {a: {a: {b: 4}}}}
+		out: {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}}}}, b: 4} | {a: {a: {
+		a: {b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}}}}
+	}, b: 4} | {a: {
+		a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}}, b: 4} | {a: {
+		a: {a: {b: 4}, b: 4} | {a: {a: {a: {b: 4}}, b: 4}}
+	}}}
+	}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}}, b: 4} | {a: {
+		a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}, b: 4} | {a: {a: {a: {b: 4}}, b: 4} | {a: {a: {a: {b: 4}, b: 4}}}}
+	}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}}, b: 4} | {a: {
+		a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}, b: 4} | {a: {a: {a: {b: 4}}, b: 4} | {a: {a: {a: {b: 4}, b: 4}}}}
+	}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}}, b: 4} | {a: {
+		a: {a: {b: 4}, b: 4} | {a: {a: {a: {b: 4}}, b: 4}}
+	}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}, b: 4} | {a: {a: {a: {b: 4}}, b: 4} | {a: {a: {a: {b: 4}, b: 4}}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}, b: 4} | {a: {a: {a: {b: 4}}, b: 4} | {a: {a: {a: {b: 4}, b: 4}}}}, b: 4} | {a: {a: {a: {b: 4}, b: 4} | {a: {a: {a: {b: 4}}, b: 4}}, b: 4} | {a: {a: {a: {b: 4}, b: 4}, b: 4} | {a: {a: {a: {b: 4}, b: 4}, b: 4}}}}}}}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}}}}, b: 4} | {a: {a: {
+		a: {b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}}}}
+	}, b: 4} | {a: {
+		a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}}, b: 4} | {a: {
+		a: {a: {b: 4}, b: 4} | {a: {a: {a: {b: 4}}, b: 4}}
+	}}}
+	}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}}, b: 4} | {a: {
+		a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}, b: 4} | {a: {a: {a: {b: 4}}, b: 4} | {a: {a: {a: {b: 4}, b: 4}}}}
+	}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}}, b: 4} | {a: {
+		a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}, b: 4} | {a: {a: {a: {b: 4}}, b: 4} | {a: {a: {a: {b: 4}, b: 4}}}}
+	}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}}, b: 4} | {a: {
+		a: {a: {b: 4}, b: 4} | {a: {a: {a: {b: 4}}, b: 4}}
+	}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}, b: 4} | {a: {a: {a: {b: 4}}, b: 4} | {a: {a: {a: {b: 4}, b: 4}}}}, b: 4} | {a: {a: {a: {b: 4} | {a: {a: {a: {b: 4}}}}, b: 4} | {a: {a: {a: {b: 4}}, b: 4} | {a: {a: {a: {b: 4}, b: 4}}}}, b: 4} | {a: {a: {a: {b: 4}, b: 4} | {a: {a: {a: {b: 4}}, b: 4}}, b: 4} | {a: {a: {a: {b: 4}, b: 4}, b: 4} | {a: {a: {a: {b: 4}, b: 4}, b: 4}}}}}}}}}}
+	})
+}
+-- out/errors.txt --
+[eval] t1: 2 errors in empty disjunction:
+t1: conflicting values {a,a:{a:(2|1)}} and 1 (mismatched types struct and int):
+    ./in.cue:1:5
+    ./in.cue:3:2
+    ./in.cue:4:10
+t1: conflicting values {a,a:{a:(2|1)}} and 2 (mismatched types struct and int):
+    ./in.cue:1:5
+    ./in.cue:3:2
+    ./in.cue:4:8
+[eval] t2.d: 2 errors in empty disjunction:
+t2.d: conflicting values {a:{a:(2|1)}} and 1 (mismatched types struct and int):
+    ./in.cue:13:5
+    ./in.cue:14:5
+    ./in.cue:14:13
+t2.d: conflicting values {a:{a:(2|1)}} and 2 (mismatched types struct and int):
+    ./in.cue:13:5
+    ./in.cue:14:5
+    ./in.cue:14:11
+[incomplete] issue3437.r: undefined field: a:
+    ./issue3437.cue:5:22
+-- out/eval/stats --
+Leaks:  706
+Freed:  2328
+Reused: 631
+Allocs: 2403
+Retain: 0
+
+Unifications: 1120
+Conjuncts:    2923
+Disjuncts:    1072
+Notifications: 3
+
+NumCloseIDs: 360
+
+ConjunctInfos:       1830
+MaxConjunctInfos:    4
+MaxReqSets:          2
+MaxRedirect:         3
+-- out/todo.txt --
+v3 reports error messages with different operand ordering ("conflicting values {a,...} and 1" vs v2's "conflicting values 1 and {a:(2|1)}").

@@ -1,0 +1,75 @@
+-- in.cue --
+import (
+	"encoding/yaml"
+	"regexp"
+)
+
+simplified: {
+	x: d: {
+		let R = self
+		".*"
+		[R + ""][0]
+	}
+	out: yaml.Marshal(x)
+	@test(eq, {x: {d: ".*"}, out: "d: .*\n"})
+}
+
+original: {
+	#testableRegexp: {
+		let R = self
+		string
+
+		#test: close({
+			in:  string
+			out: regexp.FindSubmatch("^" + R + "$", in)[1]
+		})
+	}
+
+	rule: {
+		#patterns: {
+			bar: #testableRegexp & {
+				"(.*)"
+				#test: {in: "testcontent", out: "testcontent"}
+			}
+		}
+	}
+	out: yaml.Marshal(rule)
+	@test(eq, {
+		#testableRegexp: {
+			string
+			#test: {
+				in: string
+				out: _|_ @test(err, code=incomplete, contains="original.#testableRegexp.#test.out: non-concrete value string in operand to +", pos=[7:29, 1:19, 3:3])
+			}
+		}
+		rule: {
+			#patterns: {
+				bar: {
+					"(.*)"
+					#test: {in: "testcontent", out: "testcontent"}
+				}
+			}
+		}
+		out: """
+		{}
+
+		"""
+	})
+}
+-- out/errors.txt --
+[incomplete] original.#testableRegexp.#test.out: non-concrete value string in operand to +:
+    ./in.cue:23:29
+    ./in.cue:17:19
+    ./in.cue:19:3
+-- out/eval/stats --
+Leaks:  0
+Freed:  34
+Reused: 16
+Allocs: 18
+Retain: 0
+
+Unifications: 25
+Conjuncts:    39
+Disjuncts:    0
+
+NumCloseIDs: 14

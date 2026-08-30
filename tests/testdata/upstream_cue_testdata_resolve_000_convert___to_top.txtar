@@ -1,0 +1,14 @@
+# Tests that a pattern constraint [_]: _ over an open struct results in
+# an open struct without any concrete fields.
+-- in.cue --
+a: {[_]: _}   @test(eq, {})
+-- out/eval/stats --
+Leaks:  0
+Freed:  2
+Reused: 0
+Allocs: 2
+Retain: 0
+
+Unifications: 2
+Conjuncts:    2
+Disjuncts:    0

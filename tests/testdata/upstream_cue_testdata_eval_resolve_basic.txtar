@@ -1,0 +1,26 @@
+-- in.cue --
+a: 1     @test(eq, 1)
+b: a + 1 @test(eq, 2)
+d: {
+	x: _
+	y: b + x @test(err, code=incomplete, contains="non-concrete value", pos=[0:5, -1:5])
+}
+e: d & {
+	x: 5
+} @test(eq, {x: 5, y: 7})
+-- out/errors.txt --
+[incomplete] d.y: non-concrete value _ in operand to +:
+    ./in.cue:5:5
+    ./in.cue:4:5
+-- out/eval/stats --
+Leaks:  0
+Freed:  9
+Reused: 2
+Allocs: 7
+Retain: 0
+
+Unifications: 9
+Conjuncts:    12
+Disjuncts:    0
+
+NumCloseIDs: 1

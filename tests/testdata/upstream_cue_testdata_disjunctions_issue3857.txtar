@@ -1,0 +1,108 @@
+# Tests that disjunctions combined with comprehensions and pattern constraints
+# do not cause panics in the v3 evaluator. The issue reported crashes in
+# Vertex.DerefValue and Environment.up for code that worked correctly in evalv2.
+# https://cuelang.org/issue/3857
+-- in.cue --
+reduced: t1: {
+	S: { if true { a: U } }
+	x: S
+	x: {
+	["a"]: b: 1 | T
+	d: b: x.a
+	}
+	T: 1
+	U: b: 1 | 1
+	@test(eq, {
+		S: {a: {b: 1}}
+		x: {d: {b: {b: 1}}, a: {b: 1}}
+		T: 1
+		U: {b: 1}
+	})
+}
+// issue3851: evalv3 incorrectly rejects a let field nested under multiple
+// disjunctions with "field not allowed", a regression not present in evalv2.
+// https://cuelang.org/issue/3851
+issue3851: t1: {
+	#Top: _
+	#Config: {
+	disj: _ | *"default"
+	shared: _
+	}
+
+	#Schema: {
+	[string]: #Config
+	if true {
+		one: shared: "foo"
+	}
+	}
+
+	out: #Schema
+	out: {
+	["one"]: disj: _ | #Top
+	two: shared: out.one.shared
+	}
+	@test(eq, {
+		#Top: _
+		#Config: {disj: *"default" | _, shared: _}
+		#Schema: {
+			one: {shared: "foo", disj: *"default" | _}
+		}
+		out: {
+			two: {shared: "foo", disj: *"default" | _}
+			one: {shared: "foo", disj: *"default" | _}
+		}
+	})
+}
+issue3851: t2: {
+	#Top: _
+	#Config: {
+	disj: _ | *{}
+	shared: _
+	}
+
+	#Env: {
+	conf: [string]: #Config
+	if true {
+		conf: one: shared: "foo"
+	}
+	}
+
+	env1: #Env
+
+	[string]: {
+	conf: ["one"]: disj: {} | #Top
+	conf: two: shared: conf.one.shared
+	}
+	@test(eq, {
+		#Top: _
+		#Config: {disj: *{} | _, shared: _}
+		#Env: {
+			conf: {one: {shared: "foo", disj: *{} | _}}
+		}
+		env1: {
+			conf: {
+				two: {shared: "foo", disj: *{} | _}
+				one: {shared: "foo", disj: *{} | _}
+			}
+		}
+	})
+}
+-- out/todo.txt --
+issue3851.t1.out.one.disj: evalv3 gives _ (top) while evalv2 gives
+*(string){ "default" } | (_){ _ } because in v3 the pattern constraint
+[string]: #Config applies to "one" but the additional disj: _ | #Top
+(where #Top = _) unifies the default away.
+issue3851.t2.env1.conf.one.disj: similar difference; v3 gives more disjuncts
+than v2 due to structural sharing differences.
+-- out/eval/stats --
+Leaks:  2
+Freed:  74
+Reused: 54
+Allocs: 22
+Retain: 0
+
+Unifications: 48
+Conjuncts:    123
+Disjuncts:    28
+
+NumCloseIDs: 26

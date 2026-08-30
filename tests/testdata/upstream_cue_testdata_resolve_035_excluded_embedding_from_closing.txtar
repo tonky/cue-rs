@@ -1,0 +1,39 @@
+-- in.cue --
+#S: {
+	a: {c: int}
+	{
+		c: {d: int}
+	}
+	let B = {open: int}
+	b: B
+} @test(eq, {
+	a: {c: int}
+	c: {d: int}
+	b: {open: int}
+})
+V: #S & {
+	c: e:     int
+	b: extra: int
+}
+@test(err, code=eval, at=V.b.extra, contains="field not allowed", pos=[-2:5])
+@test(err, code=eval, at=V.c.e, contains="field not allowed", pos=[-4:5])
+-- out/errors.txt --
+[eval] V.c.e: field not allowed:
+    ./in.cue:14:5
+[eval] V.b.extra: field not allowed:
+    ./in.cue:15:5
+-- out/eval/stats --
+Leaks:  1
+Freed:  21
+Reused: 11
+Allocs: 11
+Retain: 0
+
+Unifications: 21
+Conjuncts:    29
+Disjuncts:    0
+
+NumCloseIDs: 7
+-- out/todo.txt --
+Positions.
+Reordering.

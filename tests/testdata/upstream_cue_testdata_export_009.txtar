@@ -1,0 +1,41 @@
+#inlinetest:exclude skip — tests export format, not evaluator semantics
+-- in.cue --
+import "list"
+
+{
+	a: list.Repeat([int], 5)
+	a: [1, 2, ...]
+	e: [...int]
+	e: [1, 2, ...]
+	f: [1, 2, ...]
+}
+-- out/eval/stats --
+Leaks:  0
+Freed:  15
+Reused: 6
+Allocs: 9
+Retain: 0
+
+Unifications: 15
+Conjuncts:    31
+Disjuncts:    0
+
+NumCloseIDs: 7
+-- out/evalalpha --
+(struct){
+  a: (#list){
+    0: (int){ 1 }
+    1: (int){ 2 }
+    2: (int){ int }
+    3: (int){ int }
+    4: (int){ int }
+  }
+  e: (list){
+    0: (int){ 1 }
+    1: (int){ 2 }
+  }
+  f: (list){
+    0: (int){ 1 }
+    1: (int){ 2 }
+  }
+}

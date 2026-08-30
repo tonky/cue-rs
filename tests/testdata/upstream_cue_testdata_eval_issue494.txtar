@@ -1,0 +1,26 @@
+-- in.cue --
+_Q: [{pos: 0}, {pos: 1}]
+
+a: [string]~(rn,_): _Q[0:len(a[rn])]
+a: ben:             [{}] @test(eq, [{pos: 0}])
+
+b: [string]~(rn,_): _Q[0:1]
+b: ben:             [{}] @test(eq, [{pos: 0}])
+
+c: [string]~(rn,_): [...{l: len(a[rn])}]
+c: ben:             [{}] @test(eq, [{l: 1}])
+
+#d: {[string]~(rn,_): [...{pos: uint}] & _Q[0:len(#d[rn])]} @test(shareID=D)
+#d: ben: [{}] @test(eq, [{pos: 0}])
+
+d: #d @test(shareID=D)
+-- out/eval/stats --
+Leaks:  0
+Freed:  23
+Reused: 13
+Allocs: 10
+Retain: 0
+
+Unifications: 23
+Conjuncts:    38
+Disjuncts:    0

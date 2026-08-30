@@ -1,0 +1,18 @@
+TODO: the new evaluator currently does not normalize disjuncts.
+It needs to be determined under which circumstances is desirable.
+The redundancy that remains from not normalizing can be useful.
+
+-- in.cue --
+a: string | string @test(eq, string)
+b: *1 | *int       @test(eq, *1 | *int)
+c: *1.0 | *float   @test(eq, *1.0 | *float)
+-- out/eval/stats --
+Leaks:  1
+Freed:  9
+Reused: 3
+Allocs: 7
+Retain: 0
+
+Unifications: 4
+Conjuncts:    10
+Disjuncts:    6

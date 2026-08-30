@@ -1,0 +1,171 @@
+# Tests that inline unification patterns like `(#mkDef & {}).#Type` evaluate
+# correctly in the v3 evaluator. The issue caused evalv3 to include unwanted
+# disjunction alternatives, making orgSyntax compute the wrong branch result.
+# https://cuelang.org/issue/3672
+-- x.cue --
+import "strings"
+
+import "encoding/json"
+
+#FinDefSetElemType: {
+	#Type!: _
+}
+#FinDefSetDefinition: {
+	#Elem!: #FinDefSetElemType
+	#Alternatives: {
+		allBut: {
+			AllBut: [...#Elem.#Type]
+		}
+		only: {
+			Only: [...#Elem.#Type]
+		}
+	}
+}
+
+#mkFinDefSet: {
+	#Definition!: #FinDefSetDefinition
+	#Type:        or([for _, v in #Definition.#Alternatives {v}])
+}
+
+#FinDefSetElemType: {
+	#Type: _
+	toString!: {
+		_input:  #Type
+		_output: string
+	}
+}
+
+#FinDefSetDefinition: {
+	#Elem!: #FinDefSetElemType
+	#Alternatives: {
+		allBut: {
+			AllBut: [...#Elem.#Type]
+			let xs = [for x in AllBut {(#Elem.toString & {_input: x})._output}]
+			let str = strings.Join(xs, "\",\"")
+			orgSyntax: "AllBut [\(str)]"
+		}
+		only: {
+			Only: [...#Elem.#Type]
+			let xs = [for x in Only {(#Elem.toString & {_input: x})._output}]
+			let str = strings.Join(xs, "\",\"")
+			orgSyntax: "Only [\(str)]"
+		}
+	}
+}
+
+#ConfigText: string | {UseSectionName: true}
+
+#ConfigTextRule: #ConfigText | {Append: #ConfigText} | {Prepend: #ConfigText}
+
+#ConfigTextRules: #ConfigTextRule | [#ConfigTextRule, #ConfigTextRule, ...#ConfigTextRule]
+
+#FinDefSetConfigTextElem: #FinDefSetElemType
+#FinDefSetConfigTextElem: {
+	#Type: #ConfigTextRules
+}
+
+#FinDefSetOfConfigText: (
+	#mkFinDefSet & {
+		#Definition: {#Elem: #FinDefSetConfigTextElem}
+	}).#Type
+
+#FinDefSetConfigTextElem: {
+	toString: {
+		_input:  #ConfigTextRules
+		_output: (#orgForConfigTextRules & {source: _input}).orgSyntax
+	}
+}
+
+#orgForConfigText: {
+	source~(IN): #ConfigText
+	orgSyntax: {
+		let INS = IN & string
+		let INO = IN & {UseSectionName: _}
+		[
+			if INS != _|_ {
+				json.Marshal(INS)
+			},
+			if INO != _|_ {
+				"UseSectionName"
+			},
+			"Impossible",
+		][0]
+	}
+}
+
+#orgForConfigTextRule: {
+	source~(IN): #ConfigTextRule
+	orgSyntax: {
+		let INA = IN & {Append: _}
+		let INP = IN & {Prepend: _}
+		[
+			if INA != _|_ {
+				"Append " + (#orgForConfigText & {source: INA.Append}).orgSyntax
+			},
+			if INP != _|_ {
+				"Prepend " + (#orgForConfigText & {source: INP.Prepend}).orgSyntax
+			},
+			(#orgForConfigText & {source: IN}).orgSyntax,
+		][0]
+	}
+}
+
+#orgForConfigTextRules: {
+	source~(IN): #ConfigTextRules
+	orgSyntax: {
+		let INL = IN & [...]
+		[
+			if INL != _|_ {
+				let elems = [for x in IN {(#orgForConfigTextRule & {source: x}).orgSyntax}]
+				let result = strings.Join(elems, "\",\"")
+				"[\(result)]"
+			},
+			(#orgForConfigTextRule & {source: IN}).orgSyntax,
+		][0]
+	}
+}
+
+value0: #FinDefSetOfConfigText
+value0: Only: [{UseSectionName: true}]
+@test(eq, {
+	Only: [{ UseSectionName: true }]
+	orgSyntax: "Only [UseSectionName]"
+}, at=value0)
+
+@test(err, at=#mkFinDefSet.#Type, code=incomplete, contains="error in call to %s", args=[or], pos=[-108:16, -108:32])
+
+// TODO(inline): test wrapped errors
+@test(err, at=#orgForConfigTextRules.orgSyntax, code=incomplete, path=elems, contains="invalid interpolation", pos=[-17:5, -19:18])
+@test(err, at=#FinDefSetConfigTextElem.toString._output, code=incomplete, path=elems, contains="invalid interpolation", pos=[-18:5, -20:18])
+
+-- out/errors.txt --
+[incomplete] #mkFinDefSet.#Type: error in call to or: required field missing: #Definition:
+    ./x.cue:22:16
+    ./x.cue:22:32
+[incomplete] #FinDefSetConfigTextElem.toString._output.elems: invalid interpolation: unresolved disjunction string | {UseSectionName:true} | {Append:string | {UseSectionName:true}} | {Prepend:string | {UseSectionName:true}} | [string | {UseSectionName:true} | {Append:string | {UseSectionName:true}} | {Prepend:string | {UseSectionName:true}},string | {UseSectionName:true} | {Append:string | {UseSectionName:true}} | {Prepend:string | {UseSectionName:true}}] (type (string|list|struct)):
+    ./x.cue:116:5
+    ./x.cue:114:18
+[incomplete] #orgForConfigTextRules.orgSyntax.elems: invalid interpolation: unresolved disjunction string | {UseSectionName:true} | {Append:string | {UseSectionName:true}} | {Prepend:string | {UseSectionName:true}} | [string | {UseSectionName:true} | {Append:string | {UseSectionName:true}} | {Prepend:string | {UseSectionName:true}},string | {UseSectionName:true} | {Append:string | {UseSectionName:true}} | {Prepend:string | {UseSectionName:true}}] (type (string|list|struct)):
+    ./x.cue:116:5
+    ./x.cue:114:18
+-- out/eval/stats --
+Leaks:  345
+Freed:  1738
+Reused: 1680
+Allocs: 403
+Retain: 0
+
+Unifications: 368
+Conjuncts:    2310
+Disjuncts:    572
+
+NumCloseIDs: 803
+
+ConjunctInfos:       860
+MaxConjunctInfos:    7
+MaxReqSets:          15
+MaxRedirect:         6
+-- out/todo.txt --
+value0: v2 and v3 both evaluate correctly to Only:[{UseSectionName:true}] with
+orgSyntax "Only [UseSectionName]"; the fix was for evalv3 previously including
+unwanted disjunction alternatives.

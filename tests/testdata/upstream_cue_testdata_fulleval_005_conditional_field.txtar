@@ -1,0 +1,41 @@
+-- in.cue --
+a: {
+	@test(eq, {
+		b: true
+		a: "foo"
+	})
+	if b {
+		a: "foo"
+	}
+	b: true
+}
+c: {
+	a: 3
+	if a > 1 {
+		a: 3
+	}
+	@test(eq, { a: 3 })
+}
+d: {
+	a: int
+	if a > 1 {
+		a: 3
+	}
+	@test(err, code=(cycle|incomplete))
+}
+-- out/errors.txt --
+[incomplete] d: non-concrete value int in operand to >:
+    ./in.cue:20:5
+    ./in.cue:19:5
+-- out/eval/stats --
+Leaks:  0
+Freed:  8
+Reused: 2
+Allocs: 6
+Retain: 0
+
+Unifications: 8
+Conjuncts:    11
+Disjuncts:    0
+
+NumCloseIDs: 6

@@ -1,0 +1,24 @@
+-- in.cue --
+#def: {
+	Type: string
+	Text: string
+	Size: int
+}
+
+#def: {
+	Type: "B"
+	Size: 0
+} | {
+	Type: "A"
+	Size: 1
+} @test(eq, {Type: "B", Text: string, Size: 0} | {Type: "A", Text: string, Size: 1})
+-- out/eval/stats --
+Leaks:  0
+Freed:  13
+Reused: 0
+Allocs: 13
+Retain: 0
+
+Unifications: 5
+Conjuncts:    12
+Disjuncts:    2

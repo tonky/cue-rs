@@ -1,0 +1,14 @@
+-- in.cue --
+a: null         @test(eq, null)
+b: a.x | "b"    @test(eq, "b")
+c: a["x"] | "c" @test(eq, "c")
+-- out/eval/stats --
+Leaks:  2
+Freed:  6
+Reused: 2
+Allocs: 6
+Retain: 0
+
+Unifications: 4
+Conjuncts:    8
+Disjuncts:    4

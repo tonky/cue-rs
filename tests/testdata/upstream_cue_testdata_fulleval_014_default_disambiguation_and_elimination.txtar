@@ -1,0 +1,24 @@
+-- in.cue --
+a: *1 | int @test(eq, *1 | int)
+b: *3 | int @test(eq, *3 | int)
+e: *1 | *1  @test(eq, 1)
+
+c: a & b @test(eq, 1 | 3 | int)
+
+d: {
+  b & a
+  @test(eq, 1 | 3 | int)
+}
+
+-- out/eval/stats --
+Leaks:  1
+Freed:  23
+Reused: 12
+Allocs: 12
+Retain: 0
+
+Unifications: 6
+Conjuncts:    31
+Disjuncts:    18
+
+NumCloseIDs: 6

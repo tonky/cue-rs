@@ -1,0 +1,26 @@
+-- in.cue --
+import "strings"
+
+a: strings.ContainsAny("ab")
+a: "after" @test(eq, "after")
+
+b: strings.ContainsAny("c")
+b: "dog" @test(err, code=eval, contains="invalid value \"dog\"", pos=[-1:4, -1:24, 0:4])
+
+c: strings.ContainsAny("d") & strings.ContainsAny("g")
+c: "dog" @test(eq, "dog")
+-- out/errors.txt --
+[eval] b: invalid value "dog" (does not satisfy strings.ContainsAny("c")):
+    ./in.cue:6:4
+    ./in.cue:6:24
+    ./in.cue:7:4
+-- out/eval/stats --
+Leaks:  0
+Freed:  4
+Reused: 0
+Allocs: 4
+Retain: 0
+
+Unifications: 4
+Conjuncts:    8
+Disjuncts:    0

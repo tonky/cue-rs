@@ -1,0 +1,15 @@
+-- in.cue --
+#dev:   int   @test(eq, int)
+"#dev": int   @test(eq, int)
+_dev:   int   @test(eq, int)
+_#dev:  int   @test(eq, int)
+-- out/eval/stats --
+Leaks:  0
+Freed:  5
+Reused: 0
+Allocs: 5
+Retain: 0
+
+Unifications: 5
+Conjuncts:    5
+Disjuncts:    0

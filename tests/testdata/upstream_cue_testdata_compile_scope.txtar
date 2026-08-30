@@ -1,0 +1,67 @@
+-- in.cue --
+a: {
+	{{
+		b
+		c
+		d: b
+		e: c
+	}}
+	c: {}
+} @test(eq, {d: {}, e: {}, c: {}})
+b: {}    @test(eq, {})
+s: "foo" @test(eq, "foo")
+c: s     @test(eq, "foo")
+
+// s is technically in a new struct here so it will have a one higher count than
+// the one before.
+d: [s]: 3 @test(eq, {["foo"]: 3})
+
+e: {} @test(eq, {}, hint="not the worst if this is not allowed")
+
+e & {
+	e: {}
+}
+
+p: {
+	{["foo"]~(X): b: X | null}
+	{["bar"]~(Y,_): b: Y}
+
+	@test(eq, {
+		["foo"]: b: null @test(final)
+		["bar"]: b: string
+	}, incorrect)
+	@test(eq:todo, {
+		["foo"]: b: null @test(final)
+		["bar"]: b: "bar"
+	})
+}
+
+let B = {open: int}
+f: B @test(eq, {open: int})
+
+schema: {
+	next: _schema_1 @test(err, code=structural_cycle)
+}
+
+let _schema_1 = schema
+-- out/errors.txt --
+[structural_cycle] schema.next: structural cycle
+-- out/eval/stats --
+Leaks:  1
+Freed:  18
+Reused: 4
+Allocs: 15
+Retain: 0
+
+Unifications: 18
+Conjuncts:    33
+Disjuncts:    0
+Notifications: 2
+
+NumCloseIDs: 14
+-- out/diff-v2-v3.txt --
+Structural cycle reported in different location between v2 and v3.
+v2: _schema_1: structural cycle (with position ./in.cue:32:8)
+v3: schema.next: structural cycle
+Seems fine, as ultimately we need to print the paths of the cycle anyway.
+v3 also reports a position.

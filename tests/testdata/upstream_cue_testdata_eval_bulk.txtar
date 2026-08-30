@@ -1,0 +1,258 @@
+// Tests bulk pattern constraints including pattern cycles, multiple pattern
+// constraints, and field-not-allowed errors from pattern constraint closedness.
+// Also covers regressions: issue 2109 (pattern cycle detection), issue 3638
+// (closedness/default markers erased in multiple contexts), and issue 3670
+// (int pattern incorrectly allowing non-int fields).
+-- in.cue --
+a: {
+	foo: a: 1
+	[=~"foo"]~(X,_): {
+		b:    1
+		name: X
+	}
+
+	@test(eq, {
+		[=~"foo"]: { b: 1, name: string }
+		foo: {a: 1, b: 1, name: "foo"}
+	})
+	@test(allows, foo)
+	@test(allows, foobar)
+	@test(allows, string)
+
+	// TODO(eval): struct isn't closed, so this should be true.
+	@test(allows:todo=false, bar)
+}
+d: a & {
+	"foobar": {
+		c: 2
+	}
+} @test(eq, {
+	foobar: {c: 2, b: 1, name: "foobar"}
+	foo:    {a: 1, b: 1, name: "foo"}
+})
+
+t1: {
+	#a: {
+		[>"e" & <"z"]: int
+	}
+
+	// TODO(inline): support allow on fields.
+	b: #a & {f: 4} @test(eq, {f: 4}) @test(allows, f) @test(allows=false, a) @test(allows=false, string)
+	c: #a & {z: 4} @test(err, code=eval, at=z, contains="field not allowed", pos=[0:11])
+}
+
+t2: {
+	#a: {
+		["x" | "y"]: int
+	}
+
+	// TODO(inline): support allow on fields.
+	b: #a & {x: 4} @test(eq, {x: 4}) @test(allows, x) @test(allows=false, z) @test(allows=false, string)
+	c: #a & {z: 4} @test(err, code=eval, at=z, contains="field not allowed", pos=[0:11])
+}
+
+-- issue2109.cue --
+// Detect cycle:
+// The pattern constraint of FlagsURLS is applied to countries (because
+// FlagsURLs  is embedded. But the pattern constraint itself refers to
+// countries. So countries -> or(countries) -> countries.
+//
+// Theoretically, or(countries) can be resolved without a cycle. And then we
+// could see it does not apply to countries. For now we stick with this
+// approach understanding that it is easier to relax later.
+patternCycle: issue2109: p1: {
+	// TODO(inline: permute doesn't permute embeddings, so the permute count
+	// here is 2, not 6. Fix this.
+	countries: ["US", "GB", "AU"]
+	FlagsURLs: {[or(countries)]: string}
+	FlagsURLs
+	@test(eq, {
+		countries: ["US", "GB", "AU"]
+		FlagsURLs: {}
+	})
+}
+patternCycle: issue2109: p2: {
+	FlagsURLs: {[or(countries)]: string}
+	FlagsURLs
+	countries: ["US", "GB", "AU"]
+	@test(eq, {
+		FlagsURLs: {}
+		countries: ["US", "GB", "AU"]
+	})
+}
+patternCycle: issue2109: p3: {
+	FlagsURLs
+	FlagsURLs: {[or(countries)]: string}
+	countries: ["US", "GB", "AU"]
+	@test(eq, {
+		FlagsURLs: {}
+		countries: ["US", "GB", "AU"]
+	})
+}
+
+patternCycle: t1: p1: {
+	countries: "US" | "GB" | "AU"
+	FlagsURLs: {[countries]: string}
+	FlagsURLs
+	@test(eq, {
+		countries: "US" | "GB" | "AU"
+		FlagsURLs: {}
+	})
+}
+patternCycle: t1: p2: {
+	FlagsURLs
+	countries: "US" | "GB" | "AU"
+	FlagsURLs: {[countries]: string}
+	@test(eq, {
+		countries: "US" | "GB" | "AU"
+		FlagsURLs: {}
+	})
+}
+patternCycle: t1: p3: {
+	FlagsURLs
+	FlagsURLs: {[countries]: string}
+	countries: "US" | "GB" | "AU"
+	@test(eq, {
+		FlagsURLs: {}
+		countries: "US" | "GB" | "AU"
+	})
+}
+
+-- intpattern.cue --
+// evalv3 regression: a pattern constraint definition with int key incorrectly
+// allowed a non-matching (non-int) field.
+// https://cuelang.org/issue/3670
+issue3670: {
+	#X: [int]: string
+	a: #X
+	a: "not_int": "c" @test(err, code=eval, contains="field not allowed", pos=[0:5])
+}
+dual: {
+	_
+	// As long as it is undecided whether this is a struct or list, this should
+	// not be a conflict. Note that the spec does not allow int patterns, but
+	// both v2 and v3 allow it, and we soon will, so it seems gratuitous to
+	// break it now.
+	[string]: _
+	[int]: _
+
+	@test(eq, {_, [int]: _, [string]: _})
+
+	// TODO: test allows once we know what it means in this case.
+}
+-- multi.cue --
+// evalv3 regression: closedness values and default markers were incorrectly
+// erased, causing order-dependent "incomplete value" errors.
+// https://cuelang.org/issue/3638
+// Ensure that if the same pattern is added multiple times in different
+// contexts, it is added to all contexts to preserve closedness information.
+issue3638: full: {
+	routes: default: {}
+	routes: [string]: spec: [{
+
+		refs: [{"default"}]
+	}]
+	#Fields: {
+		input: _
+		output: [for x in input { x }] @test(err, code=incomplete, contains="cannot range over input (incomplete type _)", pos=[0:21])
+		...
+	}
+	#Kubernetes: {
+		#Fields & {
+			Routes: route: [_]: spec!: HTTPROUTESPEC.#x
+		}
+		#Fields // Commenting out this line also fixes evalv3.
+		Routes: _
+		input: res1: Routes
+	}
+	let HTTPROUTESPEC = {
+		#x: [...{
+			refs: [...{string}]
+		}] | *[{
+			other: []
+		}]
+	}
+
+	// Order dependent! Breaks if the lines below are moved to the top of the file.
+	entrypoint: used.output
+	used: #Kubernetes & {
+		Routes: route: routes
+	}
+	@test(eq, {
+		routes: default: {spec: [{ refs: ["default"] }]}
+		#Fields: {
+			input:  _
+			output: _|_
+		}
+		#Kubernetes: {
+			Routes: route:      {}
+			input: res1: route: {}
+			output:             [{ route: {} }]
+		}
+		entrypoint: [{ route: default: spec: [{ refs: ["default"] }] }]
+		used: {
+			Routes: route: default: spec:      [{ refs: ["default"] }]
+			input: res1: route: default: spec: [{ refs: ["default"] }]
+			output: [{
+				route: default: spec: [{ refs: ["default"] }]
+			}]
+		}
+	})
+}
+issue3638: reduced: {
+	input: k1: [string]: a: 1
+	input: k1: foo: #x
+	out: {
+		for x in input { x }
+		for x in input { x }
+	}
+	#x: { a: int } | *{ b: 2 }
+	@test(eq, {
+		input: k1: foo: {a: 1}
+		out: foo: a: 1
+		#x: *{b: 2} | {a: int}
+	})
+}
+// We expect that changing the pattern constraint into a field should give
+// not materially change the outcome.
+issue3638: compare: {
+	input: k1: foo: a: 1
+	input: k1: foo: #x
+	out: {
+		for x in input { x }
+		for x in input { x }
+	}
+	#x: { a: int } | *{ b: 2 }
+	@test(eq, {
+		input: k1: foo: {a: 1}
+		out: foo: a: 1
+		#x: *{b: 2} | {a: int}
+	})
+}
+-- out/errors.txt --
+[eval] t1.c.z: field not allowed:
+    ./in.cue:35:11
+[eval] t2.c.z: field not allowed:
+    ./in.cue:45:11
+[eval] issue3670.a.not_int: field not allowed:
+    ./intpattern.cue:7:5
+[incomplete] issue3638.full.#Fields.output: cannot range over input (incomplete type _):
+    ./multi.cue:14:21
+-- out/eval/stats --
+Leaks:  16
+Freed:  173
+Reused: 150
+Allocs: 39
+Retain: 0
+
+Unifications: 140
+Conjuncts:    302
+Disjuncts:    33
+Notifications: 6
+
+NumCloseIDs: 74
+-- out/todo.txt --
+patternCycle.t1.{p1,p2,p3}: v2 had cyclic pattern constraint errors; v3 resolves correctly.
+issue3638.full.entrypoint and issue3638.full.#Kubernetes.input.res1: v3 uses structure sharing (~), v2 expands.
+issue3638.reduced.out.foo: v3 has only one disjunct ({a:1}); v2 has two (*(a:1,b:2) | {a:1}).
+d field ordering: v3 puts foobar before foo; v2 puts foo before foobar.

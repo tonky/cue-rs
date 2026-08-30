@@ -1,0 +1,38 @@
+-- in.cue --
+import (
+	"net"
+	"strings"
+)
+// evalv3 regression: disjunctions with conditionals depending on the
+// disjunction's own value were left unresolved.
+// https://cuelang.org/issue/3993
+issue3993: reduced: {
+	x: net.IPv4 | =~"fail"
+	x: { if net.IPv4(x) {=~"^10\\." } }
+	x: "10.10.10.10"
+	@test(eq, {x: "10.10.10.10"})
+}
+
+issue3993: full: {
+	addr!: string & (net.IPv4 | net.IPv6)
+	if net.IPv4(addr) {
+		addr: strings.HasPrefix("10.")
+	}
+	if net.IPv6(addr) {
+		addr: strings.HasPrefix("2a02:")
+	}
+	addr: "10.10.10.10"
+	@test(eq, {addr: "10.10.10.10"})
+}
+-- out/eval/stats --
+Leaks:  2
+Freed:  8
+Reused: 2
+Allocs: 8
+Retain: 0
+
+Unifications: 6
+Conjuncts:    25
+Disjuncts:    4
+
+NumCloseIDs: 11

@@ -1,0 +1,30 @@
+-- in.cue --
+res: [for x in a for y in x {y & {d: "b"}}]
+res: [a.b.c & {d: "b"}]
+
+a: b: [string]~(C,_): {d: string, s: "a" + d}
+a: b: c: d: string
+@test(eq, {
+	res: [ {d: "b", s: "ab"} ]
+	a: b: c: {
+		d: string
+		s: _|_ @test(err, code=incomplete, pos=[-2:38, -2:27, -1:13])
+	}
+})
+-- out/errors.txt --
+[incomplete] a.b.c.s: non-concrete value string in operand to +:
+    ./in.cue:4:38
+    ./in.cue:4:27
+    ./in.cue:5:13
+-- out/eval/stats --
+Leaks:  0
+Freed:  10
+Reused: 0
+Allocs: 10
+Retain: 0
+
+Unifications: 10
+Conjuncts:    24
+Disjuncts:    0
+
+NumCloseIDs: 3

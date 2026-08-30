@@ -1,0 +1,21 @@
+-- in.cue --
+r: {
+	a?: 3
+	b:  a      @test(err, code=incomplete, contains="cannot reference optional field: a", pos=[0:6])
+	c:  r["a"] @test(err, code=incomplete, contains="cannot reference optional field: a", pos=[0:8])
+}
+-- out/errors.txt --
+[incomplete] r.b: cannot reference optional field: a:
+    ./in.cue:3:6
+[incomplete] r.c: cannot reference optional field: a:
+    ./in.cue:4:8
+-- out/eval/stats --
+Leaks:  0
+Freed:  5
+Reused: 0
+Allocs: 5
+Retain: 0
+
+Unifications: 5
+Conjuncts:    5
+Disjuncts:    0

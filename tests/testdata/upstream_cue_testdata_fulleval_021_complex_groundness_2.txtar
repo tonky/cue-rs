@@ -1,0 +1,59 @@
+#name: complex groundness  2
+#evalFull
+-- in.cue --
+r1: f1 & {y: "c"} @test(eq, {
+	y: "c"
+	res: {d: "c", s: "ac"}
+})
+
+f1: {y: string, res: a.b.c & {d: y}} @test(eq, {
+	y: string
+	res: {
+		d: string
+		s: _|_ @test(err, code=incomplete,
+			pos=[9:38, 0:34, 9:27, 14:27, 15:13])
+	}
+})
+
+a: b: c:              {d: string, s: "a" + d} @test(eq, {
+	d: string
+	s: _|_ @test(err, code=incomplete,
+		pos=[0:38, 0:27, 5:27, 6:13])
+})
+a: b: [string]~(C,_): {d: string, s: "a" + d}
+a: b: c: d: string
+-- out/errors.txt --
+[incomplete] f1.res.s: non-concrete value string in operand to +:
+    ./in.cue:15:38
+    ./in.cue:6:34
+    ./in.cue:15:27
+    ./in.cue:20:27
+    ./in.cue:21:13
+f1.res.s: non-concrete value string in operand to +:
+    ./in.cue:20:38
+    ./in.cue:6:34
+    ./in.cue:15:27
+    ./in.cue:20:27
+    ./in.cue:21:13
+[incomplete] a.b.c.s: non-concrete value string in operand to +:
+    ./in.cue:15:38
+    ./in.cue:15:27
+    ./in.cue:20:27
+    ./in.cue:21:13
+a.b.c.s: non-concrete value string in operand to +:
+    ./in.cue:20:38
+    ./in.cue:15:27
+    ./in.cue:20:27
+    ./in.cue:21:13
+-- out/eval/stats --
+Leaks:  0
+Freed:  16
+Reused: 6
+Allocs: 10
+Retain: 0
+
+Unifications: 16
+Conjuncts:    47
+Disjuncts:    0
+
+NumCloseIDs: 5

@@ -1,0 +1,35 @@
+#inlinetest:exclude skip — tests export format, not evaluator semantics
+-- in.cue --
+{a: [ 3 & 4]}
+-- out/eval/stats --
+Leaks:  0
+Freed:  3
+Reused: 0
+Allocs: 3
+Retain: 0
+
+Unifications: 3
+Conjuncts:    5
+Disjuncts:    0
+
+NumCloseIDs: 1
+-- out/evalalpha --
+Errors:
+a.0: conflicting values 4 and 3:
+    ./in.cue:1:1
+    ./in.cue:1:7
+    ./in.cue:1:11
+
+Result:
+(_|_){
+  // [eval]
+  a: (_|_){
+    // [eval]
+    0: (_|_){
+      // [eval] a.0: conflicting values 4 and 3:
+      //     ./in.cue:1:1
+      //     ./in.cue:1:7
+      //     ./in.cue:1:11
+    }
+  }
+}

@@ -1,0 +1,134 @@
+-- in.cue --
+import "encoding/yaml"
+
+// Defaults don't resolve struct values; a default that selects a missing
+// field in a struct should fall back to the other disjunct.
+// https://cuelang.org/issue/700
+issue700: {
+	a: y: "y"
+	test1: *a.x | 1
+	test2: *a.y | 1
+	@test(eq, {a: {y: "y"}, test1: 1, test2: *"y" | 1})
+}
+
+lookup: {
+	x: {
+		name: "Hello"
+	}
+	y:        x.a       @test(err, code=incomplete, contains="undefined field: a", pos=[0:14])
+	ok1:      *x.a | x  @test(eq, {name: "Hello"})
+	ok2:      x | *x.a  @test(eq, {name: "Hello"})
+	ok3:      x.a | *x  @test(eq, {name: "Hello"})
+	ok4:      *x | x.a  @test(eq, {name: "Hello"})
+	ok5:      x | x.a   @test(eq)
+	ok5:      x.a | x   @test(eq, {name: "Hello"})
+	allFail1: x.a | x.b @test(err, code=incomplete, contains="2 errors in empty disjunction",
+		suberr=(code=incomplete, contains="undefined field: a", pos=[0:14]),
+		suberr=(code=incomplete, contains="undefined field: b", pos=[0:20]),
+	)
+	allFail2: x.a | x.b @test(err, code=incomplete, contains="2 errors in empty disjunction",
+		suberr=(code=incomplete, contains="undefined field: a", pos=[0:14]),
+		suberr=(code=incomplete, contains="undefined field: b", pos=[0:20]),
+	)
+}
+
+func: {
+	s:   string
+	ok1: yaml.MarshalStream(s) | yaml.Marshal(s) @test(err, code=incomplete,
+		contains="2 errors in empty disjunction",
+		suberr=(code=incomplete, contains="non-concrete argument 0", pos=[0:7]),
+		suberr=(code=incomplete, contains="non-concrete argument 0", pos=[0:31]),
+	)
+}
+
+// Default mark on interpolated string; a concrete override should suppress
+// a default interpolation regardless of whether it is left or right in the disjunction.
+// https://cuelang.org/issue/782
+issue782: {
+	a: {
+		inner:         string
+		interpolation: *"\(inner)" | string
+		interpolation: "override"
+		@test(eq, {
+			inner: string
+			interpolation: "override"
+		})
+	}
+	b: {
+		inner:         string
+		interpolation: string | *"\(inner)"
+		interpolation: "override"
+		@test(eq, {
+			inner: string
+			interpolation: "override"
+		})
+	}
+	c: {
+		inner:         string
+		interpolation: "\(inner)" | string
+		interpolation: "override"
+		@test(eq, {
+			inner: string
+			interpolation: "override"
+		})
+	}
+	d: {
+		inner:         string
+		interpolation: string | "\(inner)"
+		interpolation: "override"
+		@test(eq, {
+			inner: string
+			interpolation: "override"
+		})
+	}
+}
+-- issue3680.cue --
+// evalv3: "unexpected uninitialized node" regression with bottom optional fields;
+// optional fields set to _|_ in a disjunct should not cause a crash.
+// https://cuelang.org/issue/3680
+issue3680: t1: {
+	{} | {
+		a?: _|_
+		b?: _|_
+	}
+	{} | {}
+	@test(eq, {} | {a?: _|_, b?: _|_})
+}
+issue3680: t2: {
+	x:	{} | {
+		a?: _|_
+		b?: _|_
+	}
+	x:	{} | {}
+	@test(eq, {x: {} | {a?: _|_, b?: _|_}})
+}
+-- out/errors.txt --
+[incomplete] lookup.y: undefined field: a:
+    ./in.cue:17:14
+[incomplete] lookup.allFail1: 2 errors in empty disjunction:
+lookup.allFail1: undefined field: a:
+    ./in.cue:24:14
+lookup.allFail1: undefined field: b:
+    ./in.cue:24:20
+[incomplete] lookup.allFail2: 2 errors in empty disjunction:
+lookup.allFail2: undefined field: a:
+    ./in.cue:28:14
+lookup.allFail2: undefined field: b:
+    ./in.cue:28:20
+[incomplete] func.ok1: 2 errors in empty disjunction:
+func.ok1: error in call to encoding/yaml.MarshalStream: non-concrete argument 0:
+    ./in.cue:36:7
+func.ok1: error in call to encoding/yaml.Marshal: non-concrete argument 0:
+    ./in.cue:36:31
+-- out/eval/stats --
+Leaks:  15
+Freed:  83
+Reused: 62
+Allocs: 36
+Retain: 0
+
+Unifications: 46
+Conjuncts:    104
+Disjuncts:    42
+
+NumCloseIDs: 9

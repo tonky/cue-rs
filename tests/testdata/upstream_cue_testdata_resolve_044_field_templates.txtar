@@ -1,0 +1,34 @@
+-- in.cue --
+a: {
+	{[_]~(name,_): int}
+	k: 1
+} @test(eq, {k: 1})
+b: {
+	{[_]~(X,_): {x: 0, y: *1 | int}}
+	v: {}
+	w: {x: 0}
+}
+b: {[_]~(y,_): {}} @test(eq, {
+	v: {x: 0, y: *1 | int}
+	w: {x: 0, y: *1 | int}
+})
+c: {
+	{[_]~(Name,_): {name: Name, y: 1}}
+	foo: {}
+	bar: _
+} @test(eq, {
+	foo: {name: "foo", y: 1}
+	bar: {name: "bar", y: 1}
+})
+-- out/eval/stats --
+Leaks:  0
+Freed:  21
+Reused: 11
+Allocs: 10
+Retain: 0
+
+Unifications: 17
+Conjuncts:    33
+Disjuncts:    4
+
+NumCloseIDs: 6

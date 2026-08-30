@@ -1,0 +1,18 @@
+-- in.cue --
+dynamic: {
+	@test(permute, count=6)
+	(a)~(X): 1
+	x:       X
+	a:       "name"
+	@test(eq, {x: 1, a: "name", name: 1})
+}
+-- out/eval/stats --
+Leaks:  0
+Freed:  5
+Reused: 0
+Allocs: 5
+Retain: 0
+
+Unifications: 5
+Conjuncts:    5
+Disjuncts:    0

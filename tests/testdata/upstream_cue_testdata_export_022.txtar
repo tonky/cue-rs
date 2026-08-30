@@ -1,0 +1,46 @@
+raw: true
+eval: true
+noOpt: true
+#inlinetest:exclude skip — tests export format, not evaluator semantics
+-- in.cue --
+{
+	job: [_]~(Name,_): {
+		name:     Name
+		replicas: uint | *1 @protobuf(10)
+		command:  string
+	}
+
+	job: list: command: "ls"
+
+	job: nginx: {
+		command:  "nginx"
+		replicas: 2
+	}
+}
+-- out/eval/stats --
+Leaks:  1
+Freed:  13
+Reused: 5
+Allocs: 9
+Retain: 0
+
+Unifications: 10
+Conjuncts:    22
+Disjuncts:    4
+
+NumCloseIDs: 1
+-- out/evalalpha --
+(struct){
+  job: (struct){
+    list: (struct){
+      command: (string){ "ls" }
+      name: (string){ "list" }
+      replicas: (int){ |(*(int){ 1 }, (int){ &(>=0, int) }) }
+    }
+    nginx: (struct){
+      command: (string){ "nginx" }
+      replicas: (int){ 2 }
+      name: (string){ "nginx" }
+    }
+  }
+}

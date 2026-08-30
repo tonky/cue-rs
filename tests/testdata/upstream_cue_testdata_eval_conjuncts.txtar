@@ -1,0 +1,124 @@
+// These tests are related to issue 2351.
+// Tests conjunct unification with disjunctions and comprehensions, including
+// regression fixes for undefined field errors (issue 2351) and cycle errors
+// (issue 2355) in the v3 evaluator.
+-- in.cue --
+
+conjunct: t1: ({
+	#early: *"X" | string
+	#early
+} & {
+	#early: *"X" | string
+	string
+}) @test(eq, *{"X", #early: *"X" | string} | {string, #early: *"X" | string})
+
+conjunct: t2: {
+	#early: *"X" | string
+	#early
+}
+conjunct: t2: {
+	#early: *"X" | string
+	string
+} @test(eq, *{"X", #early: *"X" | string} | {string, #early: *"X" | string})
+
+conjunct: t3: (conjunct.t1 & conjunct.t2) @test(eq, *{"X", #early: *"X" | string} | {string, #early: *"X" | string})
+
+handleComprehensions: {
+	if false {
+		subs: #sub2 & 2
+	}
+	#sub2: 2
+	@test(eq, {#sub2: 2})
+}
+
+-- issue2351.cue --
+// Regression between v0.4.3 and v0.5.0: "undefined field" error when embedding
+// a for comprehension, caused by incorrect error reporting for let/hidden fields.
+// https://cuelang.org/issue/2351
+issue2351: let: {
+	let _param = "foo"
+	({
+		param: _param & [{}]
+		gen: [for p in param {p}]
+	}).gen
+	@test(err, code=eval, contains="conflicting values", pos=[0:17, 1:15, 2:2, 3:10, 3:19])
+}
+
+issue2351: hidden: {
+	_in1: ["foo"]
+	{
+		in2: _in1
+		out: [for x in in2 {x}]
+	}.out
+	@test(skip, hint="TODO(inline): allow ignoring hidden values.")
+	@test(eq:todo, {
+		@test(final)
+		["foo"]
+	})
+}
+
+-- issue2355.cue --
+// Regression v0.4.3→v0.5.0: cycle error when using let fields within nested
+// struct embeddings, breaking previously working code.
+// https://cuelang.org/issue/2355
+issue2355: {
+	#GetF1: {
+		in:  _
+		out: in.f1 @test(err, code=incomplete, contains="%s undefined as %s is incomplete (type %s)", args=[in.f1, in, _], pos=[0:8])
+	}
+
+	#PutOut1: {
+		in: _
+		out: out1: "\(in)" @test(err, code=incomplete, contains="invalid interpolation", pos=[0:14])
+	}
+
+	export: {
+		let data = {f1: "foo"}
+		(#PutOut1 & {
+			in: (#GetF1 & {
+				in: data
+			}).out
+		}).out
+	}
+	@test(eq, {
+		#GetF1: {
+			in: _
+			out: _|_
+		}
+		#PutOut1: {
+			in: _
+			out: {
+				out1: _|_
+			}
+		}
+		export: {out1: "foo"}
+	})
+}
+
+-- out/errors.txt --
+[eval] param: conflicting values [{}] and "foo" (mismatched types list and string):
+    ./issue2351.cue:4:17
+    ./issue2351.cue:5:15
+    ./issue2351.cue:6:2
+    ./issue2351.cue:7:10
+    ./issue2351.cue:7:19
+[incomplete] issue2355.#GetF1.out: in.f1 undefined as in is incomplete (type _):
+    ./issue2355.cue:7:8
+[incomplete] issue2355.#PutOut1.out.out1: invalid interpolation: non-concrete value _ (type _):
+    ./issue2355.cue:12:14
+-- out/eval/stats --
+Leaks:  5
+Freed:  240
+Reused: 209
+Allocs: 36
+Retain: 0
+
+Unifications: 40
+Conjuncts:    253
+Disjuncts:    152
+Notifications: 5
+
+NumCloseIDs: 43
+-- out/todo.txt --
+conjunct.t1/t2/t3: complex disjunctions with embedded hidden fields; only @test(eq) checked.
+issue2355.export: v3 correctly closes it (closing in new evaluator), v2 does not close.

@@ -1,0 +1,28 @@
+-- in.cue --
+a: d: {
+	#base
+	#info: {...}
+	Y:     #info.X @test(eq, "foo") @test(closed)
+} @test(closed)
+
+#base: {
+	#info: {...}
+} @test(closed)
+
+a: [string]~(Name,_): {
+	#info: {
+		X: "foo"
+	}
+} @test(closed=false)
+-- out/eval/stats --
+Leaks:  0
+Freed:  8
+Reused: 1
+Allocs: 7
+Retain: 0
+
+Unifications: 8
+Conjuncts:    14
+Disjuncts:    0
+
+NumCloseIDs: 3

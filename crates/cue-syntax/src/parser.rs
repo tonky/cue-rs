@@ -103,7 +103,11 @@ impl<'a> Parser<'a> {
                 let next_span = &raw_tokens[i + 1].1;
                 if span.end < next_span.start {
                     let inter_slice = &source[span.end..next_span.start];
-                    if inter_slice.contains('\n') && Self::can_end_statement(tok) {
+                    let next_tok = &raw_tokens[i + 1].0;
+                    if inter_slice.contains('\n')
+                        && Self::can_end_statement(tok)
+                        && next_tok != &Token::Colon
+                    {
                         tokens.push((Token::Comma, span.end..span.end));
                     }
                 }
@@ -325,6 +329,7 @@ impl<'a> Parser<'a> {
                 | Token::DefIdent(id)
                 | Token::HiddenIdent(id)
                 | Token::HiddenDefIdent(id) => id,
+                Token::Top => "_".to_string(),
                 _ => {
                     return Err(ParseError::UnexpectedToken {
                         found: format!("{}", tok),
@@ -482,7 +487,8 @@ impl<'a> Parser<'a> {
             | Token::DefIdent(_)
             | Token::HiddenIdent(_)
             | Token::HiddenDefIdent(_)
-            | Token::StringLit(_) => {
+            | Token::StringLit(_)
+            | Token::Top => {
                 idx += 1;
                 if idx < self.tokens.len() && self.tokens[idx].0 == Token::Tilde {
                     idx += 1;
@@ -501,7 +507,9 @@ impl<'a> Parser<'a> {
                         idx += 1;
                     }
                 }
-                if idx < self.tokens.len() && self.tokens[idx].0 == Token::Question {
+                if idx < self.tokens.len()
+                    && (self.tokens[idx].0 == Token::Question || self.tokens[idx].0 == Token::Bang)
+                {
                     idx += 1;
                 }
                 idx < self.tokens.len() && self.tokens[idx].0 == Token::Colon
@@ -528,7 +536,7 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
             }
         }
-        let optional = self.match_token(&Token::Question);
+        let optional = self.match_token(&Token::Question) || self.match_token(&Token::Bang);
         self.expect(Token::Colon)?;
 
         // Support label syntactic sugar nesting: `a: b: c: 1`
@@ -571,7 +579,11 @@ impl<'a> Parser<'a> {
 
     fn parse_label(&mut self) -> Result<Label, ParseError> {
         if self.match_token(&Token::LBracket) {
-            let expr = self.parse_expr()?;
+            let expr = if self.peek() == Some(&Token::KwFor) || self.peek() == Some(&Token::KwIf) {
+                self.parse_list_comprehension_body()?
+            } else {
+                self.parse_expr()?
+            };
             self.expect(Token::RBracket)?;
             return Ok(Label::Pattern(expr));
         }
@@ -588,6 +600,7 @@ impl<'a> Parser<'a> {
             Token::DefIdent(s) => Ok(Label::DefIdent(s)),
             Token::HiddenIdent(s) => Ok(Label::HiddenIdent(s)),
             Token::HiddenDefIdent(s) => Ok(Label::HiddenDefIdent(s)),
+            Token::Top => Ok(Label::Ident("_".to_string())),
             Token::StringLit(s) => {
                 if s.contains(r"\(") {
                     let expr = Self::parse_string_lit(s)?;
@@ -1038,9 +1051,15 @@ impl<'a> Parser<'a> {
                 let mut ellipsis = None;
 
                 while !self.match_token(&Token::RBracket) && !self.is_eof() {
+                    if self.match_token(&Token::Comma) {
+                        continue;
+                    }
                     if self.peek() == Some(&Token::KwFor) || self.peek() == Some(&Token::KwIf) {
                         elements.push(self.parse_list_comprehension_body()?);
                         self.match_token(&Token::Comma);
+                        if self.match_token(&Token::RBracket) {
+                            break;
+                        }
                         continue;
                     }
                     if self.match_token(&Token::Ellipsis) {

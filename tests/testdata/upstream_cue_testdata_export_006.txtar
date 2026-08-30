@@ -1,0 +1,35 @@
+#inlinetest:exclude skip — tests export format, not evaluator semantics
+-- in.cue --
+{a: {b: 2.0, s: "abc"}, b: a.b, c: a.c, d: a["d"], e: a.t[2:3]}
+-- out/eval/stats --
+Leaks:  0
+Freed:  8
+Reused: 0
+Allocs: 8
+Retain: 0
+
+Unifications: 8
+Conjuncts:    9
+Disjuncts:    0
+
+NumCloseIDs: 1
+-- out/evalalpha --
+(struct){
+  a: (struct){
+    b: (float){ 2.0 }
+    s: (string){ "abc" }
+  }
+  b: (float){ 2.0 }
+  c: (_|_){
+    // [incomplete] c: undefined field: c:
+    //     ./in.cue:1:38
+  }
+  d: (_|_){
+    // [incomplete] d: undefined field: d:
+    //     ./in.cue:1:46
+  }
+  e: (_|_){
+    // [incomplete] e: undefined field: t:
+    //     ./in.cue:1:57
+  }
+}

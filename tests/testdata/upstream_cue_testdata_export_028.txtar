@@ -1,0 +1,34 @@
+raw: true
+eval: true
+#inlinetest:exclude skip — tests export format, not evaluator semantics
+-- in.cue --
+{
+	#FindInMap: {
+		#: "Fn::FindInMap": [string | #FindInMap]
+	}
+	a: [...string]
+}
+-- out/eval/stats --
+Leaks:  1
+Freed:  7
+Reused: 0
+Allocs: 8
+Retain: 0
+
+Unifications: 6
+Conjuncts:    9
+Disjuncts:    2
+
+NumCloseIDs: 1
+-- out/evalalpha --
+(struct){
+  #FindInMap: (#struct){
+    #: (#struct){
+      "Fn::FindInMap": (#list){
+        0: (string){ string }
+      }
+    }
+  }
+  a: (list){
+  }
+}

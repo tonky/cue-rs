@@ -1,0 +1,244 @@
+# Tests comprehensions with definitions that use incomplete boolean conditions,
+# including nested definition references and cross-struct comprehensions.
+# Issue #1732: comprehension with abstract bool condition in definitions causes
+# "incomplete bool" error propagation through nested structs.
+-- in.cue --
+package config
+
+networkingv1: {
+	metav1: {
+		#LabelSelector: {
+			matchLabels: {[string]: string}
+		}
+	}
+
+	#NetworkPolicy: {
+		spec: #NetworkPolicySpec
+	}
+
+	#NetworkPolicySpec: {
+		ingress: [...#NetworkPolicyIngressRule]
+		egress:  [...#NetworkPolicyEgressRule]
+	}
+
+	#NetworkPolicyIngressRule: {
+		from: [...#NetworkPolicyPeer]
+	}
+
+	#NetworkPolicyEgressRule: {
+		to: [...#NetworkPolicyPeer]
+	}
+
+	#NetworkPolicyPeer: {
+		namespaceSelector: null | metav1.#LabelSelector
+	}
+}
+
+global_config: {
+	#GlobalConfig: {
+		auth0: {
+			enabled: bool
+		}
+	}
+}
+common: {
+	#SomeConfig: {
+		enabled: bool
+		if enabled {
+			foo: string
+		}
+		@test(err, code=incomplete, contains="incomplete bool", pos=[1:12])
+	}
+}
+
+foo: {
+	#Values: {
+		global: global_config.#GlobalConfig
+	}
+}
+
+#Config: {
+	let R = self
+	tenant: id: string
+
+	auth0: common.#SomeConfig & {
+		enabled: bool
+		if (enabled) {
+			foo: "\(tenant.id)-value"
+		}
+	}
+
+	charts: {
+		"foo": foo.#Values & {
+			global: R.global
+		}
+	}
+
+	global: global_config.#GlobalConfig & {
+		auth0: enabled: R.auth0.enabled
+	}
+}
+
+#NetworkPolicy: networkingv1.#NetworkPolicy
+
+#Flux: {
+	let R = self
+	#Config
+
+	charts: _
+
+	formatOutput: {...}
+
+	_outputs: {...}
+
+	for _chartName, _chartValues in charts {
+		_outputs: "\(_chartName)": {}
+	}
+
+	_outputs: {
+		for ns in ["ns"] {
+			"\(ns)/network": #NetworkPolicy & {
+				spec: {
+					ingress: [
+						{
+							from: [{
+								namespaceSelector: matchLabels: {
+									tenant: R.tenant.id
+								}
+							}]
+						},
+					]
+					egress: [
+						{
+							to: [{
+								namespaceSelector: matchLabels: {
+									tenant: R.tenant.id
+								}
+							}]
+						},
+					]
+				}
+			}
+		}
+	}
+
+	for ns in ["ns"] {
+		for k, v in _outputs {
+			formatOutput: "\(k)": v
+		}
+	}
+}
+@test(eq, {
+	networkingv1: {
+		metav1: {#LabelSelector: {matchLabels: {}}}
+		#NetworkPolicy: {spec: {ingress: [], egress: []}}
+		#NetworkPolicySpec: {ingress: [], egress: []}
+		#NetworkPolicyIngressRule: {from: []}
+		#NetworkPolicyEgressRule: {to: []}
+		#NetworkPolicyPeer: {
+			namespaceSelector: null | {matchLabels: {}}
+		}
+	}
+	global_config: {
+		#GlobalConfig: {auth0: {enabled: bool}}
+	}
+	common: {#SomeConfig: {_|_, enabled: bool}}
+	foo: {
+		#Values: {global: {auth0: {enabled: bool}}}
+	}
+	#Config: {
+		tenant: {id: string}
+		auth0: {_|_, enabled: bool}
+		charts: {
+			foo: {
+				global: {
+					auth0: {
+						enabled: _|_ @test(err, code=incomplete, contains="#Config.auth0: incomplete bool: bool (and 1 more errors)", pos=[-66:12])
+					}
+				}
+			}
+		}
+		global: {
+			auth0: {
+				enabled: _|_ @test(err, code=incomplete, contains="#Config.auth0: incomplete bool: bool (and 1 more errors)", pos=[-66:12])
+			}
+		}
+	}
+	#NetworkPolicy: {spec: {ingress: [], egress: []}}
+	#Flux: {
+		charts: {
+			foo: {global: {auth0: {enabled: bool}}}
+		}
+		formatOutput: {
+			foo: {}
+			"ns/network": {
+				spec: {
+					ingress: [{
+						from: [{
+							namespaceSelector: {matchLabels: {tenant: string}}
+						}]
+					}]
+					egress: [{
+						to: [{
+							namespaceSelector: {matchLabels: {tenant: string}}
+						}]
+					}]
+				}
+			}
+		}
+		_outputs$config: {
+			foo: {}
+			"ns/network": {
+				spec: {
+					ingress: [{
+						from: [{
+							namespaceSelector: {matchLabels: {tenant: string}}
+						}]
+					}]
+					egress: [{
+						to: [{
+							namespaceSelector: {matchLabels: {tenant: string}}
+						}]
+					}]
+				}
+			}
+		}
+		tenant: {id: string}
+		auth0: {_|_, enabled: bool}
+		global: {
+			auth0: {
+				enabled: _|_ @test(err, code=incomplete, contains="#Flux.auth0: incomplete bool: bool (and 1 more errors)", pos=[-66:12])
+			}
+		}
+	}
+})
+-- out/errors.txt --
+[incomplete] common.#SomeConfig: incomplete bool: bool:
+    ./in.cue:41:12
+[incomplete] #Config.auth0: incomplete bool: bool:
+    ./in.cue:60:12
+[incomplete] #Config.auth0: incomplete bool: bool:
+    ./in.cue:60:12
+[incomplete] #Config.auth0: incomplete bool: bool:
+    ./in.cue:60:12
+[incomplete] #Flux.auth0: incomplete bool: bool:
+    ./in.cue:60:12
+[incomplete] #Flux.auth0: incomplete bool: bool:
+    ./in.cue:60:12
+-- out/todo.txt --
+#Flux.charts.foo.global.auth0.enabled: missing error in v3.
+The error messages should say which expression was incomplete!!!
+v3 shows structure sharing (~(...)) for several definition references
+where v2 expanded them out.
+-- out/eval/stats --
+Leaks:  9
+Freed:  90
+Reused: 55
+Allocs: 44
+Retain: 0
+
+Unifications: 85
+Conjuncts:    159
+Disjuncts:    6
+
+NumCloseIDs: 38

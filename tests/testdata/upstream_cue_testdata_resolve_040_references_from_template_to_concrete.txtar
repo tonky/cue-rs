@@ -1,0 +1,29 @@
+-- in.cue --
+res: [t] @test(eq, [{
+	x: {
+		a: "XDDDD"
+		b: str: "DDDD"
+		c: "X"
+	}
+}])
+@test(shareID=T, at=res[0])
+@test(shareID=T, at=t)
+t: [string]~(X,_): {
+	a: c + b.str
+	b: str: string
+	c: "X"
+}
+t: x: {b: str: "DDDD"} @test(eq, {b: {str: "DDDD"}, a: "XDDDD", c: "X"})
+
+-- out/eval/stats --
+Leaks:  0
+Freed:  9
+Reused: 0
+Allocs: 9
+Retain: 0
+
+Unifications: 9
+Conjuncts:    13
+Disjuncts:    0
+-- out/todo.txt --
+res[0]: v2 evaluator expands res[0] to a full struct; v3 shares the vertex with t.

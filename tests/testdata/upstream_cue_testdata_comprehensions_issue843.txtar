@@ -1,0 +1,88 @@
+# Tests that list comprehensions with definitions and nested constraints work.
+# Issue #843: complex nested definition with list comprehensions and imports.
+-- in.cue --
+package main
+
+import "list"
+
+#d1: {
+	as: [...string]
+
+	#c: [
+		#f1 & {
+			"as": list.Concat([["go"], as])
+		},
+	]
+	@test(eq, {
+		as: []
+		#c: [{
+		do: "f1"
+		as: ["go"]
+	}]
+	})
+}
+
+#d2: {
+	p: *"." | string
+
+	#c: [
+		#f2 & {
+			from: #d1 & {
+				as: [p]
+			}
+		},
+	]
+	// TODO(inline): generatign this value is broken: hand-spun.
+	@test(eq, {
+		p: *"." | string
+		#c: [{
+			do: "f2"
+			from: {
+				as: [*"."| string]
+				#c: [{
+					do: "f1"
+					as: ["go", *"."| string]
+				}]
+			}
+		}]
+	})
+}
+
+#c1: {
+	#c: [...#o]
+	_
+	...
+	@test(eq, {_, #c: []})
+}
+
+#o: #f1 | #f2
+
+#f1: {
+	do: "f1"
+	as: [...string]
+	@test(eq, {do: "f1", as: []})
+}
+
+@test(shareID=C1, at=#c1)
+@test(shareID=C1, at=#f2.from)
+#f2: {
+	do:   "f2"
+	from: #c1
+	@test(eq, {do: "f2", from: {_, #c: []}})
+}
+-- out/todo.txt --
+Field ordering differs between v2 and v3 in #d1.#c.0 and #d2.#c.0:
+v3 puts `as` before `do`, while v2 puts `do` before `as`.
+In #o and #f2, v3 shows `from: ~(#c1)` (structure sharing) while v2 expands it inline.
+-- out/eval/stats --
+Leaks:  9
+Freed:  57
+Reused: 33
+Allocs: 33
+Retain: 0
+
+Unifications: 50
+Conjuncts:    103
+Disjuncts:    12
+
+NumCloseIDs: 24

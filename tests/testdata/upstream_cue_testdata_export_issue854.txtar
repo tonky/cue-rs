@@ -1,0 +1,36 @@
+-- cue.mod/module.cue --
+module: "mod.test"
+language: version: "v0.9.0"
+-- a.cue --
+package a
+
+import "mod.test/b"
+
+theb: b.name @test(err, code=incomplete, path=b, contains="undefined field: %s", args=[c], pos=[b/b.cue:5:6])
+-- b/b.cue --
+package b
+
+import "mod.test/c"
+
+b: c.c & {
+	other: "name"
+}
+
+name: b.other
+-- c/c.cue --
+package c
+-- out/errors.txt --
+[incomplete] b: undefined field: c:
+    ./b/b.cue:5:6
+-- out/eval/stats --
+Leaks:  5
+Freed:  18
+Reused: 0
+Allocs: 23
+Retain: 0
+
+Unifications: 22
+Conjuncts:    24
+Disjuncts:    0
+
+NumCloseIDs: 1

@@ -1,0 +1,31 @@
+#name: recursive evaluation within list
+#evalFull
+-- in.cue --
+l: [a]          @test(eq, [{c: "t", d: "t"}]) @test(shareID=L, at=0)
+a: b & {c: "t"} @test(eq, {c: "t", d: "t"})  @test(shareID=L)
+b: {
+	d: c
+	c: string
+} @test(eq, {d: string, c: string})
+l1: [a1] @test(eq, [{c: "t", d: "st"}]) @test(shareID=L1, at=0)
+a1: b1 & {c: "t"} @test(eq, {c: "t", d: "st"}) @test(shareID=L1)
+b1: {
+	d: "s" + c @test(err, code=incomplete)
+	c: string
+}
+-- out/errors.txt --
+[incomplete] b1.d: non-concrete value string in operand to +:
+    ./in.cue:10:5
+    ./in.cue:11:5
+-- out/eval/stats --
+Leaks:  0
+Freed:  17
+Reused: 7
+Allocs: 10
+Retain: 0
+
+Unifications: 17
+Conjuncts:    23
+Disjuncts:    0
+
+NumCloseIDs: 2

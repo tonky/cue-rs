@@ -1,0 +1,24 @@
+#name: conflicts in optional fields are okay
+#evalFull
+-- in.cue --
+d: {a: 1, b?: 3} | {a: 2} @test(eq, {a: 1, b?: 3} | {a: 2})
+
+// the following conjunction should not eliminate any disjuncts
+c: d & {b?: 4} @test(eq, {
+	b?: _|_ @test(err, code=eval, contains="conflicting values", args=[3, 4], pos=[-3:15, 0:4, 0:13])
+	a: 1
+} | {
+	b?: 4, a: 2
+})
+-- out/eval/stats --
+Leaks:  0
+Freed:  15
+Reused: 5
+Allocs: 10
+Retain: 0
+
+Unifications: 9
+Conjuncts:    16
+Disjuncts:    4
+
+NumCloseIDs: 1

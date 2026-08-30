@@ -1,0 +1,51 @@
+-- in.cue --
+issue4011: full: {
+	let _hugoEnvironments = {
+		default:    "_default"
+		production: "production"
+	}
+
+	site: cls: _
+	site: [_]: {
+		fs: {
+			Create: {
+				for envID, envName in _hugoEnvironments
+				let envConfig = hugo[envID]
+				if envConfig != _|_ {
+					config: Contents: envConfig
+				}
+			}
+		}
+
+		hugo: _
+	}
+
+	site: [_]: hugo: production: {}
+	@test(eq, {site: cls: {
+		fs: Create: config: Contents: {}
+		hugo: production: {}
+	}})
+}
+issue4011: reduced: {
+	@test(eq, {result: foo: true, envs: foo: {}})
+	result: {
+		for envName in ["foo"]
+		let env = envs[envName]
+		if env != _|_ {
+			(envName): true
+		}
+	}
+	envs: foo: {}
+}
+-- out/eval/stats --
+Leaks:  6
+Freed:  21
+Reused: 11
+Allocs: 16
+Retain: 0
+
+Unifications: 27
+Conjuncts:    32
+Disjuncts:    0
+
+NumCloseIDs: 4

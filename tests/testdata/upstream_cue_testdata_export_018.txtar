@@ -1,0 +1,27 @@
+raw: true
+#inlinetest:exclude skip — tests export format, not evaluator semantics
+-- in.cue --
+{a: [1, 2], b: [for k, v in a {v}]}
+-- out/eval/stats --
+Leaks:  0
+Freed:  7
+Reused: 2
+Allocs: 5
+Retain: 0
+
+Unifications: 7
+Conjuncts:    12
+Disjuncts:    0
+
+NumCloseIDs: 7
+-- out/evalalpha --
+(struct){
+  a: (#list){
+    0: (int){ 1 }
+    1: (int){ 2 }
+  }
+  b: (#list){
+    0: (int){ 1 }
+    1: (int){ 2 }
+  }
+}

@@ -1,0 +1,19 @@
+-- in.cue --
+l: *[int, int] | [string, string]
+
+t1: {
+	l & ["c", "d"]
+	@test(eq, ["c", "d"])
+}
+-- out/eval/stats --
+Leaks:  3
+Freed:  14
+Reused: 8
+Allocs: 9
+Retain: 0
+
+Unifications: 9
+Conjuncts:    20
+Disjuncts:    4
+
+NumCloseIDs: 3

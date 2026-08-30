@@ -1,0 +1,23 @@
+raw: true
+#inlinetest:exclude skip — tests export format, not evaluator semantics
+-- in.cue --
+{
+	if false {
+		{a: 1} | {b: 1}
+	}
+}
+-- out/eval/stats --
+Leaks:  0
+Freed:  1
+Reused: 0
+Allocs: 1
+Retain: 0
+
+Unifications: 1
+Conjuncts:    2
+Disjuncts:    0
+
+NumCloseIDs: 2
+-- out/evalalpha --
+(struct){
+}

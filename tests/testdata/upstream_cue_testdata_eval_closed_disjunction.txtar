@@ -1,0 +1,38 @@
+-- in.cue --
+#A: {
+	b?: int
+	*{} | {c?: int} | {d?: int} | {e?: int}
+} @test(eq, *{b?: int} | {b?: int, c?: int} | {b?: int, d?: int} | {b?: int, e?: int})
+
+a: #A & {
+	b: 3
+	c: 3
+} @test(eq, {b: 3, c: 3}) @test(closed)
+
+b: #A & {
+	c: 3
+	d: 4
+} @test(err, code=eval, contains="2 errors in empty disjunction",,
+	suberr=(code=eval, contains="field not allowed", pos=[1:2]),
+	suberr=(code=eval, contains="field not allowed", pos=[2:2])
+)
+-- out/errors.txt --
+[eval] b: 2 errors in empty disjunction:
+b.c: field not allowed:
+    ./in.cue:12:2
+b.d: field not allowed:
+    ./in.cue:13:2
+-- out/eval/stats --
+Leaks:  3
+Freed:  49
+Reused: 36
+Allocs: 16
+Retain: 0
+
+Unifications: 16
+Conjuncts:    39
+Disjuncts:    12
+
+NumCloseIDs: 8
+-- out/todo.txt --
+v3 drops e? from b's error result and only shows the two sub-errors without extra positions; v2 showed e? and more error positions including compile-time locations.

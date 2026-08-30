@@ -1,0 +1,24 @@
+-- in.cue --
+#Foo: {
+	x: {
+		field: int
+
+		{a: 1} |
+		{b: 2}
+	}
+	x: c: 3
+} @test(eq, {
+	x: {field: int, c: 3, a: 1} | {field: int, c: 3, b: 2}
+})
+-- out/eval/stats --
+Leaks:  0
+Freed:  13
+Reused: 0
+Allocs: 13
+Retain: 0
+
+Unifications: 7
+Conjuncts:    11
+Disjuncts:    2
+
+NumCloseIDs: 2

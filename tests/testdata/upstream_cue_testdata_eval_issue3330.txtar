@@ -1,0 +1,67 @@
+-- in.cue --
+import "list"
+
+// issue3330: out[0] is a list element that shares #A's vertex.
+issue3330: {
+	#A: {
+		let empty = {}
+
+		// Reference to empty is within the definition that defines it. Closedness
+		// thus does not trigger.
+		field: null | { n: int }
+		field: empty & { n: 3 }
+	} @test(eq, {field: {n: 3}}) @test(shareID=A)
+
+	out: list.Concat([[#A]]) @test(eq, [{field: {n: 3}}]) @test(shareID=A, at=0)
+}
+
+// eliminated: ensures a definition used only for the empty struct triggers the
+// disjunct-elimination code path that caused the original panic in issue3330.
+eliminated: {
+	#empty: {}
+	x: null | { n: 3 }
+	x: #empty & { n: 3 } @test(err, code=eval, contains="empty disjunction",
+		suberr=(pos=[-1:5, 0:5, 0:14], contains="conflicting values", args=[struct, null]),
+		suberr=(pos=[-1:14, 0:16], contains="not allowed"))
+	out: len(x) @test(err, code=eval)
+}
+
+// simplified: different take showing the bug is triggered after a definition
+// is referenced.
+simplified: {
+	#struct: {
+		field: { n: 3 } & g
+		g: {}
+	} @test(eq, {field: {n: 3}, g: {}})
+
+	out: #struct & {} @test(eq, {field: {n: 3}, g: {}})
+}
+-- out/errors.txt --
+[eval] eliminated.x: 2 errors in empty disjunction:
+eliminated.x: conflicting values {n:3} and null (mismatched types struct and null):
+    ./in.cue:21:5
+    ./in.cue:22:5
+    ./in.cue:22:14
+eliminated.x.n: field not allowed:
+    ./in.cue:21:14
+    ./in.cue:22:16
+[eval] eliminated.x: 2 errors in empty disjunction:
+eliminated.x: conflicting values {n:3} and null (mismatched types struct and null):
+    ./in.cue:21:5
+    ./in.cue:22:5
+    ./in.cue:22:14
+eliminated.x.n: field not allowed:
+    ./in.cue:21:14
+    ./in.cue:22:16
+-- out/eval/stats --
+Leaks:  2
+Freed:  31
+Reused: 21
+Allocs: 12
+Retain: 0
+
+Unifications: 25
+Conjuncts:    45
+Disjuncts:    4
+
+NumCloseIDs: 7

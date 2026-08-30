@@ -1,0 +1,40 @@
+raw: true
+eval: true
+#inlinetest:exclude skip — tests export format, not evaluator semantics
+-- in.cue --
+{
+	b: {
+		idx: a[str]
+		str: string
+	}
+	b: a: b: 4
+	a: b: 3
+}
+-- out/eval/stats --
+Leaks:  0
+Freed:  8
+Reused: 0
+Allocs: 8
+Retain: 0
+
+Unifications: 8
+Conjuncts:    10
+Disjuncts:    0
+
+NumCloseIDs: 1
+-- out/evalalpha --
+(struct){
+  b: (struct){
+    idx: (_|_){
+      // [incomplete] b.idx: invalid non-ground value string (must be concrete string):
+      //     ./in.cue:4:8
+    }
+    str: (string){ string }
+    a: (struct){
+      b: (int){ 4 }
+    }
+  }
+  a: (struct){
+    b: (int){ 3 }
+  }
+}

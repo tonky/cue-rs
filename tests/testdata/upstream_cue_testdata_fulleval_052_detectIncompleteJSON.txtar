@@ -1,0 +1,45 @@
+#name: detectIncompleteJSON
+#evalFull
+-- in.cue --
+package foobar
+
+import "encoding/json"
+
+#Spec: {
+	_vars: {something: string}
+	data: {
+		#foo: {
+			use: _vars.something
+		}
+		baz:    json.Marshal(_vars.something) @test(err, code=incomplete)
+		foobar: json.Marshal(#foo)            @test(err, code=incomplete)
+	}
+}
+Val: #Spec & {
+	_vars: something: "var-string"
+} @test(eq, {
+	_vars$foobar: something: "var-string"
+	data: {
+		#foo: use:    "var-string"
+		baz:   "\"var-string\""
+		foobar: "{\"use\":\"var-string\"}"
+	}
+})
+-- out/errors.txt --
+[incomplete] #Spec.data.baz: error in call to encoding/json.Marshal: non-concrete argument 0:
+    ./in.cue:11:11
+[incomplete] #Spec.data.foobar: error in call to encoding/json.Marshal: cannot convert incomplete value "string" to JSON:
+    ./in.cue:12:11
+    ./in.cue:6:21
+-- out/eval/stats --
+Leaks:  0
+Freed:  17
+Reused: 8
+Allocs: 9
+Retain: 0
+
+Unifications: 17
+Conjuncts:    21
+Disjuncts:    0
+
+NumCloseIDs: 1

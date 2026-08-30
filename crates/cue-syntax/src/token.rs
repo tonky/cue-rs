@@ -136,20 +136,20 @@ pub enum Token {
     Equal,
 
     // Identifiers
-    // Definition identifier: #Foo, #foo_bar
-    #[regex(r"#[a-zA-Z0-9_]+", |lex| lex.slice().to_string())]
+    // Definition identifier: #Foo, #foo_bar, #
+    #[regex(r"#[a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
     DefIdent(String),
 
-    // Hidden definition: _#Foo
-    #[regex(r"_#[a-zA-Z0-9_]+", |lex| lex.slice().to_string())]
+    // Hidden definition: _#Foo, _#
+    #[regex(r"_#[a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
     HiddenDefIdent(String),
 
     // Hidden identifier: _foo
     #[regex(r"_[a-zA-Z0-9_]+", |lex| lex.slice().to_string())]
     HiddenIdent(String),
 
-    // Regular identifier
-    #[regex(r"[a-zA-Z][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
+    // Regular identifier (including $ identifiers like $type, $id, $)
+    #[regex(r"(\$|[a-zA-Z])[a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
     Ident(String),
 
     // Numbers (integer, float, hex, binary, octal, SI suffixes)
@@ -164,10 +164,7 @@ pub enum Token {
         let s = lex.slice();
         s[2..s.len()-2].to_string()
     })]
-    #[regex(r#""([^"\\]|\\.)*""#, |lex| {
-        let s = lex.slice();
-        s[1..s.len()-1].to_string()
-    })]
+    #[regex(r#"""#, lex_string_lit)]
     StringLit(String),
 
     // Multiline double quoted string: """ ... """ & #""" ... """#
@@ -195,6 +192,43 @@ pub enum Token {
     // Attribute: @tag(...) or @protobuf(1, int32)
     #[regex(r"@[a-zA-Z0-9_]+", lex_attribute)]
     Attribute(String),
+}
+
+fn lex_string_lit(lex: &mut logos::Lexer<Token>) -> Option<String> {
+    let remainder = lex.remainder();
+    let mut chars = remainder.char_indices().peekable();
+    let mut end = None;
+    let mut p_depth = 0;
+
+    while let Some((i, c)) = chars.next() {
+        if p_depth > 0 {
+            if c == '(' {
+                p_depth += 1;
+            } else if c == ')' {
+                p_depth -= 1;
+            } else if c == '\\' {
+                chars.next();
+            }
+        } else if c == '\\' {
+            if let Some(&(_, '(')) = chars.peek() {
+                chars.next();
+                p_depth = 1;
+            } else {
+                chars.next();
+            }
+        } else if c == '"' {
+            end = Some(i + 1);
+            break;
+        }
+    }
+
+    if let Some(len) = end {
+        lex.bump(len);
+        let s = lex.slice();
+        Some(s[1..s.len() - 1].to_string())
+    } else {
+        None
+    }
 }
 
 fn lex_attribute(lex: &mut logos::Lexer<Token>) -> Option<String> {

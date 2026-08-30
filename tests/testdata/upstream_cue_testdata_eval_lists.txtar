@@ -1,0 +1,21 @@
+-- in.cue --
+a: [...int]
+a: [1, 2, 3, 5]
+a: [1, 2, 3, d] @test(eq, [1, 2, 3, 5])
+
+b: a[3] @test(eq, 5)
+d: 5    @test(eq, 5)
+
+c: [for x in [[1, 2]][0] {x + d}] @test(eq, [6, 7])
+-- out/eval/stats --
+Leaks:  0
+Freed:  15
+Reused: 4
+Allocs: 11
+Retain: 0
+
+Unifications: 15
+Conjuncts:    28
+Disjuncts:    0
+
+NumCloseIDs: 3

@@ -1,0 +1,34 @@
+-- in.cue --
+A: {
+	for v in src {
+		"\(v)": v
+	}
+	src: _
+	if true {
+		baz: "baz"
+	}
+	@test(err, code=incomplete, contains="cannot range over src", pos=[1:11])
+}
+B: A & {
+	src: ["foo", "bar"]
+}   @test(eq, {
+	src: ["foo", "bar"]
+	baz: "baz"
+	foo: "foo"
+	bar: "bar"
+})
+-- out/errors.txt --
+[incomplete] A: cannot range over src (incomplete type _):
+    ./in.cue:2:11
+-- out/eval/stats --
+Leaks:  0
+Freed:  11
+Reused: 2
+Allocs: 9
+Retain: 0
+
+Unifications: 11
+Conjuncts:    18
+Disjuncts:    0
+
+NumCloseIDs: 7

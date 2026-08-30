@@ -1,0 +1,32 @@
+# Tests that a struct with an open pattern constraint unifies correctly with a
+# definition and an embed, producing the expected closed result. Issue: evalv3
+# incorrectly reported "field not allowed" for `y.f` when the struct was opened
+# via a pattern constraint `[string]: _` and then closed through unification
+# with a definition.
+# https://cuelang.org/issue/3813
+-- x.cue --
+x: {[string]: _} @test(closed) @test(eq, {
+	f: _
+	[string]: _
+})
+x: #d
+#d: f: _
+
+y: {
+	@test(eq, {f: true})
+	@test(closed)
+	x
+}
+y: f: true
+-- out/eval/stats --
+Leaks:  0
+Freed:  7
+Reused: 2
+Allocs: 5
+Retain: 0
+
+Unifications: 7
+Conjuncts:    17
+Disjuncts:    0
+
+NumCloseIDs: 5

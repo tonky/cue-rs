@@ -1,0 +1,62 @@
+# Tests that #fun1 with a hidden field _in: #TypeA (where #TypeA: string |
+# {foo: int}) correctly computes out using comprehensions that select based on
+# whether _in is a string or has field foo. evalv2 had closedness bugs where eg2
+# (input {foo: 5}) failed to select "foo" and eg3 (input {foo: 5, bar: "test"})
+# failed to fall through to "impossible". evalv3 fixed these bugs.
+-- x.cue --
+package x
+
+#TypeA: string | {foo: int}
+
+#fun1: {
+	_in: #TypeA
+	out: [
+		// either `in` is a string
+		if (_in & string) != _|_ {
+			_in
+		},
+		// or `in` is has field `foo`
+		if _in.foo != _|_ {
+			"foo"
+		},
+		"impossible", // in & #TypeA != _|_ !!
+	][0]
+}
+
+examples: [string]: {
+	in: _
+	res: (#fun1 & {_in: in, _}).out
+}
+
+examples: eg1: {
+	in: "test"
+	@test(eq, {in: "test", res: "test"})
+}
+examples: eg2: {
+	in: {
+		foo: 5
+	}
+	@test(eq, {in: {foo: 5}, res: "foo"})
+}
+examples: eg3: {
+	in: {
+		foo: 5
+		bar: "test"
+	}
+	@test(eq, {
+		in: {foo: 5, bar: "test"}
+		res: "impossible"
+	})
+}
+-- out/eval/stats --
+Leaks:  10
+Freed:  88
+Reused: 69
+Allocs: 29
+Retain: 0
+
+Unifications: 43
+Conjuncts:    149
+Disjuncts:    26
+
+NumCloseIDs: 45

@@ -1,0 +1,108 @@
+# Tests that dynamic field keys with disjunctive default values evaluate correctly.
+# The v3 evaluator incorrectly reported a cycle error for `(parameters.gatewayNamespace)`
+# when the value was a disjunction like `string | *"foo"`, working fine in evalv2.
+# https://cuelang.org/issue/3905
+-- in.cue --
+issue3905: reduced: {
+	#Schema: {
+		params: name: string | *"foo"
+
+		result: (params.name): "bar"
+	}
+
+	(#Schema).result
+	@test(eq, {
+		#Schema: {
+			params: {name: *"foo" | string}
+			result: {foo: "bar"}
+		}
+		foo: "bar"
+	})
+}
+issue3905: full: {
+	#ReferenceGrantBuilder: {
+		parameters: {
+			namespace:        string
+			gatewayNamespace: string | *"foo"
+		}
+
+		referenceGrant: (parameters.gatewayNamespace): #ReferenceGrant & {
+			metadata: name:      parameters.gatewayNamespace
+			metadata: namespace: parameters.namespace
+		}
+	}
+
+	(#ReferenceGrantBuilder & {
+		parameters: namespace: "foo"
+	}).referenceGrant
+
+	#ReferenceGrant: {
+		apiVersion: "gateway.networking.k8s.io/v1beta1"
+		kind: "ReferenceGrant"
+		metadata!: {
+			name!: string
+			namespace!: string
+			labels?: {
+				[string]: string
+			}
+			annotations?: {
+				[string]: string
+			}
+		}
+	}
+	@test(eq, {
+		#ReferenceGrantBuilder: {
+			parameters: {
+				namespace: string
+				gatewayNamespace: *"foo" | string
+			}
+			referenceGrant: {
+				foo: {
+					metadata: {
+						name: *"foo" | string
+						namespace: string
+						labels?: {}
+						annotations?: {}
+					}
+					apiVersion: "gateway.networking.k8s.io/v1beta1"
+					kind: "ReferenceGrant"
+				}
+			}
+		}
+		#ReferenceGrant: {
+			apiVersion: "gateway.networking.k8s.io/v1beta1"
+			kind: "ReferenceGrant"
+			metadata!: {
+				name!: string
+				namespace!: string
+				labels?: {}
+				annotations?: {}
+			}
+		}
+		foo: {
+			metadata: {
+				name: *"foo" | string
+				namespace: "foo"
+				labels?: {}
+				annotations?: {}
+			}
+			apiVersion: "gateway.networking.k8s.io/v1beta1"
+			kind: "ReferenceGrant"
+		}
+	})
+}
+-- out/eval/stats --
+Leaks:  0
+Freed:  54
+Reused: 28
+Allocs: 26
+Retain: 0
+
+Unifications: 42
+Conjuncts:    77
+Disjuncts:    10
+Notifications: 2
+
+NumCloseIDs: 13
+-- out/todo.txt --
+issue3905.full: v2 evaluates as non-closed struct, v3 as closed (#struct).

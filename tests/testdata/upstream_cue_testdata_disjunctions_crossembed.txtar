@@ -1,0 +1,40 @@
+# Cross-package embedded disjunction of definitions should correctly
+# eliminate branches when unified with a concrete field.
+# From issue #4197.
+-- cue.mod/module.cue --
+module: "foo.test/main"
+language: version: "v0.14.0"
+-- in.cue --
+package main
+
+import "foo.test/main/imported"
+
+out: imported
+out: either: foo: "world"
+
+@test(eq, {
+	out: {
+		either: {foo: "world"}
+		#Foo: {foo: _}
+		#Bar: {bar: _}
+	}
+})
+-- imported/imported.cue --
+package imported
+
+#Foo: foo: _
+#Bar: bar: _
+
+{either: #Foo | #Bar}
+-- out/eval/stats --
+Leaks:  3
+Freed:  27
+Reused: 2
+Allocs: 28
+Retain: 0
+
+Unifications: 25
+Conjuncts:    34
+Disjuncts:    2
+
+NumCloseIDs: 4

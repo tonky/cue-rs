@@ -1,0 +1,34 @@
+-- in.cue --
+package x
+
+import "strings"
+import "list"
+
+a: strings.Join(strings.Split("test", "")[1:], "") @test(eq, "est")
+
+b: strings.Join(["t", "e", "s", "t"][1:], "") @test(eq, "est")
+
+c: ["t", "e", "s", "t"][1:] @test(eq, ["e", "s", "t"])
+d: strings.Join(c, "")      @test(eq, "est")
+
+e: strings.Join(list.Concat([["a"], ["b"]]), "") @test(eq, "ab")
+
+f: list.Concat([["a"], ["b"]]) @test(eq, ["a", "b"])
+g: strings.Join(f, "")         @test(eq, "ab")
+
+h: strings.Join(list.Repeat(["a"], 3), "") @test(eq, "aaa")
+
+i: list.Repeat(["b"], 3) @test(eq, ["b", "b", "b"])
+j: strings.Join(i, "")   @test(eq, "bbb")
+-- out/eval/stats --
+Leaks:  0
+Freed:  43
+Reused: 24
+Allocs: 19
+Retain: 0
+
+Unifications: 38
+Conjuncts:    45
+Disjuncts:    0
+
+NumCloseIDs: 7

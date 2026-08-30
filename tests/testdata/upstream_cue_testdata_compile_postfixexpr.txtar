@@ -1,0 +1,49 @@
+-- cue.mod/module.cue --
+module: "test.example"
+language: version: "v0.15.0"
+
+-- with_experiment.cue --
+@experiment(explicitopen)
+
+#Base: {
+	x: int
+} @test(shareID=Base)
+
+// Test postfix ... operator with struct
+a: #Base... @test(shareID=Base)
+
+// Test with selector
+b: foo.bar... @test(err, code=incomplete, contains="undefined field: bar", pos=[0:8])
+
+// Test with parentheses
+c: (x & y)... @test(eq, _)
+
+// Test with function call
+d: fn()... @test(err, code=incomplete, contains="cannot call non-concrete value fn", pos=[0:4])
+
+// As an expression
+e: #Base... & {y: int} @test(eq, {y: int, x: int})
+
+foo: {} @test(eq, {})
+
+x:  _ @test(eq, _)
+y:  _ @test(eq, _)
+fn: _ @test(eq, _)
+
+-- out/errors.txt --
+[incomplete] b: undefined field: bar:
+    ./with_experiment.cue:11:8
+[incomplete] d: cannot call non-concrete value fn (type _):
+    ./with_experiment.cue:17:4
+-- out/eval/stats --
+Leaks:  0
+Freed:  22
+Reused: 1
+Allocs: 21
+Retain: 0
+
+Unifications: 22
+Conjuncts:    31
+Disjuncts:    0
+
+NumCloseIDs: 3

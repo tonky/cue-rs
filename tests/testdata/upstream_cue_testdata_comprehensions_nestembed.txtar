@@ -1,0 +1,37 @@
+Issue #556
+# Issue #556: Tests that nested comprehensions with list.Contains filtering
+# correctly produces only the non-deleted entries.
+-- in.cue --
+import "list"
+
+DeleteThis: ["this", "that"] @test(eq, ["this", "that"])
+useful_infra: {
+	gcp: cluters:   10
+	aws: clusters:  20
+	this: clusters: 1
+	that: clusters: 2
+	@test(eq, {gcp: {cluters: 10}, aws: {clusters: 20}, this: {clusters: 1}, that: {clusters: 2}})
+}
+New_infra: {
+	for k, v in useful_infra {
+		if !list.Contains(DeleteThis, k) {
+			"\(k)": v
+		}
+	}
+	@test(eq, {gcp: {cluters: 10}, aws: {clusters: 20}})
+}
+-- out/todo.txt --
+In v3, New_infra.gcp and New_infra.aws are shared references (~) to useful_infra.gcp
+and useful_infra.aws respectively, while in v2 they are expanded inline.
+-- out/eval/stats --
+Leaks:  0
+Freed:  16
+Reused: 7
+Allocs: 9
+Retain: 0
+
+Unifications: 16
+Conjuncts:    22
+Disjuncts:    0
+
+NumCloseIDs: 6

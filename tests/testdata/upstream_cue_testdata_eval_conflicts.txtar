@@ -1,0 +1,57 @@
+-- in.cue --
+i: int
+s: string
+
+t0: {
+	@test(err, code=eval, at=v,
+		contains="conflicting values",
+		args=[int, string],
+		pos=[-3:4, -2:4, 5:5, 5:9])
+	v: i & s
+}
+
+t1: {
+	@test(err, code=eval, at=x.a.b,
+		contains="conflicting values",
+		args=[3, 4],
+		pos=[6:9, 10:9, 13:5, 13:11])
+	#d1: {
+		a: b: 3
+	}
+
+	#d2: {
+		a: b: 4
+	}
+
+	x: #d1 & #d2
+	@test(eq, {
+		#d1: a: b: 3
+		#d2: a: b: 4
+		x: a: b: _|_
+	})
+}
+-- out/errors.txt --
+[eval] t0.v: conflicting values string and int (mismatched types string and int):
+    ./in.cue:1:4
+    ./in.cue:2:4
+    ./in.cue:9:5
+    ./in.cue:9:9
+[eval] t1.x.a.b: conflicting values 4 and 3:
+    ./in.cue:18:9
+    ./in.cue:22:9
+    ./in.cue:25:5
+    ./in.cue:25:11
+-- out/eval/stats --
+Leaks:  0
+Freed:  15
+Reused: 5
+Allocs: 10
+Retain: 0
+
+Unifications: 15
+Conjuncts:    23
+Disjuncts:    0
+
+NumCloseIDs: 4
+-- out/todo.txt --
+v3 reports the argument order differently (string/int vs int/string in v2) and includes an additional error position (5:5) for the assignment in t0.v.

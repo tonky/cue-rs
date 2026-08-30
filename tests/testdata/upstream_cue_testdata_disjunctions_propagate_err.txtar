@@ -1,0 +1,56 @@
+// Issue 4055: crash variant
+// Issue 4056
+-- issue4056.cue --
+import "strings"
+
+// cmd/cue: "unresolved disjunction" when error() disjuncts are added inside
+// a conditional that depends on the same field; the concrete value should win.
+// https://cuelang.org/issue/4056
+issue4056: full: {
+	a: "foo-bar"
+	a: _ | error("error message 1")
+	if strings.HasPrefix(a, "foo") {
+		a: _ | error("error message 2")
+	}
+	@test(eq, {a: "foo-bar"})
+}
+issue4056: reduced: {
+	a: "x"
+	a: _ | error("a")
+	if len(a) > 0 {
+		a: _ | error("b")
+	}
+	@test(eq, {a: "x"})
+}
+variant: {
+	a: "x"
+	a: string | int
+	if len(a) > 0 {
+		a: _
+	}
+	@test(eq, {a: "x"})
+}
+-- pending.cue --
+// Be sure to emit errors for uncompleted pending arcs.
+err: {
+	A: "forty two"
+	if A < 100 {B: true}
+	@test(err, code=eval, contains="invalid operands", pos=[2:5, 1:5, 2:9])
+}
+-- out/errors.txt --
+[eval] err: invalid operands "forty two" and 100 to '<' (type string and int):
+    ./pending.cue:4:5
+    ./pending.cue:3:5
+    ./pending.cue:4:9
+-- out/eval/stats --
+Leaks:  4
+Freed:  13
+Reused: 7
+Allocs: 10
+Retain: 0
+
+Unifications: 11
+Conjuncts:    24
+Disjuncts:    6
+
+NumCloseIDs: 8

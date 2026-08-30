@@ -1,0 +1,45 @@
+#name: ips
+#evalFull
+-- in.cue --
+import "list"
+
+IP: list.Repeat([uint8], 4)
+
+Private:
+	*[ 192, 168, uint8, uint8] |
+	[ 10, uint8, uint8, uint8] |
+	[ 172, >=16 & <=32, uint8, uint8]
+
+Inst: Private & [ _, 10, ...]
+
+MyIP: Inst & [_, _, 10, 10] @test(eq, [10, 10, 10, 10])
+@test(eq, {
+	IP: [
+		>=0 & <=255 & int,
+		>=0 & <=255 & int,
+		>=0 & <=255 & int,
+		>=0 & <=255 & int
+	]
+	Private: *[192, 168, >=0 & <=255 & int, >=0 & <=255 & int] |
+		[10, >=0 & <=255 & int, >=0 & <=255 & int, >=0 & <=255 & int] |
+		[172, >=16 & <=32, >=0 & <=255 & int, >=0 & <=255 & int]
+	Inst: [
+		10,
+		10,
+		>=0 & <=255 & int,
+		>=0 & <=255 & int
+	]
+	MyIP: [10, 10, 10, 10]
+})
+-- out/eval/stats --
+Leaks:  10
+Freed:  52
+Reused: 38
+Allocs: 24
+Retain: 0
+
+Unifications: 35
+Conjuncts:    92
+Disjuncts:    9
+
+NumCloseIDs: 8
