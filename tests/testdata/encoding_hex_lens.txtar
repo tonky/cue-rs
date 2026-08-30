@@ -1,0 +1,12 @@
+Test encoding/hex EncodedLen and DecodedLen
+-- in.cue --
+package test
+
+import "encoding/hex"
+
+encLen4: hex.EncodedLen(4)
+decLen8: hex.DecodedLen(8)
+
+-- out/eval --
+decLen8: 4
+encLen4: 8

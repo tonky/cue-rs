@@ -1,0 +1,16 @@
+Test path.Clean
+-- in.cue --
+package test
+
+import "path"
+
+c1: path.Clean("/a/b/../c")
+c2: path.Clean("a/b/./c/d/..")
+c3: path.Clean("/a/../../b")
+c4: path.Clean("")
+
+-- out/eval --
+c1: "/a/c"
+c2: "a/b/c"
+c3: "/b"
+c4: "."

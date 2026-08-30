@@ -1,0 +1,27 @@
+Test strings.SplitN, strings.HasPrefixAny, and strings.HasSuffixAny
+-- in.cue --
+package test
+
+import "strings"
+
+split2: strings.SplitN("a/b/c/d", "/", 2)
+splitAll: strings.SplitN("x:y:z", ":", -1)
+pfxTrue: strings.HasPrefixAny("https://antigravity.dev", ["http://", "https://"])
+pfxFalse: strings.HasPrefixAny("ftp://antigravity.dev", ["http://", "https://"])
+sfxTrue: strings.HasSuffixAny("main.cue", [".cue", ".json", ".yaml"])
+sfxFalse: strings.HasSuffixAny("main.rs", [".cue", ".json", ".yaml"])
+
+-- out/eval --
+pfxFalse: false
+pfxTrue: true
+sfxFalse: false
+sfxTrue: true
+split2: [
+    "a",
+    "b/c/d"
+]
+splitAll: [
+    "x",
+    "y",
+    "z"
+]

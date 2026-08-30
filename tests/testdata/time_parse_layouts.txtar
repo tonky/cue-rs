@@ -1,0 +1,12 @@
+Test time.Parse with reference layouts
+-- in.cue --
+package test
+
+import "time"
+
+d1: time.Parse("2006-01-02", "2026-08-30")
+d2: time.Parse("2006-01-02 15:04:05", "2026-08-30 14:30:00")
+
+-- out/eval --
+d1: "2026-08-30T00:00:00Z"
+d2: "2026-08-30T14:30:00Z"

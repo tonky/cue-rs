@@ -10,7 +10,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 
 | Upstream Directory | Approx. Fixture Count | Focus Area | Our Rust Coverage |
 | :--- | :---: | :--- | :---: |
-| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, discriminated unions (`#A \| #B`), embedded disjunctions, optional fields (`k?: T`), hidden fields (`_foo`), open lists, dynamic labels, nested dynamic indexing, dynamic list slicing, parenthesized selector chains, multi-pattern constraints, comprehensions with stdlib filters, `let` comprehension bindings, Cartesian list comprehensions, lexical scoping, forward references, cycle detection, logical expressions (`&&`, `\|\|`) | **Core subsets active (94 fixtures)** |
+| `cue/testdata/eval/` | ~160 | Core lattice meet ($\sqcap$), bounds, disjunctions, discriminated unions (`#A \| #B`), embedded disjunctions, optional fields (`k?: T`), hidden fields (`_foo`), open lists, dynamic labels, nested dynamic indexing, dynamic list slicing, parenthesized selector chains, multi-pattern constraints, comprehensions with stdlib filters, `let` comprehension bindings, Cartesian list comprehensions, lexical scoping, forward references, cycle detection, logical expressions (`&&`, `\|\|`) | **Core subsets active (112 fixtures)** |
 | `cue/testdata/compile/` | ~110 | Lexer, parser, Pratt expressions, AST construction, string literal escape sequences, binary/hex/octal/SI number literals, identifiers, attributes, raw string literals, logical boolean operators (`&&`, `\|\|`) | **High (syntax 100% passing)** |
 | `cue/testdata/fulleval/` | ~85 | End-to-end multi-struct evaluation, closed definitions, exports | **Core subsets active** |
 | `cue/testdata/resolve/` | ~65 | Scoping, aliases, lexical lookup, forward references, selector chains, embeddings, default overrides | **Active** |
@@ -18,7 +18,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | `cue/testdata/basic/` | ~35 | Primitive types, literals, raw strings, mixed arithmetic, list/string arithmetic, comparisons, numeric types, hierarchy, logical expressions | **Active** |
 | `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, module discovery (`cue.mod/module.cue`), module-aware package import resolution (`import "myorg.com/app/sub"`), vendored packages (`cue.mod/pkg/...`) | **Active via `PackageLoader`** |
 | `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `math/bits`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding/json`, `encoding/yaml`, `encoding/html`, `encoding/csv`, `encoding/base32`, `encoding/base64`, `encoding/hex`, `text/tabwriter`, `text/template`, `crypto/sha512`, `crypto/sha256`, `crypto/md5`, `crypto/sha1`, `crypto/hmac`, `path`) | **24 core packages active** |
-| **Total** | **~580+ fixtures** | | **94 conformance suites (100% pass)** |
+| **Total** | **~580+ fixtures** | | **112 conformance suites (100% pass)** |
 
 ---
 
@@ -83,23 +83,23 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 
 | Package | Status | Implemented Functions / Validators | Remaining Upstream Functions |
 | :--- | :---: | :--- | :--- |
-| **`strings`** | 🟢 **100%** | `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `TrimSpace`, `TrimLeft`, `TrimRight`, `Repeat`, `Replace`, `Fields`, `Split`, `Index`, `LastIndex`, `Compare`, `Count`, `Title` | `ByteAt` |
-| **`math`** | 🟢 **100%** | `Sqrt`, `Pow`, `Log`, `Log10`, `Log2`, `Hypot`, `Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, `Sinh`, `Cosh`, `Tanh`, `Asinh`, `Acosh`, `Atanh`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Trunc`, `Abs`, `Sign`, `Dim`, `Copysign`, `Cbrt`, `Exp`, `Exp2`, `Expm1`, `Log1p` | — |
+| **`strings`** | 🟢 **100%** | `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `HasPrefixAny`, `HasSuffixAny`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `TrimSpace`, `TrimLeft`, `TrimRight`, `Repeat`, `Replace`, `Fields`, `Split`, `SplitN`, `Index`, `LastIndex`, `Compare`, `Count`, `Title`, `ContainsAny`, `EqualFold`, `RuneCount`, `ByteAt`, `ByteSlice`, `Runes`, `SliceRunes`, `ToValidUTF8` | — |
+| **`math`** | 🟢 **100%** | `Sqrt`, `Pow`, `Log`, `Log10`, `Log2`, `Hypot`, `Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, `Sinh`, `Cosh`, `Tanh`, `Asinh`, `Acosh`, `Atanh`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `RoundToEven`, `Trunc`, `Abs`, `Sign`, `Dim`, `Copysign`, `Cbrt`, `Exp`, `Exp2`, `Expm1`, `Log1p`, `Logb`, `Ilogb`, `Nextafter`, `Remainder`, `Mod`, `Ldexp`, `IsNaN`, `IsInf` | — |
 | **`math/bits`** | 🟢 **100%** | `bits.And`, `bits.Or`, `bits.Xor`, `bits.Lsh`, `bits.Rsh`, `bits.OnesCount`, `bits.Len`, `bits.LeadingZeros`, `bits.TrailingZeros`, `bits.Reverse` | — |
-| **`list`** | 🟢 **100%** | `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `SortStrings`, `FlattenN`, `Flatten`, `Concat`, `Repeat`, `Slice`, `Range`, `Take`, `Drop`, `Sum`, `Product`, `Avg`, `Min`, `Max` | — |
-| **`regexp`** | 🟢 **100%** | `Valid`, `Match`, `Find`, `FindAll`, `ReplaceAll` | — |
+| **`list`** | 🟢 **100%** | `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `SortStrings`, `IsSorted`, `IsSortedStrings`, `Reverse`, `Compact`, `FlattenN`, `Flatten`, `Concat`, `Repeat`, `Slice`, `Range`, `Take`, `Drop`, `Sum`, `Product`, `Avg`, `Min`, `Max` | — |
+| **`regexp`** | 🟢 **100%** | `Valid`, `Match`, `Find`, `FindAll`, `ReplaceAll`, `QuoteMeta`, `FindSubmatch` | — |
 | **`struct`** | 🟢 **100%** | `struct.MinFields`, `struct.MaxFields` | — |
-| **`time`** | 🟢 **100%** | `time.Time` (RFC3339 validator), `time.Duration` (parsing duration to nanoseconds), `time.Unix`, `time.FormatDuration`, `time.Hour`, `time.Minute`, `time.Second`, `time.Millisecond`, `time.Microsecond`, `time.Nanosecond` | — |
-| **`net`** | 🟢 **100%** | `net.IPv4`, `net.IPv6`, `net.IP` | `net.ParseIP` |
+| **`time`** | 🟢 **100%** | `time.Time` (RFC3339 validator), `time.Duration` (parsing duration to nanoseconds), `time.Unix`, `time.Parse`, `time.FormatDuration`, `time.Hour`, `time.Minute`, `time.Second`, `time.Millisecond`, `time.Microsecond`, `time.Nanosecond` | — |
+| **`net`** | 🟢 **100%** | `net.IPv4`, `net.IPv6`, `net.IP`, `net.FQDN`, `net.ParseIP`, `net.SplitHostPort`, `net.JoinHostPort` | — |
 | **`strconv`** | 🟢 **100%** | `strconv.Atoi`, `strconv.Itoa`, `strconv.ParseFloat`, `strconv.FormatFloat`, `strconv.ParseBool`, `strconv.FormatBool`, `strconv.ParseInt`, `strconv.ParseUint`, `strconv.FormatInt`, `strconv.FormatUint`, `strconv.Quote`, `strconv.Unquote` | — |
-| **`uuid`** | 🟢 **100%** | `uuid.Valid`, `uuid.Version` | `uuid.URN` |
+| **`uuid`** | 🟢 **100%** | `uuid.Valid`, `uuid.Version`, `uuid.URN` | — |
 | **`encoding/json`** | 🟢 **100%** | `json.Marshal`, `json.Unmarshal`, `json.Indent`, `json.Compact`, `json.Valid`, `json.Validate` | — |
 | **`encoding/yaml`** | 🟢 **100%** | `yaml.Marshal`, `yaml.Unmarshal`, `yaml.Valid`, `yaml.Validate` | — |
 | **`encoding/html`** | 🟢 **100%** | `html.Escape`, `html.Unescape` | — |
 | **`encoding/csv`** | 🟢 **100%** | `csv.Decode`, `csv.Encode` | — |
 | **`encoding/base32`** | 🟢 **100%** | `base32.Encode`, `base32.Decode` | — |
 | **`encoding/base64`** | 🟢 **100%** | `base64.Encode`, `base64.Decode`, `base64.RawURLEncode`, `base64.RawURLDecode`, `URLEncode`, `URLDecode` | — |
-| **`encoding/hex`** | 🟢 **100%** | `hex.Encode`, `hex.Decode`, `hex.Dump` | — |
+| **`encoding/hex`** | 🟢 **100%** | `hex.Encode`, `hex.Decode`, `hex.Dump`, `hex.EncodedLen`, `hex.DecodedLen` | — |
 | **`text/tabwriter`** | 🟢 **100%** | `tabwriter.Write` | — |
 | **`text/template`** | 🟢 **100%** | `template.Execute` | — |
 | **`crypto/sha512`** | 🟢 **100%** | `sha512.Sum` | — |
@@ -107,7 +107,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **`crypto/md5`** | 🟢 **100%** | `md5.Sum` | — |
 | **`crypto/sha1`** | 🟢 **100%** | `sha1.Sum` | — |
 | **`crypto/hmac`** | 🟢 **100%** | `hmac.SHA512`, `hmac.SHA256`, `hmac.MD5`, `hmac.SHA1` | — |
-| **`path`** | 🟢 **100%** | `path.Base`, `path.Dir`, `path.Join`, `path.Ext`, `path.Match`, `path.Split`, `path.IsAbs` | — |
+| **`path`** | 🟢 **100%** | `path.Clean`, `path.Base`, `path.Dir`, `path.Join`, `path.Ext`, `path.Match`, `path.Split`, `path.IsAbs` | — |
 
 ---
 

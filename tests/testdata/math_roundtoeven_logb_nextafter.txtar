@@ -1,0 +1,18 @@
+Test math.RoundToEven, math.Logb, math.Ilogb, and math.Nextafter
+-- in.cue --
+package test
+
+import "math"
+
+r25: math.RoundToEven(2.5)
+r35: math.RoundToEven(3.5)
+logb8: math.Logb(8.0)
+ilogb8: math.Ilogb(8.0)
+next1: math.Nextafter(1.0, 1.0)
+
+-- out/eval --
+ilogb8: 3
+logb8: 3.0
+next1: 1.0
+r25: 2.0
+r35: 4.0

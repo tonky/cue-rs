@@ -460,6 +460,63 @@ pub fn call_stdlib_func(
             }
             Err("strings.Split requires (string, sep) arguments".to_string())
         }
+        ("strings", "SplitN") => {
+            let parts_opt = if args.len() >= 3
+                && let (Some(Value::String(s)), Some(Value::String(sep)), Some(Value::Int(n_val))) =
+                    (arena.get(args[0]), arena.get(args[1]), arena.get(args[2]))
+                && let Some(n) = n_val.to_isize() {
+                    let parts: Vec<String> = if n == 0 {
+                        vec![]
+                    } else if n < 0 {
+                        s.split(sep.as_str()).map(|part| part.to_string()).collect()
+                    } else {
+                        s.splitn(n as usize, sep.as_str()).map(|part| part.to_string()).collect()
+                    };
+                    Some(parts)
+                } else {
+                    None
+                };
+            if let Some(parts) = parts_opt {
+                let elems: Vec<ValueId> = parts.into_iter().map(|p| arena.string(p)).collect();
+                return Ok(arena.alloc(Value::List {
+                    elements: elems,
+                    ellipsis: None,
+                }));
+            }
+            Err("strings.SplitN requires (string, sep, n) arguments".to_string())
+        }
+        ("strings", "HasPrefixAny") => {
+            if args.len() >= 2
+                && let Some(Value::String(s)) = arena.get(args[0])
+                && let Some(Value::List { elements, .. }) = arena.get(args[1]) {
+                    let s_clone = s.clone();
+                    let elems = elements.clone();
+                    for &elem in &elems {
+                        if let Some(Value::String(pfx)) = arena.get(elem)
+                            && s_clone.starts_with(pfx.as_str()) {
+                                return Ok(arena.bool(true));
+                            }
+                    }
+                    return Ok(arena.bool(false));
+                }
+            Err("strings.HasPrefixAny requires (string, list_of_prefixes) arguments".to_string())
+        }
+        ("strings", "HasSuffixAny") => {
+            if args.len() >= 2
+                && let Some(Value::String(s)) = arena.get(args[0])
+                && let Some(Value::List { elements, .. }) = arena.get(args[1]) {
+                    let s_clone = s.clone();
+                    let elems = elements.clone();
+                    for &elem in &elems {
+                        if let Some(Value::String(sfx)) = arena.get(elem)
+                            && s_clone.ends_with(sfx.as_str()) {
+                                return Ok(arena.bool(true));
+                            }
+                    }
+                    return Ok(arena.bool(false));
+                }
+            Err("strings.HasSuffixAny requires (string, list_of_suffixes) arguments".to_string())
+        }
         ("strings", "Index") => {
             if args.len() >= 2
                 && let (Some(Value::String(s)), Some(Value::String(sub))) = (arena.get(args[0]), arena.get(args[1])) {
@@ -633,6 +690,67 @@ pub fn call_stdlib_func(
                     return Ok(arena.float(f.round()));
                 }
             Err("math.Round requires 1 float argument".to_string())
+        }
+        ("math", "RoundToEven") => {
+            if let Some(&arg0) = args.first() {
+                if let Some(Value::Float(f)) = arena.get(arg0) {
+                    return Ok(arena.float(f.round_ties_even()));
+                } else if let Some(Value::Int(i)) = arena.get(arg0)
+                    && let Some(f) = i.to_f64() {
+                        return Ok(arena.float(f.round_ties_even()));
+                    }
+            }
+            Err("math.RoundToEven requires 1 number argument".to_string())
+        }
+        ("math", "Logb") => {
+            if let Some(&arg0) = args.first() {
+                let f_opt = match arena.get(arg0) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let Some(f) = f_opt {
+                    if f == 0.0 {
+                        return Ok(arena.float(f64::NEG_INFINITY));
+                    }
+                    return Ok(arena.float(f.abs().log2().floor()));
+                }
+            }
+            Err("math.Logb requires 1 number argument".to_string())
+        }
+        ("math", "Ilogb") => {
+            if let Some(&arg0) = args.first() {
+                let f_opt = match arena.get(arg0) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let Some(f) = f_opt {
+                    if f == 0.0 {
+                        return Ok(arena.int(i32::MIN as i64));
+                    }
+                    return Ok(arena.int(f.abs().log2().floor() as i64));
+                }
+            }
+            Err("math.Ilogb requires 1 number argument".to_string())
+        }
+        ("math", "Nextafter") => {
+            if args.len() >= 2 {
+                let x_opt = match arena.get(args[0]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                let y_opt = match arena.get(args[1]) {
+                    Some(Value::Float(f)) => Some(*f),
+                    Some(Value::Int(i)) => i.to_f64(),
+                    _ => None,
+                };
+                if let (Some(x), Some(y)) = (x_opt, y_opt) {
+                    return Ok(arena.float(next_after(x, y)));
+                }
+            }
+            Err("math.Nextafter requires 2 number arguments".to_string())
         }
         ("math", "Trunc") => {
             if let Some(&arg0) = args.first() {
@@ -1615,6 +1733,16 @@ pub fn call_stdlib_func(
                 }
             Err("time.Unix requires (sec, nsec) integer arguments".to_string())
         }
+        ("time", "Parse") => {
+            if args.len() >= 2
+                && let (Some(Value::String(layout)), Some(Value::String(val))) = (arena.get(args[0]), arena.get(args[1])) {
+                    match parse_time_layout(layout, val) {
+                        Ok(rfc3339) => return Ok(arena.string(rfc3339)),
+                        Err(e) => return Err(format!("time.Parse: {e}")),
+                    }
+                }
+            Err("time.Parse requires (layout, value) string arguments".to_string())
+        }
         ("time", "FormatDuration") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(nanos_val)) = arena.get(arg0)
@@ -1720,6 +1848,13 @@ pub fn call_stdlib_func(
         }
 
         // --- path package ---
+        ("path", "Clean") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::String(p)) = arena.get(arg0) {
+                    return Ok(arena.string(path_clean(p)));
+                }
+            Err("path.Clean requires 1 path string argument".to_string())
+        }
         ("path", "Base") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::String(p)) = arena.get(arg0) {
@@ -2054,6 +2189,22 @@ pub fn call_stdlib_func(
                     return Ok(arena.string(dumped));
                 }
             Err("hex.Dump requires 1 string argument".to_string())
+        }
+        ("hex" | "encoding/hex", "EncodedLen") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::Int(n_val)) = arena.get(arg0)
+                && let Some(n) = n_val.to_i64() {
+                    return Ok(arena.int(n * 2));
+                }
+            Err("hex.EncodedLen requires 1 integer argument".to_string())
+        }
+        ("hex" | "encoding/hex", "DecodedLen") => {
+            if let Some(&arg0) = args.first()
+                && let Some(Value::Int(n_val)) = arena.get(arg0)
+                && let Some(n) = n_val.to_i64() {
+                    return Ok(arena.int(n / 2));
+                }
+            Err("hex.DecodedLen requires 1 integer argument".to_string())
         }
 
         // --- encoding/csv package ---
@@ -3315,4 +3466,96 @@ fn format_duration_string(nanos: i64) -> String {
         s.push_str(&format!("{nsec}ns"));
     }
     s
+}
+
+fn next_after(x: f64, y: f64) -> f64 {
+    if x.is_nan() || y.is_nan() {
+        return f64::NAN;
+    }
+    if x == y {
+        return y;
+    }
+    if x == 0.0 {
+        let smallest = f64::from_bits(1);
+        return if y > 0.0 { smallest } else { -smallest };
+    }
+    let bits = x.to_bits();
+    let next_bits = if (x > 0.0) == (y > x) {
+        bits + 1
+    } else {
+        bits - 1
+    };
+    f64::from_bits(next_bits)
+}
+
+fn path_clean(path: &str) -> String {
+    if path.is_empty() {
+        return ".".to_string();
+    }
+    let is_abs = path.starts_with('/');
+    let mut parts: Vec<&str> = Vec::new();
+    for seg in path.split('/') {
+        if seg.is_empty() || seg == "." {
+            continue;
+        }
+        if seg == ".." {
+            if let Some(last) = parts.last()
+                && *last != ".." {
+                    parts.pop();
+                    continue;
+                }
+            if !is_abs {
+                parts.push("..");
+            }
+        } else {
+            parts.push(seg);
+        }
+    }
+    if is_abs {
+        if parts.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}", parts.join("/"))
+        }
+    } else if parts.is_empty() {
+        ".".to_string()
+    } else {
+        parts.join("/")
+    }
+}
+
+fn parse_time_layout(layout: &str, val: &str) -> Result<String, String> {
+    if layout == "2006-01-02" {
+        let parts: Vec<&str> = val.split('-').collect();
+        if parts.len() == 3 && parts[0].len() == 4 && parts[1].len() == 2 && parts[2].len() == 2 {
+            let y: i32 = parts[0].parse().map_err(|_| "invalid year")?;
+            let m: u32 = parts[1].parse().map_err(|_| "invalid month")?;
+            let d: u32 = parts[2].parse().map_err(|_| "invalid day")?;
+            if (1..=12).contains(&m) && (1..=31).contains(&d) {
+                return Ok(format!("{y:04}-{m:02}-{d:02}T00:00:00Z"));
+            }
+        }
+        return Err(format!("parsing time \"{val}\" as \"{layout}\": cannot parse"));
+    }
+    if layout == "2006-01-02 15:04:05" {
+        let dt_parts: Vec<&str> = val.split_whitespace().collect();
+        if dt_parts.len() == 2 {
+            let d_parts: Vec<&str> = dt_parts[0].split('-').collect();
+            let t_parts: Vec<&str> = dt_parts[1].split(':').collect();
+            if d_parts.len() == 3 && t_parts.len() == 3 {
+                let y: i32 = d_parts[0].parse().map_err(|_| "invalid year")?;
+                let m: u32 = d_parts[1].parse().map_err(|_| "invalid month")?;
+                let d: u32 = d_parts[2].parse().map_err(|_| "invalid day")?;
+                let hr: u32 = t_parts[0].parse().map_err(|_| "invalid hour")?;
+                let min: u32 = t_parts[1].parse().map_err(|_| "invalid minute")?;
+                let sec: u32 = t_parts[2].parse().map_err(|_| "invalid second")?;
+                return Ok(format!("{y:04}-{m:02}-{d:02}T{hr:02}:{min:02}:{sec:02}Z"));
+            }
+        }
+        return Err(format!("parsing time \"{val}\" as \"{layout}\": cannot parse"));
+    }
+    if is_valid_rfc3339(val) {
+        return Ok(val.to_string());
+    }
+    Err(format!("unsupported layout \"{layout}\""))
 }

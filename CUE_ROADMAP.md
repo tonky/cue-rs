@@ -12,7 +12,7 @@ This document tracks the technical design, milestone progress, and conformance v
 | **Clippy Lint Status** | **0 warnings (`cargo clippy --workspace --all-targets`)** | 0 warnings |
 | **Workspace Crates** | `cue-syntax`, `cue-eval`, `cue-derive`, `cue-test-harness`, `cue-cli` | 5 modular crates |
 | **Unit Test Coverage** | **27 / 27 passing (100%)** | 100% |
-| **Txtar Fixture Pass Rate** | **94 / 94 passing (100%)** | >95% upstream parity |
+| **Txtar Fixture Pass Rate** | **112 / 112 passing (100%)** | >95% upstream parity |
 
 ---
 
@@ -67,23 +67,23 @@ This document tracks the technical design, milestone progress, and conformance v
          │                • uint, uint8, uint16, uint32, uint64
          │                • int8, int16, int32, int64, float32, float64
          │          ──► Standard Library Packages (24 packages active):
-         │                • strings (MinRunes, MaxRunes, Trim, TrimPrefix, TrimSuffix, TrimSpace, TrimLeft, TrimRight, Repeat, Replace, Fields, Split, Index, LastIndex, Compare, Count, Title)
-         │                • math (Sqrt, Pow, Log, Log10, Log2, Hypot, Sin, Cos, Tan, Asin, Acos, Atan, Atan2, Sinh, Cosh, Tanh, Asinh, Acosh, Atanh, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, Trunc, Abs, Sign, Dim, Copysign, Cbrt, Exp, Exp2, Expm1, Log1p)
+         │                • strings (MinRunes, MaxRunes, Trim, TrimPrefix, TrimSuffix, TrimSpace, TrimLeft, TrimRight, Repeat, Replace, Fields, Split, SplitN, HasPrefixAny, HasSuffixAny, Index, LastIndex, Compare, Count, Title, ContainsAny, EqualFold, RuneCount, ByteAt, ByteSlice, Runes, SliceRunes, ToValidUTF8)
+         │                • math (Sqrt, Pow, Log, Log10, Log2, Hypot, Sin, Cos, Tan, Asin, Acos, Atan, Atan2, Sinh, Cosh, Tanh, Asinh, Acosh, Atanh, Max, Min, Pi, E, MultipleOf, Floor, Ceil, Round, RoundToEven, Trunc, Abs, Sign, Dim, Copysign, Cbrt, Exp, Exp2, Expm1, Log1p, Logb, Ilogb, Nextafter, Remainder, Mod, Ldexp, IsNaN, IsInf)
          │                • math/bits (And, Or, Xor, Lsh, Rsh, OnesCount, Len, LeadingZeros, TrailingZeros, Reverse)
-         │                • list (MinItems, MaxItems, UniqueItems, Sort, SortStrings, FlattenN, Flatten, Concat, Repeat, Range, Take, Drop, Slice, Sum, Product, Avg, Min, Max)
-         │                • regexp (Valid, Match, Find, FindAll, ReplaceAll)
+         │                • list (MinItems, MaxItems, UniqueItems, Contains, Sort, SortStrings, IsSorted, IsSortedStrings, Reverse, Compact, FlattenN, Flatten, Concat, Repeat, Slice, Range, Take, Drop, Sum, Product, Avg, Min, Max)
+         │                • regexp (Valid, Match, Find, FindAll, ReplaceAll, QuoteMeta, FindSubmatch)
          │                • struct (MinFields, MaxFields)
-         │                • time (Time RFC3339 validator, Duration parser, Unix, FormatDuration, Hour, Minute, Second, Millisecond, Microsecond, Nanosecond)
-         │                • net (IPv4, IPv6, IP validators)
+         │                • time (Time RFC3339 validator, Duration parser, Unix, Parse, FormatDuration, Hour, Minute, Second, Millisecond, Microsecond, Nanosecond)
+         │                • net (IPv4, IPv6, IP, FQDN validators, ParseIP, SplitHostPort, JoinHostPort)
          │                • strconv (Atoi, Itoa, ParseFloat, FormatFloat, ParseBool, FormatBool, ParseInt, ParseUint, FormatInt, FormatUint, Quote, Unquote)
-         │                • uuid (Valid, Version)
+         │                • uuid (Valid, Version, URN)
          │                • encoding/json (Marshal, Unmarshal, Indent, Compact, Valid, Validate)
          │                • encoding/yaml (Marshal, Unmarshal, Valid, Validate)
          │                • encoding/html (Escape, Unescape)
          │                • encoding/csv (Decode, Encode)
          │                • encoding/base32 (Encode, Decode)
          │                • encoding/base64 (Encode, Decode, RawURLEncode, RawURLDecode, URLEncode, URLDecode)
-         │                • encoding/hex (Encode, Decode, Dump)
+         │                • encoding/hex (Encode, Decode, Dump, EncodedLen, DecodedLen)
          │                • text/tabwriter (Write)
          │                • text/template (Execute)
          │                • crypto/sha512 (Sum)
@@ -91,7 +91,7 @@ This document tracks the technical design, milestone progress, and conformance v
          │                • crypto/md5 (Sum)
          │                • crypto/sha1 (Sum)
          │                • crypto/hmac (SHA512, SHA256, MD5, SHA1)
-         │                • path (Base, Dir, Ext, Join, Match, Split, IsAbs)
+         │                • path (Clean, Base, Dir, Ext, Join, Match, Split, IsAbs)
          ▼
 ┌─────────────────┐
 │   cue-derive    │ ──► Rust Proc-Macro `#[derive(CueValidate)]` with Serde
@@ -164,23 +164,23 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] List concatenation (`l1 + l2`), repetition (`[0] * 4`), and `list.Concat` / `list.Repeat`.
 - [x] **String Interpolation & Repetition**: `"prefix \(expr) suffix"` and `"x" * 10`.
 - [x] **24 Standard Library Packages**:
-  - [x] `strings`: `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `TrimSpace`, `TrimLeft`, `TrimRight`, `Repeat`, `Replace`, `Fields`, `Split`, `Index`, `LastIndex`, `Compare`, `Count`, `Title`.
-  - [x] `math`: `Sqrt`, `Pow`, `Log`, `Log10`, `Log2`, `Hypot`, `Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, `Sinh`, `Cosh`, `Tanh`, `Asinh`, `Acosh`, `Atanh`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `Trunc`, `Abs`, `Sign`, `Dim`, `Copysign`, `Cbrt`, `Exp`, `Exp2`, `Expm1`, `Log1p`.
+  - [x] `strings`: `MinRunes`, `MaxRunes`, `ToUpper`, `ToLower`, `Contains`, `HasPrefix`, `HasSuffix`, `HasPrefixAny`, `HasSuffixAny`, `Join`, `Trim`, `TrimPrefix`, `TrimSuffix`, `TrimSpace`, `TrimLeft`, `TrimRight`, `Repeat`, `Replace`, `Fields`, `Split`, `SplitN`, `Index`, `LastIndex`, `Compare`, `Count`, `Title`, `ContainsAny`, `EqualFold`, `RuneCount`, `ByteAt`, `ByteSlice`, `Runes`, `SliceRunes`, `ToValidUTF8`.
+  - [x] `math`: `Sqrt`, `Pow`, `Log`, `Log10`, `Log2`, `Hypot`, `Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, `Sinh`, `Cosh`, `Tanh`, `Asinh`, `Acosh`, `Atanh`, `Max`, `Min`, `Pi`, `E`, `MultipleOf`, `Floor`, `Ceil`, `Round`, `RoundToEven`, `Trunc`, `Abs`, `Sign`, `Dim`, `Copysign`, `Cbrt`, `Exp`, `Exp2`, `Expm1`, `Log1p`, `Logb`, `Ilogb`, `Nextafter`, `Remainder`, `Mod`, `Ldexp`, `IsNaN`, `IsInf`.
   - [x] `math/bits`: `And`, `Or`, `Xor`, `Lsh`, `Rsh`, `OnesCount`, `Len`, `LeadingZeros`, `TrailingZeros`, `Reverse`.
-  - [x] `list`: `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `SortStrings`, `FlattenN`, `Flatten`, `Concat`, `Repeat`, `Slice`, `Range`, `Take`, `Drop`, `Sum`, `Product`, `Avg`, `Min`, `Max`.
-  - [x] `regexp`: `Valid`, `Match`, `Find`, `FindAll`, `ReplaceAll`.
+  - [x] `list`: `MinItems`, `MaxItems`, `UniqueItems`, `Contains`, `Sort`, `SortStrings`, `IsSorted`, `IsSortedStrings`, `Reverse`, `Compact`, `FlattenN`, `Flatten`, `Concat`, `Repeat`, `Slice`, `Range`, `Take`, `Drop`, `Sum`, `Product`, `Avg`, `Min`, `Max`.
+  - [x] `regexp`: `Valid`, `Match`, `Find`, `FindAll`, `ReplaceAll`, `QuoteMeta`, `FindSubmatch`.
   - [x] `struct`: `MinFields`, `MaxFields`.
-  - [x] `time`: `Time` (RFC3339 validator), `Duration` (string duration to nanoseconds), `Unix` (timestamp formatter), `FormatDuration`, `Hour`, `Minute`, `Second`, `Millisecond`, `Microsecond`, `Nanosecond`.
-  - [x] `net`: `IPv4`, `IPv6`, `IP` address validators.
+  - [x] `time`: `Time` (RFC3339 validator), `Duration` (string duration to nanoseconds), `Unix`, `Parse`, `FormatDuration`, `Hour`, `Minute`, `Second`, `Millisecond`, `Microsecond`, `Nanosecond`.
+  - [x] `net`: `IPv4`, `IPv6`, `IP`, `FQDN`, `ParseIP`, `SplitHostPort`, `JoinHostPort`.
   - [x] `strconv`: `Atoi`, `Itoa`, `ParseFloat`, `FormatFloat`, `ParseBool`, `FormatBool`, `ParseInt`, `ParseUint`, `FormatInt`, `FormatUint`, `Quote`, `Unquote`.
-  - [x] `uuid`: `Valid`, `Version`.
+  - [x] `uuid`: `Valid`, `Version`, `URN`.
   - [x] `encoding/json`: `Marshal`, `Unmarshal`, `Indent`, `Compact`, `Valid`, `Validate`.
   - [x] `encoding/yaml`: `Marshal`, `Unmarshal`, `Valid`, `Validate`.
   - [x] `encoding/html`: `Escape`, `Unescape`.
   - [x] `encoding/csv`: `Decode`, `Encode`.
   - [x] `encoding/base32`: `Encode`, `Decode`.
   - [x] `encoding/base64`: `Encode`, `Decode`, `RawURLEncode`, `RawURLDecode`, `URLEncode`, `URLDecode`.
-  - [x] `encoding/hex`: `Encode`, `Decode`, `Dump`.
+  - [x] `encoding/hex`: `Encode`, `Decode`, `Dump`, `EncodedLen`, `DecodedLen`.
   - [x] `text/tabwriter`: `Write`.
   - [x] `text/template`: `Execute`.
   - [x] `crypto/sha512`: `Sum`.
@@ -188,7 +188,7 @@ This document tracks the technical design, milestone progress, and conformance v
   - [x] `crypto/md5`: `Sum`.
   - [x] `crypto/sha1`: `Sum`.
   - [x] `crypto/hmac`: `SHA512`, `SHA256`, `MD5`, `SHA1`.
-  - [x] `path`: `Base`, `Dir`, `Ext`, `Join`, `Match`, `Split`, `IsAbs`.
+  - [x] `path`: `Clean`, `Base`, `Dir`, `Ext`, `Join`, `Match`, `Split`, `IsAbs`.
 
 ---
 
