@@ -60,8 +60,43 @@ impl PackageLoader {
         None
     }
 
+    /// Load and evaluate a single .cue file with module and vendored package resolution.
+    pub fn load_file<P: AsRef<Path>>(file: P) -> Result<(Evaluator, ValueId), EvalError> {
+        let file_path = file.as_ref();
+        if !file_path.is_file() {
+            return Err(EvalError::Evaluation(format!(
+                "File {} does not exist",
+                file_path.display()
+            )));
+        }
+
+        let content = std::fs::read_to_string(file_path)
+            .map_err(|e| EvalError::Evaluation(format!("Failed to read {}: {e}", file_path.display())))?;
+        let parsed_file = cue_syntax::parse_file(&content)?;
+
+        let mut evaluator = Evaluator::new();
+        let mod_root_opt = file_path.parent().and_then(Self::find_module_root);
+
+        // Resolve imports in file
+        Self::resolve_imports_for_files(&[parsed_file.clone()], &mod_root_opt, &mut evaluator)?;
+
+        let mut root_struct = StructValue::new(false);
+        evaluator.eval_decls_into_struct(&parsed_file.decls, &mut root_struct)?;
+
+        let root_id = evaluator.arena.alloc(Value::Struct(root_struct));
+        Ok((evaluator, root_id))
+    }
+
     /// Load and evaluate all .cue files in a directory as a unified package with multi-file hoisting.
     pub fn load_dir<P: AsRef<Path>>(dir: P) -> Result<(Evaluator, ValueId), EvalError> {
+        Self::load_dir_with_package(dir, None)
+    }
+
+    /// Load and evaluate all .cue files in a directory matching an optional package name.
+    pub fn load_dir_with_package<P: AsRef<Path>>(
+        dir: P,
+        target_pkg: Option<&str>,
+    ) -> Result<(Evaluator, ValueId), EvalError> {
         let mut evaluator = Evaluator::new();
         let files = Self::find_cue_files(dir.as_ref())?;
 
@@ -76,43 +111,31 @@ impl PackageLoader {
             let content = std::fs::read_to_string(&path)
                 .map_err(|e| EvalError::Evaluation(format!("Failed to read {}: {e}", path.display())))?;
             let source_file = cue_syntax::parse_file(&content)?;
+
+            // If target_pkg is specified, only include files with matching package or no package declaration
+            if let Some(target) = target_pkg {
+                if let Some(ref pkg_name) = source_file.package {
+                    if pkg_name != target {
+                        continue;
+                    }
+                }
+            }
+
             parsed_files.push(source_file);
+        }
+
+        if parsed_files.is_empty() {
+            return Err(EvalError::Evaluation(format!(
+                "No .cue files matched package '{:?}' in directory {}",
+                target_pkg,
+                dir.as_ref().display()
+            )));
         }
 
         let mod_root_opt = Self::find_module_root(dir.as_ref());
 
         // Process imports across parsed files and resolve external/module packages
-        for file in &parsed_files {
-            for imp in &file.imports {
-                let alias = imp
-                    .alias
-                    .clone()
-                    .unwrap_or_else(|| imp.path.split('/').next_back().unwrap_or(&imp.path).to_string());
-                evaluator.import_aliases.insert(alias, imp.path.clone());
-
-                if let Some((ref mod_root, ref mod_info)) = mod_root_opt
-                    && !evaluator.imported_packages.contains_key(&imp.path) {
-                        let pkg_dir = if imp.path.starts_with(&mod_info.module) {
-                            let sub = imp.path[mod_info.module.len()..].trim_start_matches('/');
-                            Some(mod_root.join(sub))
-                        } else {
-                            let vendored = mod_root.join("cue.mod").join("pkg").join(&imp.path);
-                            if vendored.is_dir() {
-                                Some(vendored)
-                            } else {
-                                None
-                            }
-                        };
-
-                        if let Some(p_dir) = pkg_dir
-                            && p_dir.is_dir()
-                            && let Ok((sub_eval, sub_val)) = Self::load_dir(&p_dir) {
-                                let imported_id = clone_value_into(&sub_eval.arena, &mut evaluator.arena, sub_val);
-                                evaluator.imported_packages.insert(imp.path.clone(), imported_id);
-                            }
-                    }
-            }
-        }
+        Self::resolve_imports_for_files(&parsed_files, &mod_root_opt, &mut evaluator)?;
 
         // Pass 1: Pre-register and evaluate definitions and aliases across all files
         for file in &parsed_files {
@@ -125,9 +148,9 @@ impl PackageLoader {
                             if let Some(&p_id) = evaluator.placeholders.get(name)
                                 && let Some(Value::RecursiveRef { target, .. }) =
                                     evaluator.arena.get_mut(p_id)
-                                {
-                                    *target = Some(val_id);
-                                }
+                            {
+                                *target = Some(val_id);
+                            }
                         }
                     }
                 } else if let Decl::Alias { ident, expr } = decl {
@@ -148,6 +171,62 @@ impl PackageLoader {
 
         let root_id = evaluator.arena.alloc(Value::Struct(package_struct));
         Ok((evaluator, root_id))
+    }
+
+    fn resolve_imports_for_files(
+        files: &[cue_syntax::ast::SourceFile],
+        mod_root_opt: &Option<(PathBuf, ModuleInfo)>,
+        evaluator: &mut Evaluator,
+    ) -> Result<(), EvalError> {
+        for file in files {
+            for imp in &file.imports {
+                let (dir_path, pkg_qualifier) = match imp.path.split_once(':') {
+                    Some((p, q)) => (p, Some(q)),
+                    None => (imp.path.as_str(), None),
+                };
+
+                let default_alias = pkg_qualifier
+                    .unwrap_or_else(|| dir_path.split('/').next_back().unwrap_or(dir_path));
+                let alias = imp.alias.clone().unwrap_or_else(|| default_alias.to_string());
+                evaluator.import_aliases.insert(alias, imp.path.clone());
+
+                if let Some((mod_root, mod_info)) = mod_root_opt
+                    && !evaluator.imported_packages.contains_key(&imp.path)
+                {
+                    let pkg_dir = if dir_path.starts_with(&mod_info.module) {
+                        let sub = dir_path[mod_info.module.len()..].trim_start_matches('/');
+                        Some(mod_root.join(sub))
+                    } else {
+                        let vendored = mod_root.join("cue.mod").join("pkg").join(dir_path);
+                        let gen_dir = mod_root.join("cue.mod").join("gen").join(dir_path);
+                        let usr = mod_root.join("cue.mod").join("usr").join(dir_path);
+
+                        if vendored.is_dir() {
+                            Some(vendored)
+                        } else if gen_dir.is_dir() {
+                            Some(gen_dir)
+                        } else if usr.is_dir() {
+                            Some(usr)
+                        } else {
+                            None
+                        }
+                    };
+
+                    if let Some(p_dir) = pkg_dir
+                        && p_dir.is_dir()
+                    {
+                        if let Ok((sub_eval, sub_val)) =
+                            Self::load_dir_with_package(&p_dir, pkg_qualifier)
+                        {
+                            let imported_id =
+                                clone_value_into(&sub_eval.arena, &mut evaluator.arena, sub_val);
+                            evaluator.imported_packages.insert(imp.path.clone(), imported_id);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn find_cue_files<P: AsRef<Path>>(dir: P) -> Result<Vec<PathBuf>, EvalError> {

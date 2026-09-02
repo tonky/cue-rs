@@ -131,24 +131,16 @@ fn main() -> Result<()> {
             }
         }
         Commands::Eval { file, format, pretty } => {
-            let json = if file.is_dir() {
-                let (evaluator, root_id) = cue_eval::PackageLoader::load_dir(&file)
-                    .map_err(|e| anyhow::anyhow!("Package load error: {e}"))?;
-                evaluator
-                    .to_json(root_id)
-                    .map_err(|e| anyhow::anyhow!("CUE evaluation failed: {e}"))?
+            let (evaluator, root_id) = if file.is_dir() {
+                cue_eval::PackageLoader::load_dir(&file)
+                    .map_err(|e| anyhow::anyhow!("Package load error: {e}"))?
             } else {
-                let content = std::fs::read_to_string(&file)
-                    .with_context(|| format!("Failed to read file {}", file.display()))?;
-                let source_file = cue_syntax::parse_file(&content)
-                    .map_err(|e| anyhow::anyhow!("{}", e.format_with_source(&content, Some(&file.to_string_lossy()))))?;
-                let mut evaluator = cue_eval::Evaluator::new();
-                let root_id = evaluator.eval_file(&source_file)
-                    .map_err(|e| anyhow::anyhow!("CUE evaluation failed: {e}"))?;
-                evaluator
-                    .to_json(root_id)
-                    .map_err(|e| anyhow::anyhow!("CUE evaluation failed: {e}"))?
+                cue_eval::PackageLoader::load_file(&file)
+                    .map_err(|e| anyhow::anyhow!("CUE evaluation error: {e}"))?
             };
+            let json = evaluator
+                .to_json(root_id)
+                .map_err(|e| anyhow::anyhow!("CUE export failed: {e}"))?;
 
             match format.to_lowercase().as_str() {
                 "yaml" | "yml" => {

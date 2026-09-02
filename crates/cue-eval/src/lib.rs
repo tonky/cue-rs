@@ -373,6 +373,53 @@ mod tests {
     }
 
     #[test]
+    fn test_vendored_package_import_with_qualifier() {
+        let temp_dir = std::env::temp_dir().join(format!("cue_test_vendored_{}", std::process::id()));
+        let mod_dir = temp_dir.join("cue.mod");
+        let vendored_pkg_dir = mod_dir.join("pkg").join("github.com/tonky/enve/schema/v1");
+        std::fs::create_dir_all(&mod_dir).unwrap();
+        std::fs::create_dir_all(&vendored_pkg_dir).unwrap();
+
+        let mod_cue = r#"
+            module: "example.com/myapp"
+            language: version: "v0.12.0"
+        "#;
+        std::fs::write(mod_dir.join("module.cue"), mod_cue).unwrap();
+
+        let schema_cue = r#"
+            package devshell
+
+            #ShellSpec: {
+                name: string
+                packages: [...string]
+            }
+        "#;
+        std::fs::write(vendored_pkg_dir.join("devshell.cue"), schema_cue).unwrap();
+
+        let app_cue = r#"
+            package main
+            import "github.com/tonky/enve/schema/v1:devshell"
+
+            env: devshell.#ShellSpec & {
+                name: "rust-dev"
+                packages: ["cargo", "rustc"]
+            }
+        "#;
+        let app_file = temp_dir.join("enve.cue");
+        std::fs::write(&app_file, app_cue).unwrap();
+
+        let loaded = crate::package::PackageLoader::load_file(&app_file);
+        assert!(loaded.is_ok());
+        let (eval, root_id) = loaded.unwrap();
+        let json_val = eval.to_json(root_id).unwrap();
+        assert_eq!(json_val["env"]["name"], "rust-dev");
+        assert_eq!(json_val["env"]["packages"][0], "cargo");
+        assert_eq!(json_val["env"]["packages"][1], "rustc");
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
     fn test_stdlib_package_registry() {
         assert!(is_known_package("strings"));
         assert!(is_known_package("crypto/sha256"));
