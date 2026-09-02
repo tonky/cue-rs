@@ -78,7 +78,7 @@ impl PackageLoader {
         let mod_root_opt = file_path.parent().and_then(Self::find_module_root);
 
         // Resolve imports in file
-        Self::resolve_imports_for_files(&[parsed_file.clone()], &mod_root_opt, &mut evaluator)?;
+        Self::resolve_imports_for_files(std::slice::from_ref(&parsed_file), &mod_root_opt, &mut evaluator)?;
 
         let mut root_struct = StructValue::new(false);
         evaluator.eval_decls_into_struct(&parsed_file.decls, &mut root_struct)?;
@@ -113,12 +113,11 @@ impl PackageLoader {
             let source_file = cue_syntax::parse_file(&content)?;
 
             // If target_pkg is specified, only include files with matching package or no package declaration
-            if let Some(target) = target_pkg {
-                if let Some(ref pkg_name) = source_file.package {
-                    if pkg_name != target {
-                        continue;
-                    }
-                }
+            if let Some(target) = target_pkg
+                && let Some(pkg_name) = &source_file.package
+                && pkg_name != target
+            {
+                continue;
             }
 
             parsed_files.push(source_file);
@@ -214,14 +213,12 @@ impl PackageLoader {
 
                     if let Some(p_dir) = pkg_dir
                         && p_dir.is_dir()
-                    {
-                        if let Ok((sub_eval, sub_val)) =
+                        && let Ok((sub_eval, sub_val)) =
                             Self::load_dir_with_package(&p_dir, pkg_qualifier)
-                        {
-                            let imported_id =
-                                clone_value_into(&sub_eval.arena, &mut evaluator.arena, sub_val);
-                            evaluator.imported_packages.insert(imp.path.clone(), imported_id);
-                        }
+                    {
+                        let imported_id =
+                            clone_value_into(&sub_eval.arena, &mut evaluator.arena, sub_val);
+                        evaluator.imported_packages.insert(imp.path.clone(), imported_id);
                     }
                 }
             }
