@@ -1028,6 +1028,12 @@ impl Evaluator {
                 let mut map = serde_json::Map::new();
                 for (k, entry) in &s.fields {
                     if entry.optional {
+                        if matches!(
+                            self.arena.get(entry.val),
+                            Some(Value::RecursiveRef { .. } | Value::Top | Value::Type(_) | Value::Bounds { .. })
+                        ) {
+                            continue;
+                        }
                         if let Ok(v) = self.to_json(entry.val) {
                             map.insert(k.clone(), v);
                         }

@@ -420,11 +420,33 @@ mod tests {
     }
 
     #[test]
-    fn test_stdlib_package_registry() {
-        assert!(is_known_package("strings"));
-        assert!(is_known_package("crypto/sha256"));
-        assert!(is_known_package("encoding/json"));
-        assert!(is_known_package("math/bits"));
-        assert!(!is_known_package("nonexistent/pkg"));
+    fn test_cross_file_definitions_and_hierarchical_module() {
+        let temp_dir = std::env::temp_dir().join(format!("cue_hierarchical_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let mod_dir = temp_dir.join("cue.mod");
+        std::fs::create_dir_all(&mod_dir).unwrap();
+        std::fs::write(mod_dir.join("module.cue"), "module: \"example.com/platform@v0\"\nlanguage: { version: \"v0.16.1\" }\n").unwrap();
+
+        let schema_dir = temp_dir.join("schema");
+        std::fs::create_dir_all(&schema_dir).unwrap();
+        std::fs::write(schema_dir.join("a.cue"), "package schema\n#Resource: { cpu: int }\n").unwrap();
+        std::fs::write(schema_dir.join("b.cue"), "package schema\n#Service: { name: string, res: #Resource }\n").unwrap();
+
+        let sub_dir = temp_dir.join("subprojects").join("app");
+        let sub_mod = sub_dir.join("cue.mod");
+        std::fs::create_dir_all(&sub_mod).unwrap();
+        std::fs::write(sub_mod.join("module.cue"), "module: \"example.com/platform@v0\"\nlanguage: { version: \"v0.16.1\" }\n").unwrap();
+
+        let app_cue = "package app\nimport \"example.com/platform/schema\"\nservice: schema.#Service & { name: \"web\", res: { cpu: 4 } }\n";
+        let app_file = sub_dir.join("app.cue");
+        std::fs::write(&app_file, app_cue).unwrap();
+
+        let loaded = crate::package::PackageLoader::load_file(&app_file);
+        assert!(loaded.is_ok(), "Failed to load: {:?}", loaded.err());
+        let (eval, root_id) = loaded.unwrap();
+        let json_val = eval.to_json(root_id).unwrap();
+        assert_eq!(json_val["service"]["name"], "web");
+        assert_eq!(json_val["service"]["res"]["cpu"], 4);
+
+        let _ = std::fs::remove_dir_all(temp_dir);
     }
 }

@@ -12,9 +12,13 @@ pub struct ModuleInfo {
 pub struct PackageLoader;
 
 impl PackageLoader {
-    /// Discovers the module root by searching parent directories for `cue.mod/module.cue`.
-    pub fn find_module_root<P: AsRef<Path>>(start_dir: P) -> Option<(PathBuf, ModuleInfo)> {
-        let mut curr = start_dir.as_ref().to_path_buf();
+    /// Discovers all ancestor module roots by searching parent directories for `cue.mod/module.cue`.
+    pub fn find_all_module_roots<P: AsRef<Path>>(start_dir: P) -> Vec<(PathBuf, ModuleInfo)> {
+        let mut roots = Vec::new();
+        let Ok(canonical) = std::fs::canonicalize(start_dir.as_ref()) else {
+            return roots;
+        };
+        let mut curr = canonical;
         if curr.is_file() {
             curr.pop();
         }
@@ -30,26 +34,32 @@ impl PackageLoader {
                 for decl in &source.decls {
                     if let Decl::Field(f) = decl {
                         if f.label.name() == Some("module")
-                            && let cue_syntax::ast::Expr::String(s) = &f.value {
-                                mod_name = s.clone();
-                            }
+                            && let cue_syntax::ast::Expr::String(s) = &f.value
+                        {
+                            mod_name = s.clone();
+                        }
                         if f.label.name() == Some("language")
-                            && let cue_syntax::ast::Expr::Struct(st) = &f.value {
-                                for d in &st.decls {
-                                    if let Decl::Field(inner_f) = d
-                                        && inner_f.label.name() == Some("version")
-                                        && let cue_syntax::ast::Expr::String(v) = &inner_f.value {
-                                            lang_ver = Some(v.clone());
-                                        }
+                            && let cue_syntax::ast::Expr::Struct(st) = &f.value
+                        {
+                            for d in &st.decls {
+                                if let Decl::Field(inner_f) = d
+                                    && inner_f.label.name() == Some("version")
+                                    && let cue_syntax::ast::Expr::String(v) = &inner_f.value
+                                {
+                                    lang_ver = Some(v.clone());
                                 }
                             }
+                        }
                     }
                 }
                 if !mod_name.is_empty() {
-                    return Some((curr, ModuleInfo {
-                        module: mod_name,
-                        language_version: lang_ver,
-                    }));
+                    roots.push((
+                        curr.clone(),
+                        ModuleInfo {
+                            module: mod_name,
+                            language_version: lang_ver,
+                        },
+                    ));
                 }
             }
 
@@ -57,7 +67,12 @@ impl PackageLoader {
                 break;
             }
         }
-        None
+        roots
+    }
+
+    /// Discovers the nearest module root by searching parent directories for `cue.mod/module.cue`.
+    pub fn find_module_root<P: AsRef<Path>>(start_dir: P) -> Option<(PathBuf, ModuleInfo)> {
+        Self::find_all_module_roots(start_dir).into_iter().next()
     }
 
     /// Load and evaluate a single .cue file with module and vendored package resolution.
@@ -75,10 +90,10 @@ impl PackageLoader {
         let parsed_file = cue_syntax::parse_file(&content)?;
 
         let mut evaluator = Evaluator::new();
-        let mod_root_opt = file_path.parent().and_then(Self::find_module_root);
+        let mod_roots = file_path.parent().map(Self::find_all_module_roots).unwrap_or_default();
 
         // Resolve imports in file
-        Self::resolve_imports_for_files(std::slice::from_ref(&parsed_file), &mod_root_opt, &mut evaluator)?;
+        Self::resolve_imports_for_files(std::slice::from_ref(&parsed_file), &mod_roots, &mut evaluator)?;
 
         let mut root_struct = StructValue::new(false);
         evaluator.eval_decls_into_struct(&parsed_file.decls, &mut root_struct)?;
@@ -131,42 +146,14 @@ impl PackageLoader {
             )));
         }
 
-        let mod_root_opt = Self::find_module_root(dir.as_ref());
+        let mod_roots = Self::find_all_module_roots(dir.as_ref());
 
         // Process imports across parsed files and resolve external/module packages
-        Self::resolve_imports_for_files(&parsed_files, &mod_root_opt, &mut evaluator)?;
+        Self::resolve_imports_for_files(&parsed_files, &mod_roots, &mut evaluator)?;
 
-        // Pass 1: Pre-register and evaluate definitions and aliases across all files
-        for file in &parsed_files {
-            for decl in &file.decls {
-                if let Decl::Field(f) = decl {
-                    if f.label.is_definition() {
-                        let val_id = evaluator.eval_expr(&f.value)?;
-                        if let Some(name) = f.label.name() {
-                            evaluator.insert_binding(name, val_id);
-                            if let Some(&p_id) = evaluator.placeholders.get(name)
-                                && let Some(Value::RecursiveRef { target, .. }) =
-                                    evaluator.arena.get_mut(p_id)
-                            {
-                                *target = Some(val_id);
-                            }
-                        }
-                    }
-                } else if let Decl::Alias { ident, expr } = decl {
-                    let val_id = evaluator.eval_expr(expr)?;
-                    evaluator.insert_binding(ident, val_id);
-                } else if let Decl::Let { ident, expr } = decl {
-                    let val_id = evaluator.eval_expr(expr)?;
-                    evaluator.insert_binding(ident, val_id);
-                }
-            }
-        }
-
-        // Pass 2: Evaluate all declarations from all files into package_struct
+        let all_decls: Vec<Decl> = parsed_files.into_iter().flat_map(|f| f.decls).collect();
         let mut package_struct = StructValue::new(false);
-        for file in parsed_files {
-            evaluator.eval_decls_into_struct(&file.decls, &mut package_struct)?;
-        }
+        evaluator.eval_decls_into_struct(&all_decls, &mut package_struct)?;
 
         let root_id = evaluator.arena.alloc(Value::Struct(package_struct));
         Ok((evaluator, root_id))
@@ -174,7 +161,7 @@ impl PackageLoader {
 
     fn resolve_imports_for_files(
         files: &[cue_syntax::ast::SourceFile],
-        mod_root_opt: &Option<(PathBuf, ModuleInfo)>,
+        mod_roots: &[(PathBuf, ModuleInfo)],
         evaluator: &mut Evaluator,
     ) -> Result<(), EvalError> {
         for file in files {
@@ -189,13 +176,25 @@ impl PackageLoader {
                 let alias = imp.alias.clone().unwrap_or_else(|| default_alias.to_string());
                 evaluator.import_aliases.insert(alias, imp.path.clone());
 
-                if let Some((mod_root, mod_info)) = mod_root_opt
-                    && !evaluator.imported_packages.contains_key(&imp.path)
-                {
-                    let pkg_dir = if dir_path.starts_with(&mod_info.module) {
-                        let sub = dir_path[mod_info.module.len()..].trim_start_matches('/');
-                        Some(mod_root.join(sub))
+                if evaluator.imported_packages.contains_key(&imp.path) {
+                    continue;
+                }
+
+                for (mod_root, mod_info) in mod_roots {
+                    let mod_base = mod_info.module.split('@').next().unwrap_or(&mod_info.module);
+                    let pkg_dir = if let Some(stripped) = dir_path.strip_prefix(mod_base) {
+                        let sub = stripped.trim_start_matches('/');
+                        let p = mod_root.join(sub);
+                        if p.is_dir() {
+                            Some(p)
+                        } else {
+                            None
+                        }
                     } else {
+                        None
+                    };
+
+                    let pkg_dir = pkg_dir.or_else(|| {
                         let vendored = mod_root.join("cue.mod").join("pkg").join(dir_path);
                         let gen_dir = mod_root.join("cue.mod").join("gen").join(dir_path);
                         let usr = mod_root.join("cue.mod").join("usr").join(dir_path);
@@ -209,7 +208,7 @@ impl PackageLoader {
                         } else {
                             None
                         }
-                    };
+                    });
 
                     if let Some(p_dir) = pkg_dir
                         && p_dir.is_dir()
@@ -219,6 +218,7 @@ impl PackageLoader {
                         let imported_id =
                             clone_value_into(&sub_eval.arena, &mut evaluator.arena, sub_val);
                         evaluator.imported_packages.insert(imp.path.clone(), imported_id);
+                        break;
                     }
                 }
             }
