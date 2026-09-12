@@ -2,7 +2,8 @@ use crate::value::{StructValue, Value, ValueArena, ValueId};
 use num_traits::ToPrimitive;
 
 const B64_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-const B64_URL_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+const B64_URL_CHARS: &[u8; 64] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 const B32_ALPHABET: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const B32_HEX_CHARS: &[u8; 32] = b"0123456789ABCDEFGHIJKLMNOPQRSTUV";
 
@@ -52,7 +53,10 @@ pub fn json_to_value(arena: &mut ValueArena, j: serde_json::Value) -> ValueId {
         }
         serde_json::Value::String(s) => arena.string(s),
         serde_json::Value::Array(arr) => {
-            let elements = arr.into_iter().map(|item| json_to_value(arena, item)).collect();
+            let elements = arr
+                .into_iter()
+                .map(|item| json_to_value(arena, item))
+                .collect();
             arena.alloc(Value::List {
                 elements,
                 ellipsis: None,
@@ -76,7 +80,7 @@ pub fn call_encoding(
     args: &[ValueId],
 ) -> Result<ValueId, String> {
     match (pkg, func_name) {
-// --- encoding/json & json package ---
+        // --- encoding/json & json package ---
         ("json" | "encoding/json", "Marshal") => {
             if let Some(&arg0) = args.first() {
                 let j = value_to_json(arena, arg0)?;
@@ -87,46 +91,58 @@ pub fn call_encoding(
         }
         ("json" | "encoding/json", "Unmarshal") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    let parsed: serde_json::Value =
-                        serde_json::from_str(s).map_err(|e| format!("json.Unmarshal failed: {e}"))?;
-                    return Ok(json_to_value(arena, parsed));
-                }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                let parsed: serde_json::Value =
+                    serde_json::from_str(s).map_err(|e| format!("json.Unmarshal failed: {e}"))?;
+                return Ok(json_to_value(arena, parsed));
+            }
             Err("json.Unmarshal requires 1 JSON string argument".to_string())
         }
         ("json" | "encoding/json", "Indent") => {
             if args.len() >= 3
-                && let (Some(Value::String(s)), Some(Value::String(prefix)), Some(Value::String(_indent))) =
-                    (arena.get(args[0]), arena.get(args[1]), arena.get(args[2])) {
-                        let parsed: serde_json::Value = serde_json::from_str(s).map_err(|e| format!("json.Indent failed: {e}"))?;
-                        let indented = serde_json::to_string_pretty(&parsed).map_err(|e| format!("json.Indent failed: {e}"))?;
-                        return Ok(arena.string(format!("{prefix}{indented}")));
-                    }
+                && let (
+                    Some(Value::String(s)),
+                    Some(Value::String(prefix)),
+                    Some(Value::String(_indent)),
+                ) = (arena.get(args[0]), arena.get(args[1]), arena.get(args[2]))
+            {
+                let parsed: serde_json::Value =
+                    serde_json::from_str(s).map_err(|e| format!("json.Indent failed: {e}"))?;
+                let indented = serde_json::to_string_pretty(&parsed)
+                    .map_err(|e| format!("json.Indent failed: {e}"))?;
+                return Ok(arena.string(format!("{prefix}{indented}")));
+            }
             Err("json.Indent requires (json_string, prefix, indent) arguments".to_string())
         }
         ("json" | "encoding/json", "Compact") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    let parsed: serde_json::Value = serde_json::from_str(s).map_err(|e| format!("json.Compact failed: {e}"))?;
-                    let compact = serde_json::to_string(&parsed).map_err(|e| format!("json.Compact failed: {e}"))?;
-                    return Ok(arena.string(compact));
-                }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                let parsed: serde_json::Value =
+                    serde_json::from_str(s).map_err(|e| format!("json.Compact failed: {e}"))?;
+                let compact = serde_json::to_string(&parsed)
+                    .map_err(|e| format!("json.Compact failed: {e}"))?;
+                return Ok(arena.string(compact));
+            }
             Err("json.Compact requires 1 JSON string argument".to_string())
         }
         ("json" | "encoding/json", "Valid") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    let is_valid = serde_json::from_str::<serde_json::Value>(s).is_ok();
-                    return Ok(arena.bool(is_valid));
-                }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                let is_valid = serde_json::from_str::<serde_json::Value>(s).is_ok();
+                return Ok(arena.bool(is_valid));
+            }
             Err("json.Valid requires 1 JSON string argument".to_string())
         }
         ("json" | "encoding/json", "Validate") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    let is_valid = serde_json::from_str::<serde_json::Value>(s).is_ok();
-                    return Ok(arena.bool(is_valid));
-                }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                let is_valid = serde_json::from_str::<serde_json::Value>(s).is_ok();
+                return Ok(arena.bool(is_valid));
+            }
             Err("json.Validate requires 1 JSON string argument".to_string())
         }
 
@@ -141,30 +157,33 @@ pub fn call_encoding(
         }
         ("yaml" | "encoding/yaml", "Unmarshal") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    let parsed: serde_json::Value =
-                        serde_yaml::from_str(s).map_err(|e| format!("yaml.Unmarshal failed: {e}"))?;
-                    return Ok(json_to_value(arena, parsed));
-                }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                let parsed: serde_json::Value =
+                    serde_yaml::from_str(s).map_err(|e| format!("yaml.Unmarshal failed: {e}"))?;
+                return Ok(json_to_value(arena, parsed));
+            }
             Err("yaml.Unmarshal requires 1 YAML string argument".to_string())
         }
         ("yaml" | "encoding/yaml", "Valid") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    let is_valid = serde_yaml::from_str::<serde_yaml::Value>(s).is_ok();
-                    return Ok(arena.bool(is_valid));
-                }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                let is_valid = serde_yaml::from_str::<serde_yaml::Value>(s).is_ok();
+                return Ok(arena.bool(is_valid));
+            }
             Err("yaml.Valid requires 1 YAML string argument".to_string())
         }
         ("yaml" | "encoding/yaml", "Validate") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    let is_valid = serde_yaml::from_str::<serde_yaml::Value>(s).is_ok();
-                    return Ok(arena.bool(is_valid));
-                }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                let is_valid = serde_yaml::from_str::<serde_yaml::Value>(s).is_ok();
+                return Ok(arena.bool(is_valid));
+            }
             Err("yaml.Validate requires 1 YAML string argument".to_string())
         }
-// --- encoding/base64 package ---
+        // --- encoding/base64 package ---
         ("base64" | "encoding/base64", "Encode") => {
             if let Some(&arg0) = args.first() {
                 let bytes = match arena.get(arg0) {
@@ -180,87 +199,96 @@ pub fn call_encoding(
         }
         ("base64" | "encoding/base64", "Decode") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    if let Ok(bytes) = base64_decode(s) {
-                        return Ok(arena.string(String::from_utf8_lossy(&bytes).to_string()));
-                    } else {
-                        return Err("invalid base64 string".to_string());
-                    }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                if let Ok(bytes) = base64_decode(s) {
+                    return Ok(arena.string(String::from_utf8_lossy(&bytes).to_string()));
+                } else {
+                    return Err("invalid base64 string".to_string());
                 }
+            }
             Err("base64.Decode requires 1 base64 string argument".to_string())
         }
         ("base64" | "encoding/base64", "RawURLEncode") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    return Ok(arena.string(base64_url_encode(s.as_bytes(), false)));
-                }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                return Ok(arena.string(base64_url_encode(s.as_bytes(), false)));
+            }
             Err("base64.RawURLEncode requires 1 string argument".to_string())
         }
         ("base64" | "encoding/base64", "RawURLDecode") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    if let Ok(bytes) = base64_url_decode(s) {
-                        return Ok(arena.string(String::from_utf8_lossy(&bytes).to_string()));
-                    } else {
-                        return Err("invalid base64 raw URL string".to_string());
-                    }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                if let Ok(bytes) = base64_url_decode(s) {
+                    return Ok(arena.string(String::from_utf8_lossy(&bytes).to_string()));
+                } else {
+                    return Err("invalid base64 raw URL string".to_string());
                 }
+            }
             Err("base64.RawURLDecode requires 1 string argument".to_string())
         }
         ("base64" | "encoding/base64", "URLEncode") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    return Ok(arena.string(base64_url_encode(s.as_bytes(), true)));
-                }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                return Ok(arena.string(base64_url_encode(s.as_bytes(), true)));
+            }
             Err("base64.URLEncode requires 1 string argument".to_string())
         }
         ("base64" | "encoding/base64", "URLDecode") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    if let Ok(bytes) = base64_url_decode(s) {
-                        return Ok(arena.string(String::from_utf8_lossy(&bytes).to_string()));
-                    } else {
-                        return Err("invalid base64 URL string".to_string());
-                    }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                if let Ok(bytes) = base64_url_decode(s) {
+                    return Ok(arena.string(String::from_utf8_lossy(&bytes).to_string()));
+                } else {
+                    return Err("invalid base64 URL string".to_string());
                 }
+            }
             Err("base64.URLDecode requires 1 string argument".to_string())
         }
 
         // --- encoding/base32 package ---
         ("base32" | "encoding/base32", "Encode") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    return Ok(arena.string(base32_encode(s.as_bytes())));
-                }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                return Ok(arena.string(base32_encode(s.as_bytes())));
+            }
             Err("base32.Encode requires 1 string argument".to_string())
         }
         ("base32" | "encoding/base32", "Decode") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    if let Ok(bytes) = base32_decode(s) {
-                        return Ok(arena.string(String::from_utf8_lossy(&bytes).to_string()));
-                    } else {
-                        return Err("invalid base32 string".to_string());
-                    }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                if let Ok(bytes) = base32_decode(s) {
+                    return Ok(arena.string(String::from_utf8_lossy(&bytes).to_string()));
+                } else {
+                    return Err("invalid base32 string".to_string());
                 }
+            }
             Err("base32.Decode requires 1 base32 string argument".to_string())
         }
         ("base32" | "encoding/base32", "HexEncode") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    return Ok(arena.string(base32_hex_encode(s.as_bytes())));
-                }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                return Ok(arena.string(base32_hex_encode(s.as_bytes())));
+            }
             Err("base32.HexEncode requires 1 string argument".to_string())
         }
         ("base32" | "encoding/base32", "HexDecode") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    if let Ok(bytes) = base32_hex_decode(s) {
-                        return Ok(arena.string(String::from_utf8_lossy(&bytes).to_string()));
-                    } else {
-                        return Err("invalid base32 extended hex string".to_string());
-                    }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                if let Ok(bytes) = base32_hex_decode(s) {
+                    return Ok(arena.string(String::from_utf8_lossy(&bytes).to_string()));
+                } else {
+                    return Err("invalid base32 extended hex string".to_string());
                 }
+            }
             Err("base32.HexDecode requires 1 string argument".to_string())
         }
 
@@ -298,30 +326,33 @@ pub fn call_encoding(
         }
         ("hex" | "encoding/hex", "Dump") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    let dumped = s
-                        .bytes()
-                        .map(|b| format!("{b:02x}"))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    return Ok(arena.string(dumped));
-                }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                let dumped = s
+                    .bytes()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                return Ok(arena.string(dumped));
+            }
             Err("hex.Dump requires 1 string argument".to_string())
         }
         ("hex" | "encoding/hex", "EncodedLen") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(n_val)) = arena.get(arg0)
-                && let Some(n) = n_val.to_i64() {
-                    return Ok(arena.int(n * 2));
-                }
+                && let Some(n) = n_val.to_i64()
+            {
+                return Ok(arena.int(n * 2));
+            }
             Err("hex.EncodedLen requires 1 integer argument".to_string())
         }
         ("hex" | "encoding/hex", "DecodedLen") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(n_val)) = arena.get(arg0)
-                && let Some(n) = n_val.to_i64() {
-                    return Ok(arena.int(n / 2));
-                }
+                && let Some(n) = n_val.to_i64()
+            {
+                return Ok(arena.int(n / 2));
+            }
             Err("hex.DecodedLen requires 1 integer argument".to_string())
         }
 
@@ -351,29 +382,31 @@ pub fn call_encoding(
         // --- encoding/html package ---
         ("html" | "encoding/html", "Escape") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    let escaped = s
-                        .replace('&', "&amp;")
-                        .replace('<', "&lt;")
-                        .replace('>', "&gt;")
-                        .replace('"', "&quot;")
-                        .replace('\'', "&#39;");
-                    return Ok(arena.string(escaped));
-                }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                let escaped = s
+                    .replace('&', "&amp;")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;")
+                    .replace('"', "&quot;")
+                    .replace('\'', "&#39;");
+                return Ok(arena.string(escaped));
+            }
             Err("html.Escape requires 1 string argument".to_string())
         }
         ("html" | "encoding/html", "Unescape") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    let unescaped = s
-                        .replace("&quot;", "\"")
-                        .replace("&#39;", "'")
-                        .replace("&apos;", "'")
-                        .replace("&lt;", "<")
-                        .replace("&gt;", ">")
-                        .replace("&amp;", "&");
-                    return Ok(arena.string(unescaped));
-                }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                let unescaped = s
+                    .replace("&quot;", "\"")
+                    .replace("&#39;", "'")
+                    .replace("&apos;", "'")
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&amp;", "&");
+                return Ok(arena.string(unescaped));
+            }
             Err("html.Unescape requires 1 string argument".to_string())
         }
         _ => Err(format!("unknown encoding function: {pkg}.{func_name}")),
@@ -496,10 +529,26 @@ fn base32_encode(input: &[u8]) -> String {
     let mut i = 0;
     while i < input.len() {
         let b0 = input[i] as u64;
-        let b1 = if i + 1 < input.len() { input[i + 1] as u64 } else { 0 };
-        let b2 = if i + 2 < input.len() { input[i + 2] as u64 } else { 0 };
-        let b3 = if i + 3 < input.len() { input[i + 3] as u64 } else { 0 };
-        let b4 = if i + 4 < input.len() { input[i + 4] as u64 } else { 0 };
+        let b1 = if i + 1 < input.len() {
+            input[i + 1] as u64
+        } else {
+            0
+        };
+        let b2 = if i + 2 < input.len() {
+            input[i + 2] as u64
+        } else {
+            0
+        };
+        let b3 = if i + 3 < input.len() {
+            input[i + 3] as u64
+        } else {
+            0
+        };
+        let b4 = if i + 4 < input.len() {
+            input[i + 4] as u64
+        } else {
+            0
+        };
 
         let combined = (b0 << 32) | (b1 << 24) | (b2 << 16) | (b3 << 8) | b4;
 
@@ -631,10 +680,26 @@ fn base32_hex_encode(input: &[u8]) -> String {
     let mut i = 0;
     while i < input.len() {
         let b0 = input[i] as u64;
-        let b1 = if i + 1 < input.len() { input[i + 1] as u64 } else { 0 };
-        let b2 = if i + 2 < input.len() { input[i + 2] as u64 } else { 0 };
-        let b3 = if i + 3 < input.len() { input[i + 3] as u64 } else { 0 };
-        let b4 = if i + 4 < input.len() { input[i + 4] as u64 } else { 0 };
+        let b1 = if i + 1 < input.len() {
+            input[i + 1] as u64
+        } else {
+            0
+        };
+        let b2 = if i + 2 < input.len() {
+            input[i + 2] as u64
+        } else {
+            0
+        };
+        let b3 = if i + 3 < input.len() {
+            input[i + 3] as u64
+        } else {
+            0
+        };
+        let b4 = if i + 4 < input.len() {
+            input[i + 4] as u64
+        } else {
+            0
+        };
 
         let chunk = (b0 << 32) | (b1 << 24) | (b2 << 16) | (b3 << 8) | b4;
         let rem_len = input.len() - i;

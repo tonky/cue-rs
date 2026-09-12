@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, Expr, Lit};
+use syn::{DeriveInput, Expr, Lit, parse_macro_input};
 
 #[proc_macro_derive(CueValidate, attributes(cue))]
 pub fn derive_cue_validate(input: TokenStream) -> TokenStream {
@@ -16,15 +16,17 @@ pub fn derive_cue_validate(input: TokenStream) -> TokenStream {
                 if meta.path.is_ident("schema") {
                     let value: Expr = meta.value()?.parse()?;
                     if let Expr::Lit(expr_lit) = value
-                        && let Lit::Str(s) = expr_lit.lit {
-                            schema_str = Some(s.value());
-                        }
+                        && let Lit::Str(s) = expr_lit.lit
+                    {
+                        schema_str = Some(s.value());
+                    }
                 } else if meta.path.is_ident("file") {
                     let value: Expr = meta.value()?.parse()?;
                     if let Expr::Lit(expr_lit) = value
-                        && let Lit::Str(s) = expr_lit.lit {
-                            file_path = Some(s.value());
-                        }
+                        && let Lit::Str(s) = expr_lit.lit
+                    {
+                        file_path = Some(s.value());
+                    }
                 }
                 Ok(())
             });

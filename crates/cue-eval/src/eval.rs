@@ -120,7 +120,11 @@ impl Evaluator {
             let pkg_name = if let Some(alias) = &imp.alias {
                 alias.clone()
             } else {
-                imp.path.split('/').next_back().unwrap_or(&imp.path).to_string()
+                imp.path
+                    .split('/')
+                    .next_back()
+                    .unwrap_or(&imp.path)
+                    .to_string()
             };
             self.import_aliases.insert(pkg_name, imp.path.clone());
         }
@@ -139,15 +143,16 @@ impl Evaluator {
         for decl in decls {
             if let Decl::Field(f) = decl
                 && let Some(name) = f.label.name()
-                    && f.label.is_definition()
-                        && !self.placeholders.contains_key(name) {
-                            let placeholder = self.arena.alloc(Value::RecursiveRef {
-                                name: name.to_string(),
-                                target: None,
-                            });
-                            self.insert_binding(name, placeholder);
-                            self.placeholders.insert(name.to_string(), placeholder);
-                        }
+                && f.label.is_definition()
+                && !self.placeholders.contains_key(name)
+            {
+                let placeholder = self.arena.alloc(Value::RecursiveRef {
+                    name: name.to_string(),
+                    target: None,
+                });
+                self.insert_binding(name, placeholder);
+                self.placeholders.insert(name.to_string(), placeholder);
+            }
         }
 
         // Multi-pass relaxation loop for forward / order-independent references
@@ -207,9 +212,7 @@ impl Evaluator {
                     || s.definitions.values().any(|f| self.is_unresolved(f.val))
                     || s.hidden.values().any(|f| self.is_unresolved(f.val))
             }
-            Some(Value::List { elements, .. }) => {
-                elements.iter().any(|&e| self.is_unresolved(e))
-            }
+            Some(Value::List { elements, .. }) => elements.iter().any(|&e| self.is_unresolved(e)),
             _ => false,
         }
     }
@@ -595,10 +598,13 @@ impl Evaluator {
                         .unwrap_or(pkg_name.as_str());
                     if let Some(&pkg_struct_id) = self.imported_packages.get(canonical_pkg)
                         && let Some(Value::Struct(s)) = self.arena.get(pkg_struct_id)
-                            && let Some(f) = s.fields.get(field).or_else(|| s.definitions.get(field)) {
-                                return Ok(f.val);
-                            }
-                    if let Ok(res) = crate::stdlib::call_stdlib_func(&mut self.arena, canonical_pkg, field, &[]) {
+                        && let Some(f) = s.fields.get(field).or_else(|| s.definitions.get(field))
+                    {
+                        return Ok(f.val);
+                    }
+                    if let Ok(res) =
+                        crate::stdlib::call_stdlib_func(&mut self.arena, canonical_pkg, field, &[])
+                    {
                         return Ok(res);
                     }
                 }
@@ -653,7 +659,8 @@ impl Evaluator {
             }
             Expr::Slice { expr, low, high } => {
                 let target_id = self.eval_expr(expr)?;
-                if let Some(Value::List { elements, ellipsis }) = self.arena.get(target_id).cloned() {
+                if let Some(Value::List { elements, ellipsis }) = self.arena.get(target_id).cloned()
+                {
                     let len = elements.len();
                     let start = if let Some(l) = low {
                         let l_id = self.eval_expr(l)?;
@@ -684,9 +691,9 @@ impl Evaluator {
                             ellipsis,
                         }))
                     } else {
-                        Ok(self.arena.bottom(format!(
-                            "invalid slice range: [{start}:{end}]"
-                        )))
+                        Ok(self
+                            .arena
+                            .bottom(format!("invalid slice range: [{start}:{end}]")))
                     }
                 } else {
                     Ok(self.arena.bottom("slice unsupported on non-list"))
@@ -699,17 +706,26 @@ impl Evaluator {
                     match part {
                         InterpolationPart::Lit(s) => result_str.push_str(s),
                         InterpolationPart::Expr(e) => {
-                            let val_id = self.eval_expr(e)?;
+                            let mut val_id = self.eval_expr(e)?;
+                            while let Some(Value::Disjunction { branches }) = self.arena.get(val_id) {
+                                if let Some(b) = branches.iter().find(|b| b.default) {
+                                    val_id = b.val;
+                                } else if let Some(b) = branches.first() {
+                                    val_id = b.val;
+                                } else {
+                                    break;
+                                }
+                            }
                             match self.arena.get(val_id) {
                                 Some(Value::String(s)) => result_str.push_str(s),
                                 Some(Value::Int(i)) => result_str.push_str(&i.to_string()),
                                 Some(Value::Float(f)) => result_str.push_str(&f.to_string()),
                                 Some(Value::Bool(b)) => result_str.push_str(&b.to_string()),
                                 Some(Value::Bottom(_)) => return Ok(val_id),
-                                _ => {
-                                    return Ok(self.arena.bottom(
-                                        "string interpolation requires concrete scalar value",
-                                    ))
+                                other => {
+                                    return Ok(self.arena.bottom(format!(
+                                        "string interpolation requires concrete scalar value, got {other:?} for expr {e:?}"
+                                    )));
                                 }
                             }
                         }
@@ -732,8 +748,13 @@ impl Evaluator {
         let mut evaluated_args = Vec::new();
         for a in arg_exprs {
             let arg_id = self.eval_expr(a)?;
-            let resolved_arg = if let Some(Value::Disjunction { branches }) = self.arena.get(arg_id) {
-                branches.iter().find(|b| b.default).map(|b| b.val).unwrap_or(arg_id)
+            let resolved_arg = if let Some(Value::Disjunction { branches }) = self.arena.get(arg_id)
+            {
+                branches
+                    .iter()
+                    .find(|b| b.default)
+                    .map(|b| b.val)
+                    .unwrap_or(arg_id)
             } else {
                 arg_id
             };
@@ -746,10 +767,16 @@ impl Evaluator {
                 "len" => {
                     if let Some(&arg0) = evaluated_args.first() {
                         match self.arena.get(arg0) {
-                            Some(Value::String(s)) => return Ok(self.arena.int(s.chars().count() as i64)),
+                            Some(Value::String(s)) => {
+                                return Ok(self.arena.int(s.chars().count() as i64));
+                            }
                             Some(Value::Bytes(b)) => return Ok(self.arena.int(b.len() as i64)),
-                            Some(Value::List { elements, .. }) => return Ok(self.arena.int(elements.len() as i64)),
-                            Some(Value::Struct(s)) => return Ok(self.arena.int(s.fields.len() as i64)),
+                            Some(Value::List { elements, .. }) => {
+                                return Ok(self.arena.int(elements.len() as i64));
+                            }
+                            Some(Value::Struct(s)) => {
+                                return Ok(self.arena.int(s.fields.len() as i64));
+                            }
                             _ => return Ok(self.arena.bottom("len: unsupported type")),
                         }
                     }
@@ -757,11 +784,12 @@ impl Evaluator {
                 }
                 "close" => {
                     if let Some(&arg0) = evaluated_args.first()
-                        && let Some(Value::Struct(s)) = self.arena.get(arg0) {
-                            let mut closed = s.clone();
-                            closed.is_closed = true;
-                            return Ok(self.arena.alloc(Value::Struct(closed)));
-                        }
+                        && let Some(Value::Struct(s)) = self.arena.get(arg0)
+                    {
+                        let mut closed = s.clone();
+                        closed.is_closed = true;
+                        return Ok(self.arena.alloc(Value::Struct(closed)));
+                    }
                     return Ok(self.arena.bottom("close requires 1 struct argument"));
                 }
                 _ => {}
@@ -770,23 +798,24 @@ impl Evaluator {
 
         // Builtin functions dispatch: strings.*, math.*, list.*, regexp.*
         if let Expr::Selector { expr, field } = func_expr
-            && let Expr::Ident(pkg) = &**expr {
-                let canonical_pkg = self
-                    .import_aliases
-                    .get(pkg)
-                    .cloned()
-                    .unwrap_or_else(|| pkg.clone());
+            && let Expr::Ident(pkg) = &**expr
+        {
+            let canonical_pkg = self
+                .import_aliases
+                .get(pkg)
+                .cloned()
+                .unwrap_or_else(|| pkg.clone());
 
-                match crate::stdlib::call_stdlib_func(
-                    &mut self.arena,
-                    &canonical_pkg,
-                    field,
-                    &evaluated_args,
-                ) {
-                    Ok(res_id) => return Ok(res_id),
-                    Err(err) => return Ok(self.arena.bottom(err)),
-                }
+            match crate::stdlib::call_stdlib_func(
+                &mut self.arena,
+                &canonical_pkg,
+                field,
+                &evaluated_args,
+            ) {
+                Ok(res_id) => return Ok(res_id),
+                Err(err) => return Ok(self.arena.bottom(err)),
             }
+        }
 
         Ok(self.arena.bottom("unsupported function call"))
     }
@@ -851,9 +880,10 @@ impl Evaluator {
         }
 
         if (cleaned.contains('.') || cleaned.contains('e') || cleaned.contains('E'))
-            && let Ok(f) = cleaned.parse::<f64>() {
-                return Ok(self.arena.float(f));
-            }
+            && let Ok(f) = cleaned.parse::<f64>()
+        {
+            return Ok(self.arena.float(f));
+        }
         if let Ok(i) = BigInt::from_str(&cleaned) {
             return Ok(self.arena.int(i));
         }
@@ -1005,6 +1035,11 @@ impl Evaluator {
 
     /// Export evaluated value to JSON if concrete.
     pub fn to_json(&self, val_id: ValueId) -> Result<serde_json::Value, String> {
+        self.to_json_at_path(val_id, "$")
+    }
+
+    /// Export evaluated value to JSON with path tracking for precise error diagnostics.
+    pub fn to_json_at_path(&self, val_id: ValueId, path: &str) -> Result<serde_json::Value, String> {
         match self.arena.get(val_id) {
             Some(Value::Null) => Ok(serde_json::Value::Null),
             Some(Value::Bool(b)) => Ok(serde_json::Value::Bool(*b)),
@@ -1019,55 +1054,104 @@ impl Evaluator {
             Some(Value::String(s)) => Ok(serde_json::Value::String(s.clone())),
             Some(Value::List { elements, .. }) => {
                 let mut arr = Vec::new();
-                for &elem in elements {
-                    arr.push(self.to_json(elem)?);
+                for (idx, &elem) in elements.iter().enumerate() {
+                    let elem_path = format!("{}[{}]", path, idx);
+                    arr.push(self.to_json_at_path(elem, &elem_path)?);
                 }
                 Ok(serde_json::Value::Array(arr))
             }
             Some(Value::Struct(s)) => {
                 let mut map = serde_json::Map::new();
                 for (k, entry) in &s.fields {
+                    let field_path = if path == "$" {
+                        k.clone()
+                    } else {
+                        format!("{}.{}", path, k)
+                    };
                     if entry.optional {
                         if matches!(
                             self.arena.get(entry.val),
-                            Some(Value::RecursiveRef { .. } | Value::Top | Value::Type(_) | Value::Bounds { .. })
+                            Some(
+                                Value::RecursiveRef { .. }
+                                    | Value::Top
+                                    | Value::Type(_)
+                                    | Value::Bounds { .. }
+                                    | Value::BuiltinValidator { .. }
+                                    | Value::Validators(_)
+                            )
                         ) {
                             continue;
                         }
-                        if let Ok(v) = self.to_json(entry.val) {
+                        if let Ok(v) = self.to_json_at_path(entry.val, &field_path) {
                             map.insert(k.clone(), v);
                         }
                     } else {
-                        map.insert(k.clone(), self.to_json(entry.val)?);
+                        map.insert(k.clone(), self.to_json_at_path(entry.val, &field_path)?);
                     }
                 }
                 Ok(serde_json::Value::Object(map))
             }
             Some(Value::Disjunction { branches }) => {
                 if let Some(default_branch) = branches.iter().find(|b| b.default) {
-                    self.to_json(default_branch.val)
+                    self.to_json_at_path(default_branch.val, path)
                 } else if let Some(first_branch) = branches.first() {
-                    self.to_json(first_branch.val)
-                } else {
+                    self.to_json_at_path(first_branch.val, path)
+                } else if path == "$" {
                     Err("cannot export non-concrete disjunction to JSON".to_string())
+                } else {
+                    Err(format!(
+                        "cannot export non-concrete disjunction at '{path}' to JSON"
+                    ))
                 }
             }
-            Some(Value::Bottom(b)) => Err(format!("cannot export bottom: {}", b)),
-            Some(Value::Top) => Err("cannot export non-concrete top value to JSON".to_string()),
-            Some(Value::Type(t)) => Err(format!("cannot export type {t} to JSON")),
-            Some(Value::Bounds { .. }) => Err("cannot export bound constraint to JSON".to_string()),
+            Some(Value::Bottom(b)) => {
+                if path == "$" {
+                    Err(format!("cannot export bottom: {b}"))
+                } else {
+                    Err(format!("cannot export bottom at '{path}': {b}"))
+                }
+            }
+            Some(Value::Top) => {
+                if path == "$" {
+                    Err("cannot export non-concrete top value to JSON".to_string())
+                } else {
+                    Err(format!("cannot export non-concrete top value at '{path}' to JSON"))
+                }
+            }
+            Some(Value::Type(t)) => {
+                if path == "$" {
+                    Err(format!("cannot export type {t} to JSON"))
+                } else {
+                    Err(format!("cannot export type {t} at '{path}' to JSON"))
+                }
+            }
+            Some(Value::Bounds { .. }) => {
+                if path == "$" {
+                    Err("cannot export bound constraint to JSON".to_string())
+                } else {
+                    Err(format!("cannot export bound constraint at '{path}' to JSON"))
+                }
+            }
             Some(Value::BuiltinValidator { .. }) => {
-                Err("cannot export validator constraint to JSON".to_string())
+                if path == "$" {
+                    Err("cannot export validator constraint to JSON".to_string())
+                } else {
+                    Err(format!("cannot export validator constraint at '{path}' to JSON"))
+                }
             }
             Some(Value::Validators(_)) => {
-                Err("cannot export validator constraints to JSON".to_string())
+                if path == "$" {
+                    Err("cannot export validator constraints to JSON".to_string())
+                } else {
+                    Err(format!("cannot export validator constraints at '{path}' to JSON"))
+                }
             }
             Some(Value::RecursiveRef { name, .. }) => {
                 Ok(serde_json::Value::String(format!("<ref:{name}>")))
             }
-            Some(Value::Bytes(b)) => {
-                Ok(serde_json::Value::String(String::from_utf8_lossy(b).to_string()))
-            }
+            Some(Value::Bytes(b)) => Ok(serde_json::Value::String(
+                String::from_utf8_lossy(b).to_string(),
+            )),
             None => Err("invalid value id".to_string()),
         }
     }

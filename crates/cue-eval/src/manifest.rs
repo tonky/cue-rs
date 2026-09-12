@@ -115,12 +115,16 @@ impl ModuleManifest {
                                         if let cue_syntax::ast::Decl::Field(df) = dd {
                                             match df.label.name() {
                                                 Some("v") => {
-                                                    if let cue_syntax::ast::Expr::String(v) = &df.value {
+                                                    if let cue_syntax::ast::Expr::String(v) =
+                                                        &df.value
+                                                    {
                                                         dep_info.version = v.clone();
                                                     }
                                                 }
                                                 Some("source") => {
-                                                    if let cue_syntax::ast::Expr::String(s) = &df.value {
+                                                    if let cue_syntax::ast::Expr::String(s) =
+                                                        &df.value
+                                                    {
                                                         dep_info.source = Some(s.clone());
                                                     }
                                                 }
@@ -169,6 +173,9 @@ mod tests {
         assert_eq!(parsed.dependencies.len(), 1);
         let dep = parsed.dependencies.get("github.com/org/schema@v0").unwrap();
         assert_eq!(dep.version, "v0.1.0");
-        assert_eq!(dep.source.as_deref(), Some("oci://registry.example.com/schema"));
+        assert_eq!(
+            dep.source.as_deref(),
+            Some("oci://registry.example.com/schema")
+        );
     }
 }

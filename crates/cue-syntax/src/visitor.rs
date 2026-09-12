@@ -176,7 +176,11 @@ pub fn fold_source_file<F: Folder>(folder: &mut F, file: SourceFile) -> SourceFi
     SourceFile {
         package: file.package,
         imports: file.imports,
-        decls: file.decls.into_iter().map(|d| folder.fold_decl(d)).collect(),
+        decls: file
+            .decls
+            .into_iter()
+            .map(|d| folder.fold_decl(d))
+            .collect(),
     }
 }
 
@@ -268,7 +272,11 @@ pub fn fold_expr<F: Folder>(folder: &mut F, expr: Expr) -> Expr {
             decls: s.decls.into_iter().map(|d| folder.fold_decl(d)).collect(),
         }),
         Expr::List(l) => Expr::List(ListLit {
-            elements: l.elements.into_iter().map(|e| folder.fold_expr(e)).collect(),
+            elements: l
+                .elements
+                .into_iter()
+                .map(|e| folder.fold_expr(e))
+                .collect(),
             ellipsis: l.ellipsis.map(|e| Box::new(folder.fold_expr(*e))),
         }),
         Expr::Unary { op, expr } => Expr::Unary {

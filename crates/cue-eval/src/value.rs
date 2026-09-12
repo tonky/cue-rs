@@ -1,6 +1,6 @@
 use num_bigint::BigInt;
 use serde::{Deserialize, Serialize};
-use slotmap::{new_key_type, SlotMap};
+use slotmap::{SlotMap, new_key_type};
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -63,7 +63,10 @@ impl TypeKind {
     }
 
     pub fn is_float(&self) -> bool {
-        matches!(self, TypeKind::Float | TypeKind::Float32 | TypeKind::Float64)
+        matches!(
+            self,
+            TypeKind::Float | TypeKind::Float32 | TypeKind::Float64
+        )
     }
 }
 

@@ -29,12 +29,13 @@ pub fn json_schema_to_cue(schema: &Value, root_name: Option<&str>) -> Result<Str
 
     // Definitions ($defs or definitions)
     if let Some(defs) = schema.get("$defs").or_else(|| schema.get("definitions"))
-        && let Some(defs_map) = defs.as_object() {
-            for (def_name, def_val) in defs_map {
-                let cue_expr = schema_val_to_cue(def_val, 1)?;
-                out.push_str(&format!("#{def_name}: {cue_expr}\n\n"));
-            }
+        && let Some(defs_map) = defs.as_object()
+    {
+        for (def_name, def_val) in defs_map {
+            let cue_expr = schema_val_to_cue(def_val, 1)?;
+            out.push_str(&format!("#{def_name}: {cue_expr}\n\n"));
         }
+    }
 
     // Root schema definition
     let root_def_name = root_name.unwrap_or("Schema");
@@ -67,7 +68,11 @@ fn schema_val_to_cue(val: &Value, indent_level: usize) -> Result<String, String>
         return Ok(options.join(" | "));
     }
 
-    if let Some(one_of) = val.get("oneOf").or_else(|| val.get("anyOf")).and_then(|v| v.as_array()) {
+    if let Some(one_of) = val
+        .get("oneOf")
+        .or_else(|| val.get("anyOf"))
+        .and_then(|v| v.as_array())
+    {
         let mut branches = Vec::new();
         for branch in one_of {
             branches.push(schema_val_to_cue(branch, indent_level)?);
@@ -120,9 +125,10 @@ fn schema_val_to_cue(val: &Value, indent_level: usize) -> Result<String, String>
                 prefix.push_str(&format!("list.MaxItems({max}) & "));
             }
             if let Some(uniq) = val.get("uniqueItems").and_then(|v| v.as_bool())
-                && uniq {
-                    prefix.push_str("list.UniqueItems() & ");
-                }
+                && uniq
+            {
+                prefix.push_str("list.UniqueItems() & ");
+            }
 
             if let Some(items) = val.get("items") {
                 let item_cue = schema_val_to_cue(items, indent_level)?;
@@ -146,13 +152,16 @@ fn schema_val_to_cue(val: &Value, indent_level: usize) -> Result<String, String>
                     let prop_cue = schema_val_to_cue(prop_schema, indent_level + 1)?;
 
                     // Safe identifier escaping
-                    let formatted_name = if prop_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                        prop_name.clone()
-                    } else {
-                        format!("\"{prop_name}\"")
-                    };
+                    let formatted_name =
+                        if prop_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                            prop_name.clone()
+                        } else {
+                            format!("\"{prop_name}\"")
+                        };
 
-                    lines.push(format!("{inner_indent}{formatted_name}{opt_mark}: {prop_cue}"));
+                    lines.push(format!(
+                        "{inner_indent}{formatted_name}{opt_mark}: {prop_cue}"
+                    ));
                 }
 
                 if lines.is_empty() {

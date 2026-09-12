@@ -8,7 +8,7 @@ pub fn call_time(
     args: &[ValueId],
 ) -> Result<ValueId, String> {
     match ("time", func_name) {
-// --- time package ---
+        // --- time package ---
         ("time", "Time") => {
             let dummy = arena.alloc(Value::Top);
             Ok(arena.alloc(Value::BuiltinValidator {
@@ -17,40 +17,53 @@ pub fn call_time(
             }))
         }
         ("time", "Duration") => {
+            if args.is_empty() {
+                let dummy = arena.alloc(Value::Top);
+                return Ok(arena.alloc(Value::BuiltinValidator {
+                    name: "time.Duration".to_string(),
+                    target: dummy,
+                }));
+            }
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    if let Ok(nanos) = parse_duration_nanos(s) {
-                        return Ok(arena.int(nanos));
-                    } else {
-                        return Err(format!("invalid duration string: {s}"));
-                    }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                if let Ok(nanos) = parse_duration_nanos(s) {
+                    return Ok(arena.int(nanos));
+                } else {
+                    return Err(format!("invalid duration string: {s}"));
                 }
+            }
             Err("time.Duration requires 1 duration string argument".to_string())
         }
         ("time", "Unix") => {
             if args.len() >= 2
-                && let (Some(Value::Int(sec_val)), Some(Value::Int(_nsec_val))) = (arena.get(args[0]), arena.get(args[1]))
-                && let Some(sec) = sec_val.to_i64() {
-                    return Ok(arena.string(format_unix_rfc3339(sec)));
-                }
+                && let (Some(Value::Int(sec_val)), Some(Value::Int(_nsec_val))) =
+                    (arena.get(args[0]), arena.get(args[1]))
+                && let Some(sec) = sec_val.to_i64()
+            {
+                return Ok(arena.string(format_unix_rfc3339(sec)));
+            }
             Err("time.Unix requires (sec, nsec) integer arguments".to_string())
         }
         ("time", "Parse") => {
             if args.len() >= 2
-                && let (Some(Value::String(layout)), Some(Value::String(val))) = (arena.get(args[0]), arena.get(args[1])) {
-                    match parse_time_layout(layout, val) {
-                        Ok(rfc3339) => return Ok(arena.string(rfc3339)),
-                        Err(e) => return Err(format!("time.Parse: {e}")),
-                    }
+                && let (Some(Value::String(layout)), Some(Value::String(val))) =
+                    (arena.get(args[0]), arena.get(args[1]))
+            {
+                match parse_time_layout(layout, val) {
+                    Ok(rfc3339) => return Ok(arena.string(rfc3339)),
+                    Err(e) => return Err(format!("time.Parse: {e}")),
                 }
+            }
             Err("time.Parse requires (layout, value) string arguments".to_string())
         }
         ("time", "FormatDuration") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(nanos_val)) = arena.get(arg0)
-                && let Some(nanos) = nanos_val.to_i64() {
-                    return Ok(arena.string(format_duration_string(nanos)));
-                }
+                && let Some(nanos) = nanos_val.to_i64()
+            {
+                return Ok(arena.string(format_duration_string(nanos)));
+            }
             Err("time.FormatDuration requires 1 integer nanos argument".to_string())
         }
         ("time", "Hour") => Ok(arena.int(3_600_000_000_000i64)),
@@ -61,32 +74,35 @@ pub fn call_time(
         ("time", "Nanosecond") => Ok(arena.int(1i64)),
         ("time", "Year") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    if let Some(y) = extract_time_part(s, 0, 4) {
-                        return Ok(arena.int(y));
-                    }
-                    return Err(format!("time.Year: cannot extract year from \"{s}\""));
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                if let Some(y) = extract_time_part(s, 0, 4) {
+                    return Ok(arena.int(y));
                 }
+                return Err(format!("time.Year: cannot extract year from \"{s}\""));
+            }
             Err("time.Year requires 1 time string argument".to_string())
         }
         ("time", "Month") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    if let Some(m) = extract_time_part(s, 5, 7) {
-                        return Ok(arena.int(m));
-                    }
-                    return Err(format!("time.Month: cannot extract month from \"{s}\""));
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                if let Some(m) = extract_time_part(s, 5, 7) {
+                    return Ok(arena.int(m));
                 }
+                return Err(format!("time.Month: cannot extract month from \"{s}\""));
+            }
             Err("time.Month requires 1 time string argument".to_string())
         }
         ("time", "Day") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    if let Some(d) = extract_time_part(s, 8, 10) {
-                        return Ok(arena.int(d));
-                    }
-                    return Err(format!("time.Day: cannot extract day from \"{s}\""));
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                if let Some(d) = extract_time_part(s, 8, 10) {
+                    return Ok(arena.int(d));
                 }
+                return Err(format!("time.Day: cannot extract day from \"{s}\""));
+            }
             Err("time.Day requires 1 time string argument".to_string())
         }
         _ => Err(format!("unknown time function: time.{func_name}")),
@@ -94,11 +110,12 @@ pub fn call_time(
 }
 
 pub fn is_valid_rfc3339(s: &str) -> bool {
-    let re = Regex::new(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$").unwrap();
+    let re =
+        Regex::new(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$").unwrap();
     re.is_match(s)
 }
 
-fn parse_duration_nanos(mut s: &str) -> Result<i64, String> {
+pub(crate) fn parse_duration_nanos(mut s: &str) -> Result<i64, String> {
     s = s.trim();
     if s.is_empty() {
         return Err("empty duration".to_string());
@@ -127,7 +144,9 @@ fn parse_duration_nanos(mut s: &str) -> Result<i64, String> {
         }
 
         let num_str = &s[start..end];
-        let num: f64 = num_str.parse().map_err(|e| format!("invalid number in duration: {e}"))?;
+        let num: f64 = num_str
+            .parse()
+            .map_err(|e| format!("invalid number in duration: {e}"))?;
 
         // Read unit part
         let unit_start = end;
@@ -233,7 +252,9 @@ fn parse_time_layout(layout: &str, val: &str) -> Result<String, String> {
                 return Ok(format!("{y:04}-{m:02}-{d:02}T00:00:00Z"));
             }
         }
-        return Err(format!("parsing time \"{val}\" as \"{layout}\": cannot parse"));
+        return Err(format!(
+            "parsing time \"{val}\" as \"{layout}\": cannot parse"
+        ));
     }
     if layout == "2006-01-02 15:04:05" {
         let dt_parts: Vec<&str> = val.split_whitespace().collect();
@@ -250,7 +271,9 @@ fn parse_time_layout(layout: &str, val: &str) -> Result<String, String> {
                 return Ok(format!("{y:04}-{m:02}-{d:02}T{hr:02}:{min:02}:{sec:02}Z"));
             }
         }
-        return Err(format!("parsing time \"{val}\" as \"{layout}\": cannot parse"));
+        return Err(format!(
+            "parsing time \"{val}\" as \"{layout}\": cannot parse"
+        ));
     }
     if is_valid_rfc3339(val) {
         return Ok(val.to_string());

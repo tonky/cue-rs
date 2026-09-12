@@ -4,7 +4,11 @@ use cue_test_harness::TxtarArchive;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "cue-rs", version = "0.1.0", about = "High-performance CUE language validator and evaluator in Rust")]
+#[command(
+    name = "cue-rs",
+    version = "0.1.0",
+    about = "High-performance CUE language validator and evaluator in Rust"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -118,8 +122,12 @@ fn main() -> Result<()> {
         Commands::Fmt { file, write } => {
             let content = std::fs::read_to_string(&file)
                 .with_context(|| format!("Failed to read file {}", file.display()))?;
-            let source_file = cue_syntax::parse_file(&content)
-                .map_err(|e| anyhow::anyhow!("{}", e.format_with_source(&content, Some(&file.to_string_lossy()))))?;
+            let source_file = cue_syntax::parse_file(&content).map_err(|e| {
+                anyhow::anyhow!(
+                    "{}",
+                    e.format_with_source(&content, Some(&file.to_string_lossy()))
+                )
+            })?;
             let formatted = cue_syntax::format_file(&source_file);
 
             if write {
@@ -130,7 +138,11 @@ fn main() -> Result<()> {
                 print!("{formatted}");
             }
         }
-        Commands::Eval { file, format, pretty } => {
+        Commands::Eval {
+            file,
+            format,
+            pretty,
+        } => {
             let (evaluator, root_id) = if file.is_dir() {
                 cue_eval::PackageLoader::load_dir(&file)
                     .map_err(|e| anyhow::anyhow!("Package load error: {e}"))?
@@ -208,14 +220,23 @@ fn main() -> Result<()> {
                 anyhow::bail!("Path {} does not exist", path.display());
             }
         }
-        Commands::SyncUpstream { src, dest, filter, test } => {
+        Commands::SyncUpstream {
+            src,
+            dest,
+            filter,
+            test,
+        } => {
             if !src.exists() {
                 anyhow::bail!("Source path {} does not exist", src.display());
             }
             std::fs::create_dir_all(&dest)?;
             let mut synced = Vec::new();
             sync_txtar_recursive(&src, &dest, filter.as_deref(), &mut synced)?;
-            println!("Successfully ingested {} upstream txtar test fixtures to {}", synced.len(), dest.display());
+            println!(
+                "Successfully ingested {} upstream txtar test fixtures to {}",
+                synced.len(),
+                dest.display()
+            );
 
             if test {
                 println!("\n--- Running Ingestion Conformance Verification ---");
@@ -239,8 +260,9 @@ fn main() -> Result<()> {
         }
         Commands::Import { command } => match command {
             ImportCommands::JsonSchema { file, root, write } => {
-                let content = std::fs::read_to_string(&file)
-                    .with_context(|| format!("Failed to read JSON Schema file {}", file.display()))?;
+                let content = std::fs::read_to_string(&file).with_context(|| {
+                    format!("Failed to read JSON Schema file {}", file.display())
+                })?;
                 let json_val: serde_json::Value = serde_json::from_str(&content)
                     .with_context(|| "Failed to parse file as valid JSON")?;
 
@@ -248,8 +270,9 @@ fn main() -> Result<()> {
                     .map_err(|e| anyhow::anyhow!("JSON Schema conversion error: {e}"))?;
 
                 if let Some(out_path) = write {
-                    std::fs::write(&out_path, &cue_output)
-                        .with_context(|| format!("Failed to write CUE file to {}", out_path.display()))?;
+                    std::fs::write(&out_path, &cue_output).with_context(|| {
+                        format!("Failed to write CUE file to {}", out_path.display())
+                    })?;
                     println!("Generated CUE schema at {}", out_path.display());
                 } else {
                     print!("{cue_output}");
@@ -259,20 +282,24 @@ fn main() -> Result<()> {
                 let content = std::fs::read_to_string(&file)
                     .with_context(|| format!("Failed to read OpenAPI file {}", file.display()))?;
 
-                let json_val: serde_json::Value = if file.extension().and_then(|s| s.to_str()) == Some("yaml")
+                let json_val: serde_json::Value = if file.extension().and_then(|s| s.to_str())
+                    == Some("yaml")
                     || file.extension().and_then(|s| s.to_str()) == Some("yml")
                 {
-                    serde_yaml::from_str(&content).with_context(|| "Failed to parse file as valid YAML")?
+                    serde_yaml::from_str(&content)
+                        .with_context(|| "Failed to parse file as valid YAML")?
                 } else {
-                    serde_json::from_str(&content).with_context(|| "Failed to parse file as valid JSON")?
+                    serde_json::from_str(&content)
+                        .with_context(|| "Failed to parse file as valid JSON")?
                 };
 
                 let cue_output = cue_eval::openapi_to_cue(&json_val)
                     .map_err(|e| anyhow::anyhow!("OpenAPI conversion error: {e}"))?;
 
                 if let Some(out_path) = write {
-                    std::fs::write(&out_path, &cue_output)
-                        .with_context(|| format!("Failed to write CUE file to {}", out_path.display()))?;
+                    std::fs::write(&out_path, &cue_output).with_context(|| {
+                        format!("Failed to write CUE file to {}", out_path.display())
+                    })?;
                     println!("Generated CUE schema at {}", out_path.display());
                 } else {
                     print!("{cue_output}");
@@ -283,7 +310,11 @@ fn main() -> Result<()> {
             ModCommands::Init { module, dir } => {
                 let manifest_path = cue_eval::ModuleManifest::init(&dir, &module)
                     .map_err(|e| anyhow::anyhow!("Failed to initialize CUE module: {e}"))?;
-                println!("Initialized CUE module '{}' at {}", module, manifest_path.display());
+                println!(
+                    "Initialized CUE module '{}' at {}",
+                    module,
+                    manifest_path.display()
+                );
             }
             ModCommands::Tidy { dir } => {
                 let cue_mod = dir.join("cue.mod").join("module.cue");
@@ -370,7 +401,10 @@ fn run_txtar_file(path: &std::path::Path) -> Result<()> {
     }
 
     let has_expected_error = archive.files.keys().any(|k| k.contains("error"))
-        || archive.files.values().any(|v| v.contains("Errors:") || v.contains("_|_"));
+        || archive
+            .files
+            .values()
+            .any(|v| v.contains("Errors:") || v.contains("_|_"));
 
     let mut evaluator = cue_eval::Evaluator::new();
     let mut last_val = None;
@@ -404,7 +438,10 @@ fn run_txtar_file(path: &std::path::Path) -> Result<()> {
             }
             Err(e) => {
                 let is_schema_or_stats_fixture = archive.files.keys().any(|k| {
-                    k.contains("error") || k.contains("evalalpha") || k.contains("stats") || k.contains("compile")
+                    k.contains("error")
+                        || k.contains("evalalpha")
+                        || k.contains("stats")
+                        || k.contains("compile")
                 });
                 if has_expected_error || is_schema_or_stats_fixture {
                     println!("Evaluated expected error or schema fixture successfully");

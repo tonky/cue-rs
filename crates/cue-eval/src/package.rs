@@ -1,6 +1,8 @@
-use cue_syntax::ast::Decl;
 use crate::eval::{EvalError, Evaluator};
-use crate::value::{DisjunctionBranch, FieldEntry, PatternConstraint, StructValue, Value, ValueArena, ValueId};
+use crate::value::{
+    DisjunctionBranch, FieldEntry, PatternConstraint, StructValue, Value, ValueArena, ValueId,
+};
+use cue_syntax::ast::Decl;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,7 +17,12 @@ impl PackageLoader {
     /// Discovers all ancestor module roots by searching parent directories for `cue.mod/module.cue`.
     pub fn find_all_module_roots<P: AsRef<Path>>(start_dir: P) -> Vec<(PathBuf, ModuleInfo)> {
         let mut roots = Vec::new();
-        let Ok(canonical) = std::fs::canonicalize(start_dir.as_ref()) else {
+        let start = if start_dir.as_ref().as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            start_dir.as_ref()
+        };
+        let Ok(canonical) = std::fs::canonicalize(start) else {
             return roots;
         };
         let mut curr = canonical;
@@ -77,23 +84,33 @@ impl PackageLoader {
 
     /// Load and evaluate a single .cue file with module and vendored package resolution.
     pub fn load_file<P: AsRef<Path>>(file: P) -> Result<(Evaluator, ValueId), EvalError> {
-        let file_path = file.as_ref();
+        let canonical_file = std::fs::canonicalize(file.as_ref())
+            .unwrap_or_else(|_| file.as_ref().to_path_buf());
+        let file_path = canonical_file.as_path();
         if !file_path.is_file() {
             return Err(EvalError::Evaluation(format!(
                 "File {} does not exist",
-                file_path.display()
+                file.as_ref().display()
             )));
         }
 
-        let content = std::fs::read_to_string(file_path)
-            .map_err(|e| EvalError::Evaluation(format!("Failed to read {}: {e}", file_path.display())))?;
+        let content = std::fs::read_to_string(file_path).map_err(|e| {
+            EvalError::Evaluation(format!("Failed to read {}: {e}", file_path.display()))
+        })?;
         let parsed_file = cue_syntax::parse_file(&content)?;
 
         let mut evaluator = Evaluator::new();
-        let mod_roots = file_path.parent().map(Self::find_all_module_roots).unwrap_or_default();
+        let mod_roots = file_path
+            .parent()
+            .map(Self::find_all_module_roots)
+            .unwrap_or_default();
 
         // Resolve imports in file
-        Self::resolve_imports_for_files(std::slice::from_ref(&parsed_file), &mod_roots, &mut evaluator)?;
+        Self::resolve_imports_for_files(
+            std::slice::from_ref(&parsed_file),
+            &mod_roots,
+            &mut evaluator,
+        )?;
 
         let mut root_struct = StructValue::new(false);
         evaluator.eval_decls_into_struct(&parsed_file.decls, &mut root_struct)?;
@@ -122,26 +139,32 @@ impl PackageLoader {
         }
 
         let mut parsed_files = Vec::new();
+        let mut all_files = Vec::new();
         for path in files {
-            let content = std::fs::read_to_string(&path)
-                .map_err(|e| EvalError::Evaluation(format!("Failed to read {}: {e}", path.display())))?;
+            let content = std::fs::read_to_string(&path).map_err(|e| {
+                EvalError::Evaluation(format!("Failed to read {}: {e}", path.display()))
+            })?;
             let source_file = cue_syntax::parse_file(&content)?;
 
-            // If target_pkg is specified, only include files with matching package or no package declaration
-            if let Some(target) = target_pkg
-                && let Some(pkg_name) = &source_file.package
-                && pkg_name != target
-            {
-                continue;
+            let matches_pkg = match (target_pkg, &source_file.package) {
+                (Some(target), Some(pkg)) => target == pkg,
+                _ => true,
+            };
+            if matches_pkg {
+                parsed_files.push(source_file.clone());
             }
-
-            parsed_files.push(source_file);
+            all_files.push(source_file);
         }
+
+        let parsed_files = if parsed_files.is_empty() {
+            all_files
+        } else {
+            parsed_files
+        };
 
         if parsed_files.is_empty() {
             return Err(EvalError::Evaluation(format!(
-                "No .cue files matched package '{:?}' in directory {}",
-                target_pkg,
+                "No .cue files found in directory {}",
                 dir.as_ref().display()
             )));
         }
@@ -173,7 +196,10 @@ impl PackageLoader {
 
                 let default_alias = pkg_qualifier
                     .unwrap_or_else(|| dir_path.split('/').next_back().unwrap_or(dir_path));
-                let alias = imp.alias.clone().unwrap_or_else(|| default_alias.to_string());
+                let alias = imp
+                    .alias
+                    .clone()
+                    .unwrap_or_else(|| default_alias.to_string());
                 evaluator.import_aliases.insert(alias, imp.path.clone());
 
                 if evaluator.imported_packages.contains_key(&imp.path) {
@@ -181,15 +207,15 @@ impl PackageLoader {
                 }
 
                 for (mod_root, mod_info) in mod_roots {
-                    let mod_base = mod_info.module.split('@').next().unwrap_or(&mod_info.module);
+                    let mod_base = mod_info
+                        .module
+                        .split('@')
+                        .next()
+                        .unwrap_or(&mod_info.module);
                     let pkg_dir = if let Some(stripped) = dir_path.strip_prefix(mod_base) {
                         let sub = stripped.trim_start_matches('/');
                         let p = mod_root.join(sub);
-                        if p.is_dir() {
-                            Some(p)
-                        } else {
-                            None
-                        }
+                        if p.is_dir() { Some(p) } else { None }
                     } else {
                         None
                     };
@@ -217,7 +243,9 @@ impl PackageLoader {
                     {
                         let imported_id =
                             clone_value_into(&sub_eval.arena, &mut evaluator.arena, sub_val);
-                        evaluator.imported_packages.insert(imp.path.clone(), imported_id);
+                        evaluator
+                            .imported_packages
+                            .insert(imp.path.clone(), imported_id);
                         break;
                     }
                 }
@@ -250,14 +278,25 @@ impl PackageLoader {
     }
 }
 
-fn clone_value_into(
+pub fn clone_value_into(from_arena: &ValueArena, to_arena: &mut ValueArena, id: ValueId) -> ValueId {
+    let mut memo = std::collections::HashMap::new();
+    clone_value_into_memo(from_arena, to_arena, id, &mut memo)
+}
+
+fn clone_value_into_memo(
     from_arena: &ValueArena,
     to_arena: &mut ValueArena,
     id: ValueId,
+    memo: &mut std::collections::HashMap<ValueId, ValueId>,
 ) -> ValueId {
+    if let Some(&cloned) = memo.get(&id) {
+        return cloned;
+    }
+
     let Some(val) = from_arena.get(id) else {
         return to_arena.alloc(Value::Top);
     };
+
     match val {
         Value::Top => to_arena.alloc(Value::Top),
         Value::Bottom(msg) => to_arena.alloc(Value::Bottom(msg.clone())),
@@ -274,31 +313,49 @@ fn clone_value_into(
         } => {
             let cloned_constraints = constraints
                 .iter()
-                .map(|(op, v)| (*op, clone_value_into(from_arena, to_arena, *v)))
+                .map(|(op, v)| (*op, clone_value_into_memo(from_arena, to_arena, *v, memo)))
                 .collect();
-            to_arena.alloc(Value::Bounds {
+            let new_id = to_arena.alloc(Value::Bounds {
                 base_type: *base_type,
                 constraints: cloned_constraints,
-            })
+            });
+            memo.insert(id, new_id);
+            new_id
         }
         Value::List { elements, ellipsis } => {
+            let placeholder = Value::List {
+                elements: Vec::new(),
+                ellipsis: None,
+            };
+            let new_id = to_arena.alloc(placeholder);
+            memo.insert(id, new_id);
+
             let cloned_elems = elements
                 .iter()
-                .map(|&e| clone_value_into(from_arena, to_arena, e))
+                .map(|&e| clone_value_into_memo(from_arena, to_arena, e, memo))
                 .collect();
-            let cloned_el = ellipsis.map(|e| clone_value_into(from_arena, to_arena, e));
-            to_arena.alloc(Value::List {
-                elements: cloned_elems,
-                ellipsis: cloned_el,
-            })
+            let cloned_el = ellipsis.map(|e| clone_value_into_memo(from_arena, to_arena, e, memo));
+            if let Some(Value::List {
+                elements: el_ref,
+                ellipsis: el_ref_el,
+            }) = to_arena.get_mut(new_id)
+            {
+                *el_ref = cloned_elems;
+                *el_ref_el = cloned_el;
+            }
+            new_id
         }
         Value::Struct(s) => {
+            let placeholder = StructValue::new(s.is_closed);
+            let new_id = to_arena.alloc(Value::Struct(placeholder));
+            memo.insert(id, new_id);
+
             let mut new_s = StructValue::new(s.is_closed);
             for (k, entry) in &s.fields {
                 new_s.fields.insert(
                     k.clone(),
                     FieldEntry {
-                        val: clone_value_into(from_arena, to_arena, entry.val),
+                        val: clone_value_into_memo(from_arena, to_arena, entry.val, memo),
                         optional: entry.optional,
                     },
                 );
@@ -307,7 +364,7 @@ fn clone_value_into(
                 new_s.definitions.insert(
                     k.clone(),
                     FieldEntry {
-                        val: clone_value_into(from_arena, to_arena, entry.val),
+                        val: clone_value_into_memo(from_arena, to_arena, entry.val, memo),
                         optional: entry.optional,
                     },
                 );
@@ -316,52 +373,75 @@ fn clone_value_into(
                 new_s.hidden.insert(
                     k.clone(),
                     FieldEntry {
-                        val: clone_value_into(from_arena, to_arena, entry.val),
+                        val: clone_value_into_memo(from_arena, to_arena, entry.val, memo),
                         optional: entry.optional,
                     },
                 );
             }
             for pc in &s.pattern_constraints {
                 new_s.pattern_constraints.push(PatternConstraint {
-                    pattern_val: clone_value_into(from_arena, to_arena, pc.pattern_val),
-                    target_val: clone_value_into(from_arena, to_arena, pc.target_val),
+                    pattern_val: clone_value_into_memo(from_arena, to_arena, pc.pattern_val, memo),
+                    target_val: clone_value_into_memo(from_arena, to_arena, pc.target_val, memo),
                 });
             }
-            to_arena.alloc(Value::Struct(new_s))
+            if let Some(Value::Struct(s_ref)) = to_arena.get_mut(new_id) {
+                *s_ref = new_s;
+            }
+            new_id
         }
         Value::Disjunction { branches } => {
+            let placeholder = Value::Disjunction {
+                branches: Vec::new(),
+            };
+            let new_id = to_arena.alloc(placeholder);
+            memo.insert(id, new_id);
+
             let cloned_branches = branches
                 .iter()
                 .map(|b| DisjunctionBranch {
-                    val: clone_value_into(from_arena, to_arena, b.val),
+                    val: clone_value_into_memo(from_arena, to_arena, b.val, memo),
                     default: b.default,
                 })
                 .collect();
-            to_arena.alloc(Value::Disjunction {
-                branches: cloned_branches,
-            })
+            if let Some(Value::Disjunction { branches: b_ref }) = to_arena.get_mut(new_id) {
+                *b_ref = cloned_branches;
+            }
+            new_id
         }
         Value::BuiltinValidator { name, target } => {
-            let cloned_target = clone_value_into(from_arena, to_arena, *target);
-            to_arena.alloc(Value::BuiltinValidator {
+            let cloned_target = clone_value_into_memo(from_arena, to_arena, *target, memo);
+            let new_id = to_arena.alloc(Value::BuiltinValidator {
                 name: name.clone(),
                 target: cloned_target,
-            })
+            });
+            memo.insert(id, new_id);
+            new_id
         }
         Value::Validators(vec) => {
             let cloned_vec = vec
                 .iter()
-                .map(|&v| clone_value_into(from_arena, to_arena, v))
+                .map(|&v| clone_value_into_memo(from_arena, to_arena, v, memo))
                 .collect();
-            to_arena.alloc(Value::Validators(cloned_vec))
+            let new_id = to_arena.alloc(Value::Validators(cloned_vec));
+            memo.insert(id, new_id);
+            new_id
         }
         Value::RecursiveRef { name, target } => {
-            let cloned_target = target.map(|t| clone_value_into(from_arena, to_arena, t));
-            to_arena.alloc(Value::RecursiveRef {
+            let placeholder = Value::RecursiveRef {
                 name: name.clone(),
-                target: cloned_target,
-            })
+                target: None,
+            };
+            let new_id = to_arena.alloc(placeholder);
+            memo.insert(id, new_id);
+
+            let cloned_target = target.map(|t| clone_value_into_memo(from_arena, to_arena, t, memo));
+            if let Some(Value::RecursiveRef {
+                target: t_ref, ..
+            }) = to_arena.get_mut(new_id)
+            {
+                *t_ref = cloned_target;
+            }
+            new_id
         }
     }
 }
-

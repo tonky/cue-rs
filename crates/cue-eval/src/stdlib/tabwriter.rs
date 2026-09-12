@@ -7,22 +7,24 @@ pub fn call_tabwriter(
     args: &[ValueId],
 ) -> Result<ValueId, String> {
     match (pkg, func_name) {
-// --- text/tabwriter package ---
+        // --- text/tabwriter package ---
         ("tabwriter" | "text/tabwriter", "Write") => {
             if let Some(&arg0) = args.first()
-                && let Some(Value::String(s)) = arena.get(arg0) {
-                    return Ok(arena.string(tabwriter_write(s)));
-                }
+                && let Some(Value::String(s)) = arena.get(arg0)
+            {
+                return Ok(arena.string(tabwriter_write(s)));
+            }
             Err("tabwriter.Write requires 1 string argument".to_string())
         }
 
         // --- text/template package ---
         ("template" | "text/template", "Execute") => {
             if args.len() >= 2
-                && let Some(Value::String(templ)) = arena.get(args[0]) {
-                    let res = template_execute(arena, templ, args[1])?;
-                    return Ok(arena.string(res));
-                }
+                && let Some(Value::String(templ)) = arena.get(args[0])
+            {
+                let res = template_execute(arena, templ, args[1])?;
+                return Ok(arena.string(res));
+            }
             Err("template.Execute requires 1 template string and 1 data struct".to_string())
         }
         _ => Err(format!("unknown text function: {pkg}.{func_name}")),

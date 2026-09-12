@@ -286,7 +286,8 @@ fn unify_bounds(
                     {
                         Some(b1)
                     } else {
-                        return arena.bottom(format!("conflicting bound base types: {b1} and {b2}"));
+                        return arena
+                            .bottom(format!("conflicting bound base types: {b1} and {b2}"));
                     }
                 }
                 (Some(b), None) | (None, Some(b)) => Some(b),
@@ -326,9 +327,11 @@ fn unify_bounds(
         // Unifying Bounds with concrete value -> test all constraints against candidate
         Value::Int(ref i_val) => {
             if let Some(bt) = base_type
-                && bt != TypeKind::Int && bt != TypeKind::Number {
-                    return arena.bottom(format!("type mismatch: expected {bt}, found int"));
-                }
+                && bt != TypeKind::Int
+                && bt != TypeKind::Number
+            {
+                return arena.bottom(format!("type mismatch: expected {bt}, found int"));
+            }
             for (op, target_id) in constraints {
                 match arena.get(target_id) {
                     Some(Value::Int(t_val)) => {
@@ -372,9 +375,11 @@ fn unify_bounds(
 
         Value::Float(f_val) => {
             if let Some(bt) = base_type
-                && bt != TypeKind::Float && bt != TypeKind::Number {
-                    return arena.bottom(format!("type mismatch: expected {bt}, found float"));
-                }
+                && bt != TypeKind::Float
+                && bt != TypeKind::Number
+            {
+                return arena.bottom(format!("type mismatch: expected {bt}, found float"));
+            }
             for (op, target_id) in constraints {
                 let target_f = match arena.get(target_id) {
                     Some(Value::Float(t_val)) => Some(*t_val),
@@ -392,9 +397,8 @@ fn unify_bounds(
                         _ => false,
                     };
                     if !ok {
-                        return arena.bottom(format!(
-                            "value {f_val} does not satisfy bound {op} {t_val}"
-                        ));
+                        return arena
+                            .bottom(format!("value {f_val} does not satisfy bound {op} {t_val}"));
                     }
                 } else {
                     return arena.bottom("bound target type mismatch for float");
@@ -405,9 +409,10 @@ fn unify_bounds(
 
         Value::String(ref s_val) => {
             if let Some(bt) = base_type
-                && bt != TypeKind::String {
-                    return arena.bottom(format!("type mismatch: expected {bt}, found string"));
-                }
+                && bt != TypeKind::String
+            {
+                return arena.bottom(format!("type mismatch: expected {bt}, found string"));
+            }
             for (op, target_id) in constraints {
                 if let Some(Value::String(pattern)) = arena.get(target_id) {
                     match op {
@@ -460,27 +465,24 @@ fn unify_bounds(
     }
 }
 
-pub fn field_matches_pattern(
-    arena: &ValueArena,
-    pattern_val: ValueId,
-    field_name: &str,
-) -> bool {
+pub fn field_matches_pattern(arena: &ValueArena, pattern_val: ValueId, field_name: &str) -> bool {
     match arena.get(pattern_val) {
         Some(Value::Type(TypeKind::String | TypeKind::Top)) => true,
         Some(Value::String(s)) => s == field_name,
         Some(Value::Bounds { constraints, .. }) => {
             for (op, target_id) in constraints {
                 if let Some(Value::String(pat)) = arena.get(*target_id)
-                    && let Ok(re) = Regex::new(pat) {
-                        let matched = match op {
-                            BoundOp::RegexMatch => re.is_match(field_name),
-                            BoundOp::RegexNotMatch => !re.is_match(field_name),
-                            _ => false,
-                        };
-                        if !matched {
-                            return false;
-                        }
+                    && let Ok(re) = Regex::new(pat)
+                {
+                    let matched = match op {
+                        BoundOp::RegexMatch => re.is_match(field_name),
+                        BoundOp::RegexNotMatch => !re.is_match(field_name),
+                        _ => false,
+                    };
+                    if !matched {
+                        return false;
                     }
+                }
             }
             true
         }
@@ -521,8 +523,12 @@ fn unify_structs(arena: &mut ValueArena, s1: &StructValue, s2: &StructValue) -> 
     let mut merged = StructValue::new(is_closed);
 
     // Merge pattern constraints
-    merged.pattern_constraints.extend(s1.pattern_constraints.clone());
-    merged.pattern_constraints.extend(s2.pattern_constraints.clone());
+    merged
+        .pattern_constraints
+        .extend(s1.pattern_constraints.clone());
+    merged
+        .pattern_constraints
+        .extend(s2.pattern_constraints.clone());
 
     // Merge regular fields
     let all_keys: BTreeSet<String> = s1.fields.keys().chain(s2.fields.keys()).cloned().collect();
@@ -681,7 +687,11 @@ fn unify_lists(
             }
             Some(u)
         }
-        (Some(p), None) | (None, Some(p)) if e1.len() == e2.len() || (el1.is_some() && el2.is_some()) => Some(p),
+        (Some(p), None) | (None, Some(p))
+            if e1.len() == e2.len() || (el1.is_some() && el2.is_some()) =>
+        {
+            Some(p)
+        }
         _ => None,
     };
 
@@ -696,13 +706,18 @@ fn unify_disjunction(
     branches: &[DisjunctionBranch],
     other_id: ValueId,
 ) -> ValueId {
-    if let Some(Value::Disjunction { branches: other_branches }) = arena.get(other_id).cloned() {
+    if let Some(Value::Disjunction {
+        branches: other_branches,
+    }) = arena.get(other_id).cloned()
+    {
         let mut valid_branches = Vec::new();
+        let mut branch_errors = Vec::new();
         for b1 in branches {
             for b2 in &other_branches {
                 let cp = arena.checkpoint();
                 let u = unify(arena, b1.val, b2.val);
-                if let Some(Value::Bottom(_)) = arena.get(u) {
+                if let Some(Value::Bottom(b)) = arena.get(u) {
+                    branch_errors.push(b.to_string());
                     arena.rollback(cp);
                     continue;
                 }
@@ -713,7 +728,16 @@ fn unify_disjunction(
             }
         }
         return match valid_branches.len() {
-            0 => arena.bottom("no matching disjunction branch"),
+            0 => {
+                if branch_errors.is_empty() {
+                    arena.bottom("no matching disjunction branch")
+                } else {
+                    arena.bottom(format!(
+                        "no matching disjunction branch: [{}]",
+                        branch_errors.join("; ")
+                    ))
+                }
+            }
             1 => valid_branches.pop().unwrap().val,
             _ => arena.alloc(Value::Disjunction {
                 branches: valid_branches,
@@ -722,12 +746,14 @@ fn unify_disjunction(
     }
 
     let mut valid_branches = Vec::new();
+    let mut branch_errors = Vec::new();
 
     for branch in branches {
         let cp = arena.checkpoint();
         let u = unify(arena, branch.val, other_id);
-        if let Some(Value::Bottom(_)) = arena.get(u) {
+        if let Some(Value::Bottom(b)) = arena.get(u) {
             // This branch conflicted, rollback allocations made during the branch
+            branch_errors.push(b.to_string());
             arena.rollback(cp);
             continue;
         }
@@ -738,7 +764,16 @@ fn unify_disjunction(
     }
 
     match valid_branches.len() {
-        0 => arena.bottom("no matching disjunction branch"),
+        0 => {
+            if branch_errors.is_empty() {
+                arena.bottom("no matching disjunction branch")
+            } else {
+                arena.bottom(format!(
+                    "no matching disjunction branch: [{}]",
+                    branch_errors.join("; ")
+                ))
+            }
+        }
         1 => valid_branches.pop().unwrap().val,
         _ => arena.alloc(Value::Disjunction {
             branches: valid_branches,
@@ -814,9 +849,7 @@ fn unify_validator(
         Value::BuiltinValidator { .. } => {
             arena.alloc(Value::Validators(vec![validator_id, candidate_id]))
         }
-        Value::Bounds { .. } => {
-            arena.alloc(Value::Validators(vec![validator_id, candidate_id]))
-        }
+        Value::Bounds { .. } => arena.alloc(Value::Validators(vec![validator_id, candidate_id])),
         Value::Validators(mut list) => {
             list.push(validator_id);
             arena.alloc(Value::Validators(list))
@@ -824,114 +857,130 @@ fn unify_validator(
         Value::String(ref s) => {
             if name.starts_with("strings.MinRunes(") {
                 if let Some(Value::Int(i)) = arena.get(target_id)
-                    && let Some(min) = i.to_usize() {
-                        if s.chars().count() >= min {
-                            return candidate_id;
-                        } else {
-                            return arena.bottom(format!(
-                                "string length {} is less than minimum runes {min}",
-                                s.chars().count()
-                            ));
-                        }
-                    }
-            } else if name.starts_with("strings.MaxRunes(") {
-                if let Some(Value::Int(i)) = arena.get(target_id)
-                    && let Some(max) = i.to_usize() {
-                        if s.chars().count() <= max {
-                            return candidate_id;
-                        } else {
-                            return arena.bottom(format!(
-                                "string length {} exceeds maximum runes {max}",
-                                s.chars().count()
-                            ));
-                        }
-                    }
-            } else if name == "time.Time"
-                && let Ok(re) = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$") {
-                    if re.is_match(s) {
+                    && let Some(min) = i.to_usize()
+                {
+                    if s.chars().count() >= min {
                         return candidate_id;
                     } else {
-                        return arena.bottom(format!("string \"{s}\" is not a valid RFC3339 timestamp"));
-                    }
-                } else if name == "net.IPv4" {
-                    if s.parse::<std::net::Ipv4Addr>().is_ok() {
-                        return candidate_id;
-                    } else {
-                        return arena.bottom(format!("string \"{s}\" is not a valid IPv4 address"));
-                    }
-                } else if name == "net.IPv6" {
-                    if s.parse::<std::net::Ipv6Addr>().is_ok() {
-                        return candidate_id;
-                    } else {
-                        return arena.bottom(format!("string \"{s}\" is not a valid IPv6 address"));
-                    }
-                } else if name == "net.IP" {
-                    if s.parse::<std::net::IpAddr>().is_ok() {
-                        return candidate_id;
-                    } else {
-                        return arena.bottom(format!("string \"{s}\" is not a valid IP address"));
-                    }
-                } else if name == "uuid.Valid" {
-                    if is_valid_uuid_str(s) {
-                        return candidate_id;
-                    } else {
-                        return arena.bottom(format!("string \"{s}\" is not a valid UUID"));
+                        return arena.bottom(format!(
+                            "string length {} is less than minimum runes {min}",
+                            s.chars().count()
+                        ));
                     }
                 }
+            } else if name.starts_with("strings.MaxRunes(") {
+                if let Some(Value::Int(i)) = arena.get(target_id)
+                    && let Some(max) = i.to_usize()
+                {
+                    if s.chars().count() <= max {
+                        return candidate_id;
+                    } else {
+                        return arena.bottom(format!(
+                            "string length {} exceeds maximum runes {max}",
+                            s.chars().count()
+                        ));
+                    }
+                }
+            } else if name == "time.Time"
+                && let Ok(re) = regex::Regex::new(
+                    r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$",
+                )
+            {
+                if re.is_match(s) {
+                    return candidate_id;
+                } else {
+                    return arena
+                        .bottom(format!("string \"{s}\" is not a valid RFC3339 timestamp"));
+                }
+            } else if name == "time.Duration" {
+                if crate::stdlib::time::parse_duration_nanos(s).is_ok() {
+                    return candidate_id;
+                } else {
+                    return arena.bottom(format!("string \"{s}\" is not a valid duration"));
+                }
+            } else if name == "net.IPv4" {
+                if s.parse::<std::net::Ipv4Addr>().is_ok() {
+                    return candidate_id;
+                } else {
+                    return arena.bottom(format!("string \"{s}\" is not a valid IPv4 address"));
+                }
+            } else if name == "net.IPv6" {
+                if s.parse::<std::net::Ipv6Addr>().is_ok() {
+                    return candidate_id;
+                } else {
+                    return arena.bottom(format!("string \"{s}\" is not a valid IPv6 address"));
+                }
+            } else if name == "net.IP" {
+                if s.parse::<std::net::IpAddr>().is_ok() {
+                    return candidate_id;
+                } else {
+                    return arena.bottom(format!("string \"{s}\" is not a valid IP address"));
+                }
+            } else if name == "uuid.Valid" {
+                if is_valid_uuid_str(s) {
+                    return candidate_id;
+                } else {
+                    return arena.bottom(format!("string \"{s}\" is not a valid UUID"));
+                }
+            }
             arena.bottom(format!("validator '{name}' failed on string \"{s}\""))
         }
         Value::Struct(ref s) => {
             if name.starts_with("struct.MinFields(") {
                 if let Some(Value::Int(i)) = arena.get(target_id)
-                    && let Some(min) = i.to_usize() {
-                        if s.fields.len() >= min {
-                            return candidate_id;
-                        } else {
-                            return arena.bottom(format!(
-                                "struct has {} fields, expected at least {min}",
-                                s.fields.len()
-                            ));
-                        }
+                    && let Some(min) = i.to_usize()
+                {
+                    if s.fields.len() >= min {
+                        return candidate_id;
+                    } else {
+                        return arena.bottom(format!(
+                            "struct has {} fields, expected at least {min}",
+                            s.fields.len()
+                        ));
                     }
+                }
             } else if name.starts_with("struct.MaxFields(")
                 && let Some(Value::Int(i)) = arena.get(target_id)
-                    && let Some(max) = i.to_usize() {
-                        if s.fields.len() <= max {
-                            return candidate_id;
-                        } else {
-                            return arena.bottom(format!(
-                                "struct has {} fields, expected at most {max}",
-                                s.fields.len()
-                            ));
-                        }
-                    }
+                && let Some(max) = i.to_usize()
+            {
+                if s.fields.len() <= max {
+                    return candidate_id;
+                } else {
+                    return arena.bottom(format!(
+                        "struct has {} fields, expected at most {max}",
+                        s.fields.len()
+                    ));
+                }
+            }
             arena.bottom(format!("validator '{name}' failed on struct"))
         }
         Value::List { ref elements, .. } => {
             if name.starts_with("list.MinItems(") {
                 if let Some(Value::Int(i)) = arena.get(target_id)
-                    && let Some(min) = i.to_usize() {
-                        if elements.len() >= min {
-                            return candidate_id;
-                        } else {
-                            return arena.bottom(format!(
-                                "list length {} is less than minimum items {min}",
-                                elements.len()
-                            ));
-                        }
+                    && let Some(min) = i.to_usize()
+                {
+                    if elements.len() >= min {
+                        return candidate_id;
+                    } else {
+                        return arena.bottom(format!(
+                            "list length {} is less than minimum items {min}",
+                            elements.len()
+                        ));
                     }
+                }
             } else if name.starts_with("list.MaxItems(") {
                 if let Some(Value::Int(i)) = arena.get(target_id)
-                    && let Some(max) = i.to_usize() {
-                        if elements.len() <= max {
-                            return candidate_id;
-                        } else {
-                            return arena.bottom(format!(
-                                "list length {} exceeds maximum items {max}",
-                                elements.len()
-                            ));
-                        }
+                    && let Some(max) = i.to_usize()
+                {
+                    if elements.len() <= max {
+                        return candidate_id;
+                    } else {
+                        return arena.bottom(format!(
+                            "list length {} exceeds maximum items {max}",
+                            elements.len()
+                        ));
                     }
+                }
             } else if name == "list.UniqueItems()" {
                 let mut seen = std::collections::HashSet::new();
                 for &elem in elements {
@@ -953,17 +1002,19 @@ fn unify_validator(
             arena.bottom(format!("validator '{name}' failed on list"))
         }
         Value::Int(ref i) => {
+            if name == "time.Duration" {
+                return candidate_id;
+            }
             if name.starts_with("math.MultipleOf(")
                 && let Some(Value::Int(t)) = arena.get(target_id)
-                    && let (Some(num), Some(mod_val)) = (i.to_i64(), t.to_i64()) {
-                        if mod_val != 0 && num % mod_val == 0 {
-                            return candidate_id;
-                        } else {
-                            return arena.bottom(format!(
-                                "number {num} is not a multiple of {mod_val}"
-                            ));
-                        }
-                    }
+                && let (Some(num), Some(mod_val)) = (i.to_i64(), t.to_i64())
+            {
+                if mod_val != 0 && num % mod_val == 0 {
+                    return candidate_id;
+                } else {
+                    return arena.bottom(format!("number {num} is not a multiple of {mod_val}"));
+                }
+            }
             arena.bottom(format!("validator '{name}' failed on integer {i}"))
         }
         _ => arena.bottom(format!("validator '{name}' is not applicable to value")),

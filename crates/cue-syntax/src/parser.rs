@@ -197,10 +197,11 @@ impl<'a> Parser<'a> {
 
     fn match_token(&mut self, expected: &Token) -> bool {
         if let Some(tok) = self.peek()
-            && tok == expected {
-                self.pos += 1;
-                return true;
-            }
+            && tok == expected
+        {
+            self.pos += 1;
+            return true;
+        }
         false
     }
 
@@ -221,27 +222,31 @@ impl<'a> Parser<'a> {
     // --- Declarations ---
 
     fn parse_package_opt(&mut self) -> Result<Option<String>, ParseError> {
-        if self.match_token(&Token::KwPackage) {
-            let (tok, span) = self.advance()?;
-            match tok {
-                Token::Ident(name) => {
-                    self.match_token(&Token::Comma); // optional comma/newline
-                    Ok(Some(name))
-                }
-                _ => Err(ParseError::UnexpectedToken {
-                    found: format!("{}", tok),
-                    expected: "package identifier".to_string(),
-                    span,
-                }),
-            }
-        } else {
-            Ok(None)
+        if self.peek() == Some(&Token::KwPackage)
+            && let Some((Token::Ident(name), _)) = self.tokens.get(self.pos + 1)
+            && !matches!(
+                self.tokens.get(self.pos + 2).map(|(t, _)| t),
+                Some(Token::Colon | Token::Question | Token::Bang)
+            )
+        {
+            let name = name.clone();
+            self.pos += 2;
+            self.match_token(&Token::Comma); // optional comma/newline
+            return Ok(Some(name));
         }
+        Ok(None)
     }
 
     fn parse_imports_opt(&mut self) -> Result<Vec<ImportDecl>, ParseError> {
         let mut imports = Vec::new();
-        while self.match_token(&Token::KwImport) {
+        while self.peek() == Some(&Token::KwImport) {
+            if matches!(
+                self.tokens.get(self.pos + 1).map(|(t, _)| t),
+                Some(Token::Colon | Token::Question | Token::Bang)
+            ) {
+                break;
+            }
+            self.advance()?;
             if self.match_token(&Token::LParen) {
                 while !self.match_token(&Token::RParen) && !self.is_eof() {
                     imports.push(self.parse_import_spec()?);
@@ -309,7 +314,10 @@ impl<'a> Parser<'a> {
             Attribute { name, body }
         } else {
             let name = raw[1..].to_string();
-            Attribute { name, body: String::new() }
+            Attribute {
+                name,
+                body: String::new(),
+            }
         }
     }
 
@@ -321,7 +329,12 @@ impl<'a> Parser<'a> {
             return Ok(Decl::Attribute(attr));
         }
 
-        // 1. Let clause: `let x = expr`
+        // 1. Lookahead for Field: `label: ...`, `x = label: ...`, `package: ...`
+        if self.is_label_ahead() {
+            return self.parse_field_decl();
+        }
+
+        // 2. Let clause: `let x = expr`
         if self.match_token(&Token::KwLet) {
             let (tok, span) = self.advance()?;
             let ident = match tok {
@@ -335,7 +348,7 @@ impl<'a> Parser<'a> {
                         found: format!("{}", tok),
                         expected: "identifier after let".to_string(),
                         span,
-                    })
+                    });
                 }
             };
             self.expect(Token::Equal)?;
@@ -343,7 +356,7 @@ impl<'a> Parser<'a> {
             return Ok(Decl::Let { ident, expr });
         }
 
-        // 2. Ellipsis: `...` or `...string`
+        // 3. Ellipsis: `...` or `...string`
         if self.match_token(&Token::Ellipsis) {
             let val = if self.is_eof()
                 || matches!(
@@ -357,31 +370,28 @@ impl<'a> Parser<'a> {
             return Ok(Decl::Ellipsis(val));
         }
 
-        // 3. For comprehension: `for k, v in src if cond { ... }`
+        // 4. For comprehension: `for k, v in src if cond { ... }`
         if self.match_token(&Token::KwFor) {
             return self.parse_for_comprehension();
         }
 
-        // 4. If clause: `if cond { ... }`
+        // 5. If clause: `if cond { ... }`
         if self.match_token(&Token::KwIf) {
             let cond = self.parse_expr()?;
             return self.parse_comprehension_clauses(ComprehensionClause::If { condition: cond });
         }
 
-        // 5. Lookahead for Field, Alias, or Embedding
-        // Check if this looks like a field label: `label: ...` or `x = label: ...`
-        if self.is_label_ahead() {
-            return self.parse_field_decl();
-        }
+        // 6. Alias or Embedding
 
         // An alias is: `X = expr` (Ident followed by `=`)
         if let Some((Token::Ident(id), _)) = self.tokens.get(self.pos)
-            && self.tokens.get(self.pos + 1).map(|(t, _)| t) == Some(&Token::Equal) {
-                let id = id.clone();
-                self.pos += 2; // consume ident and '='
-                let expr = self.parse_expr()?;
-                return Ok(Decl::Alias { ident: id, expr });
-            }
+            && self.tokens.get(self.pos + 1).map(|(t, _)| t) == Some(&Token::Equal)
+        {
+            let id = id.clone();
+            self.pos += 2; // consume ident and '='
+            let expr = self.parse_expr()?;
+            return Ok(Decl::Alias { ident: id, expr });
+        }
 
         // Otherwise, it's an embedded expression
         let expr = self.parse_expr()?;
@@ -430,7 +440,8 @@ impl<'a> Parser<'a> {
                         }
                         idx += 1;
                     }
-                } else if idx < self.tokens.len() && matches!(&self.tokens[idx].0, Token::Ident(_)) {
+                } else if idx < self.tokens.len() && matches!(&self.tokens[idx].0, Token::Ident(_))
+                {
                     idx += 1;
                 }
             }
@@ -468,7 +479,8 @@ impl<'a> Parser<'a> {
                         }
                         idx += 1;
                     }
-                } else if idx < self.tokens.len() && matches!(&self.tokens[idx].0, Token::Ident(_)) {
+                } else if idx < self.tokens.len() && matches!(&self.tokens[idx].0, Token::Ident(_))
+                {
                     idx += 1;
                 }
             }
@@ -481,13 +493,22 @@ impl<'a> Parser<'a> {
             return false;
         }
 
-        // Simple label: ident, string, def_ident
+        // Simple label: ident, string, def_ident, keywords
         match &self.tokens[idx].0 {
             Token::Ident(_)
             | Token::DefIdent(_)
             | Token::HiddenIdent(_)
             | Token::HiddenDefIdent(_)
             | Token::StringLit(_)
+            | Token::KwPackage
+            | Token::KwImport
+            | Token::KwFor
+            | Token::KwIn
+            | Token::KwIf
+            | Token::KwLet
+            | Token::KwNull
+            | Token::KwTrue
+            | Token::KwFalse
             | Token::Top => {
                 idx += 1;
                 if idx < self.tokens.len() && self.tokens[idx].0 == Token::Tilde {
@@ -503,7 +524,9 @@ impl<'a> Parser<'a> {
                             }
                             idx += 1;
                         }
-                    } else if idx < self.tokens.len() && matches!(&self.tokens[idx].0, Token::Ident(_)) {
+                    } else if idx < self.tokens.len()
+                        && matches!(&self.tokens[idx].0, Token::Ident(_))
+                    {
                         idx += 1;
                     }
                 }
@@ -600,6 +623,15 @@ impl<'a> Parser<'a> {
             Token::DefIdent(s) => Ok(Label::DefIdent(s)),
             Token::HiddenIdent(s) => Ok(Label::HiddenIdent(s)),
             Token::HiddenDefIdent(s) => Ok(Label::HiddenDefIdent(s)),
+            Token::KwPackage => Ok(Label::Ident("package".to_string())),
+            Token::KwImport => Ok(Label::Ident("import".to_string())),
+            Token::KwFor => Ok(Label::Ident("for".to_string())),
+            Token::KwIn => Ok(Label::Ident("in".to_string())),
+            Token::KwIf => Ok(Label::Ident("if".to_string())),
+            Token::KwLet => Ok(Label::Ident("let".to_string())),
+            Token::KwNull => Ok(Label::Ident("null".to_string())),
+            Token::KwTrue => Ok(Label::Ident("true".to_string())),
+            Token::KwFalse => Ok(Label::Ident("false".to_string())),
             Token::Top => Ok(Label::Ident("_".to_string())),
             Token::StringLit(s) => {
                 if s.contains(r"\(") {
@@ -976,7 +1008,7 @@ impl<'a> Parser<'a> {
                             found: format!("{}", tok),
                             expected: "field selector name".to_string(),
                             span,
-                        })
+                        });
                     }
                 }
             } else if self.match_token(&Token::LBracket) {

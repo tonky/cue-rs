@@ -118,10 +118,9 @@ fn format_decl(decl: &Decl, out: &mut String, indent: usize) {
 
 fn format_label(label: &Label, out: &mut String) {
     match label {
-        Label::Ident(s)
-        | Label::DefIdent(s)
-        | Label::HiddenIdent(s)
-        | Label::HiddenDefIdent(s) => out.push_str(s),
+        Label::Ident(s) | Label::DefIdent(s) | Label::HiddenIdent(s) | Label::HiddenDefIdent(s) => {
+            out.push_str(s)
+        }
         Label::String(s) => out.push_str(&format!("\"{s}\"")),
         Label::Pattern(expr) => {
             out.push('[');
@@ -146,10 +145,9 @@ fn format_expr(expr: &Expr, out: &mut String, indent: usize) {
         Expr::Number(n) => out.push_str(n),
         Expr::String(s) => out.push_str(&format!("\"{s}\"")),
         Expr::Bytes(b) => out.push_str(&format!("'{b}'")),
-        Expr::Ident(id)
-        | Expr::DefIdent(id)
-        | Expr::HiddenIdent(id)
-        | Expr::HiddenDefIdent(id) => out.push_str(id),
+        Expr::Ident(id) | Expr::DefIdent(id) | Expr::HiddenIdent(id) | Expr::HiddenDefIdent(id) => {
+            out.push_str(id)
+        }
         Expr::Struct(s) => {
             if s.decls.is_empty() {
                 out.push_str("{}");

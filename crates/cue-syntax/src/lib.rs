@@ -114,4 +114,11 @@ mod tests {
         assert!(diag.contains("b: @invalid"));
         assert!(diag.contains("^"));
     }
+
+    #[test]
+    fn test_parse_keyword_labels() {
+        let src = "package: \"postgresql\"\nimport: \"pkg\"\nlet: 42\nfor: true\n";
+        let file = parse_file(src).expect("should parse keywords as field labels");
+        assert_eq!(file.decls.len(), 4);
+    }
 }

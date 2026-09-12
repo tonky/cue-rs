@@ -64,9 +64,7 @@ impl StdlibValidator {
                     if count <= *max {
                         Ok(())
                     } else {
-                        Err(format!(
-                            "string length {count} exceeds maximum runes {max}"
-                        ))
+                        Err(format!("string length {count} exceeds maximum runes {max}"))
                     }
                 }
                 _ => Err("strings.MaxRunes validator expects a string value".to_string()),
@@ -286,8 +284,8 @@ pub fn call_stdlib_func(
         "tabwriter" | "text/tabwriter" | "template" | "text/template" => {
             tabwriter::call_tabwriter(arena, pkg, func_name, args)
         }
-        "sha256" | "crypto/sha256" | "md5" | "crypto/md5" | "sha1" | "crypto/sha1"
-        | "sha512" | "crypto/sha512" | "hmac" | "crypto/hmac" => {
+        "sha256" | "crypto/sha256" | "md5" | "crypto/md5" | "sha1" | "crypto/sha1" | "sha512"
+        | "crypto/sha512" | "hmac" | "crypto/hmac" => {
             crypto::call_crypto(arena, pkg, func_name, args)
         }
         "json" | "encoding/json" | "yaml" | "encoding/yaml" | "base64" | "encoding/base64"
@@ -298,4 +296,3 @@ pub fn call_stdlib_func(
         _ => Err(format!("unknown stdlib package: {pkg}")),
     }
 }
-

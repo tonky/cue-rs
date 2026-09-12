@@ -143,7 +143,10 @@ c: a + b
 "#;
         let archive = TxtarArchive::parse(txt).unwrap();
         assert!(archive.comment.contains("This is a test comment"));
-        assert_eq!(archive.files.get("in.cue").unwrap().trim(), "a: 1\nb: 2\nc: a + b");
+        assert_eq!(
+            archive.files.get("in.cue").unwrap().trim(),
+            "a: 1\nb: 2\nc: a + b"
+        );
         assert_eq!(
             archive.expected_eval_output().unwrap().trim(),
             "(int): {\n  a: 1\n  b: 2\n  c: 3\n}"
@@ -165,7 +168,10 @@ x: 10
 y: 20
 "#;
         let archive = TxtarArchive::parse(txt).unwrap();
-        assert_eq!(archive.file_order, vec!["file1.cue", "file2.cue", "out/eval"]);
+        assert_eq!(
+            archive.file_order,
+            vec!["file1.cue", "file2.cue", "out/eval"]
+        );
         let cue_files = archive.cue_files();
         assert_eq!(cue_files.len(), 2);
         assert_eq!(cue_files[0].0, "file1.cue");

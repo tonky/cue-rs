@@ -10,7 +10,7 @@ pub use eval::{EvalError, Evaluator};
 pub use importer::{json_schema_to_cue, openapi_to_cue};
 pub use manifest::{DependencyInfo, ModuleManifest};
 pub use package::PackageLoader;
-pub use stdlib::{is_known_package, StdlibFn, StdlibValidator};
+pub use stdlib::{StdlibFn, StdlibValidator, is_known_package};
 pub use unify::unify;
 pub use value::{BottomReason, BoundOp, StructValue, TypeKind, Value, ValueArena, ValueId};
 
@@ -20,9 +20,7 @@ pub fn eval_to_json(source: &str) -> Result<serde_json::Value, EvalError> {
     let mut evaluator = Evaluator::new();
     let root_id = evaluator.eval_file(&file)?;
 
-    evaluator
-        .to_json(root_id)
-        .map_err(EvalError::Evaluation)
+    evaluator.to_json(root_id).map_err(EvalError::Evaluation)
 }
 
 /// Validate a JSON value against a CUE schema string.
@@ -131,7 +129,10 @@ mod tests {
         let concrete_id = evaluator.arena.alloc(Value::Struct(concrete));
 
         let unified = unify(&mut evaluator.arena, def_id, concrete_id);
-        assert!(matches!(evaluator.arena.get(unified), Some(Value::Bottom(_))));
+        assert!(matches!(
+            evaluator.arena.get(unified),
+            Some(Value::Bottom(_))
+        ));
     }
 
     #[test]
@@ -374,7 +375,8 @@ mod tests {
 
     #[test]
     fn test_vendored_package_import_with_qualifier() {
-        let temp_dir = std::env::temp_dir().join(format!("cue_test_vendored_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("cue_test_vendored_{}", std::process::id()));
         let mod_dir = temp_dir.join("cue.mod");
         let vendored_pkg_dir = mod_dir.join("pkg").join("github.com/tonky/enve/schema/v1");
         std::fs::create_dir_all(&mod_dir).unwrap();
@@ -421,20 +423,42 @@ mod tests {
 
     #[test]
     fn test_cross_file_definitions_and_hierarchical_module() {
-        let temp_dir = std::env::temp_dir().join(format!("cue_hierarchical_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "cue_hierarchical_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         let mod_dir = temp_dir.join("cue.mod");
         std::fs::create_dir_all(&mod_dir).unwrap();
-        std::fs::write(mod_dir.join("module.cue"), "module: \"example.com/platform@v0\"\nlanguage: { version: \"v0.16.1\" }\n").unwrap();
+        std::fs::write(
+            mod_dir.join("module.cue"),
+            "module: \"example.com/platform@v0\"\nlanguage: { version: \"v0.16.1\" }\n",
+        )
+        .unwrap();
 
         let schema_dir = temp_dir.join("schema");
         std::fs::create_dir_all(&schema_dir).unwrap();
-        std::fs::write(schema_dir.join("a.cue"), "package schema\n#Resource: { cpu: int }\n").unwrap();
-        std::fs::write(schema_dir.join("b.cue"), "package schema\n#Service: { name: string, res: #Resource }\n").unwrap();
+        std::fs::write(
+            schema_dir.join("a.cue"),
+            "package schema\n#Resource: { cpu: int }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            schema_dir.join("b.cue"),
+            "package schema\n#Service: { name: string, res: #Resource }\n",
+        )
+        .unwrap();
 
         let sub_dir = temp_dir.join("subprojects").join("app");
         let sub_mod = sub_dir.join("cue.mod");
         std::fs::create_dir_all(&sub_mod).unwrap();
-        std::fs::write(sub_mod.join("module.cue"), "module: \"example.com/platform@v0\"\nlanguage: { version: \"v0.16.1\" }\n").unwrap();
+        std::fs::write(
+            sub_mod.join("module.cue"),
+            "module: \"example.com/platform@v0\"\nlanguage: { version: \"v0.16.1\" }\n",
+        )
+        .unwrap();
 
         let app_cue = "package app\nimport \"example.com/platform/schema\"\nservice: schema.#Service & { name: \"web\", res: { cpu: 4 } }\n";
         let app_file = sub_dir.join("app.cue");
@@ -448,5 +472,25 @@ mod tests {
         assert_eq!(json_val["service"]["res"]["cpu"], 4);
 
         let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_disjunction_branch_and_path_error_diagnostics() {
+        let cue_src = r#"
+            #Dep: string | { name: string, port: int }
+            app: {
+                dep: #Dep & { name: "db", port: "not-an-int" }
+            }
+        "#;
+        let err = eval_to_json(cue_src).unwrap_err();
+        let err_str = err.to_string();
+        assert!(
+            err_str.contains("app.dep"),
+            "Expected path 'app.dep' in error: {err_str}"
+        );
+        assert!(
+            err_str.contains("no matching disjunction branch"),
+            "Expected disjunction failure in error: {err_str}"
+        );
     }
 }

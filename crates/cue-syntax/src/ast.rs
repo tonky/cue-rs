@@ -78,9 +78,18 @@ pub struct ComprehensionDecl {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ComprehensionClause {
-    For { key: Option<String>, value: String, source: Expr },
-    If { condition: Expr },
-    Let { ident: String, expr: Expr },
+    For {
+        key: Option<String>,
+        value: String,
+        source: Expr,
+    },
+    If {
+        condition: Expr,
+    },
+    Let {
+        ident: String,
+        expr: Expr,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -180,20 +189,20 @@ pub enum UnaryOp {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BinaryOp {
-    Unify,      // &
-    Disjoin,    // |
-    LogicalAnd, // &&
-    LogicalOr,  // ||
-    Add,        // +
-    Sub,        // -
-    Mul,        // *
-    Div,        // /
-    Equal,      // ==
-    NotEqual,   // !=
-    Less,       // <
-    LessEqual,  // <=
-    Greater,    // >
-    GreaterEqual,// >=
-    RegexMatch, // =~
-    RegexNotMatch,// !~
+    Unify,         // &
+    Disjoin,       // |
+    LogicalAnd,    // &&
+    LogicalOr,     // ||
+    Add,           // +
+    Sub,           // -
+    Mul,           // *
+    Div,           // /
+    Equal,         // ==
+    NotEqual,      // !=
+    Less,          // <
+    LessEqual,     // <=
+    Greater,       // >
+    GreaterEqual,  // >=
+    RegexMatch,    // =~
+    RegexNotMatch, // !~
 }

@@ -3,13 +3,13 @@ use wasm_bindgen::prelude::*;
 /// Evaluate CUE source code and return the output serialized in the requested format (json or yaml).
 #[wasm_bindgen]
 pub fn eval_cue(source: &str, format: Option<String>) -> Result<String, String> {
-    let json_val = cue_eval::eval_to_json(source)
-        .map_err(|e| format!("Evaluation error: {e}"))?;
+    let json_val = cue_eval::eval_to_json(source).map_err(|e| format!("Evaluation error: {e}"))?;
 
     let fmt = format.as_deref().unwrap_or("json").to_lowercase();
     match fmt.as_str() {
-        "yaml" | "yml" => serde_yaml::to_string(&json_val)
-            .map_err(|e| format!("YAML serialization error: {e}")),
+        "yaml" | "yml" => {
+            serde_yaml::to_string(&json_val).map_err(|e| format!("YAML serialization error: {e}"))
+        }
         _ => serde_json::to_string_pretty(&json_val)
             .map_err(|e| format!("JSON serialization error: {e}")),
     }
@@ -18,8 +18,8 @@ pub fn eval_cue(source: &str, format: Option<String>) -> Result<String, String> 
 /// Validate a JSON string payload against a CUE schema.
 #[wasm_bindgen]
 pub fn validate_json(schema_source: &str, json_payload: &str) -> Result<bool, String> {
-    let json_data: serde_json::Value = serde_json::from_str(json_payload)
-        .map_err(|e| format!("Invalid JSON payload: {e}"))?;
+    let json_data: serde_json::Value =
+        serde_json::from_str(json_payload).map_err(|e| format!("Invalid JSON payload: {e}"))?;
 
     cue_eval::validate_json(schema_source, &json_data)
         .map(|_| true)
@@ -29,8 +29,7 @@ pub fn validate_json(schema_source: &str, json_payload: &str) -> Result<bool, St
 /// Format CUE source code using the AST pretty-printer.
 #[wasm_bindgen]
 pub fn format_cue(source: &str) -> Result<String, String> {
-    let ast = cue_syntax::parse_file(source)
-        .map_err(|e| format!("Parse error: {e}"))?;
+    let ast = cue_syntax::parse_file(source).map_err(|e| format!("Parse error: {e}"))?;
 
     Ok(cue_syntax::format_file(&ast))
 }

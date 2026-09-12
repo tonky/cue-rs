@@ -8,15 +8,16 @@ pub fn call_math(
     args: &[ValueId],
 ) -> Result<ValueId, String> {
     match (pkg, func_name) {
-// --- math package ---
+        // --- math package ---
         ("math", "Floor") => {
             if let Some(&arg0) = args.first() {
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.floor()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(f) = i.to_f64() {
-                        return Ok(arena.float(f.floor()));
-                    }
+                    && let Some(f) = i.to_f64()
+                {
+                    return Ok(arena.float(f.floor()));
+                }
             }
             Err("math.Floor requires 1 number argument".to_string())
         }
@@ -25,9 +26,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.ceil()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(f) = i.to_f64() {
-                        return Ok(arena.float(f.ceil()));
-                    }
+                    && let Some(f) = i.to_f64()
+                {
+                    return Ok(arena.float(f.ceil()));
+                }
             }
             Err("math.Ceil requires 1 number argument".to_string())
         }
@@ -36,9 +38,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.round()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(f) = i.to_f64() {
-                        return Ok(arena.float(f.round()));
-                    }
+                    && let Some(f) = i.to_f64()
+                {
+                    return Ok(arena.float(f.round()));
+                }
             }
             Err("math.Round requires 1 number argument".to_string())
         }
@@ -47,9 +50,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.round_ties_even()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(f) = i.to_f64() {
-                        return Ok(arena.float(f.round_ties_even()));
-                    }
+                    && let Some(f) = i.to_f64()
+                {
+                    return Ok(arena.float(f.round_ties_even()));
+                }
             }
             Err("math.RoundToEven requires 1 number argument".to_string())
         }
@@ -129,9 +133,10 @@ pub fn call_math(
         ("math", "Pow10") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(i)) = arena.get(arg0)
-                && let Some(n) = i.to_i32() {
-                    return Ok(arena.float(10.0f64.powi(n)));
-                }
+                && let Some(n) = i.to_i32()
+            {
+                return Ok(arena.float(10.0f64.powi(n)));
+            }
             Err("math.Pow10 requires 1 integer argument".to_string())
         }
         ("math", "Scaleb") => {
@@ -265,7 +270,13 @@ pub fn call_math(
         ("math", "Sign") => {
             if let Some(&arg0) = args.first() {
                 if let Some(Value::Float(f)) = arena.get(arg0) {
-                    let s = if *f > 0.0 { 1 } else if *f < 0.0 { -1 } else { 0 };
+                    let s = if *f > 0.0 {
+                        1
+                    } else if *f < 0.0 {
+                        -1
+                    } else {
+                        0
+                    };
                     return Ok(arena.int(s));
                 } else if let Some(Value::Int(i)) = arena.get(arg0) {
                     let s = match i.sign() {
@@ -319,9 +330,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.tan()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(f) = i.to_f64() {
-                        return Ok(arena.float(f.tan()));
-                    }
+                    && let Some(f) = i.to_f64()
+                {
+                    return Ok(arena.float(f.tan()));
+                }
             }
             Err("math.Tan requires 1 number argument".to_string())
         }
@@ -330,9 +342,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.asin()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(f) = i.to_f64() {
-                        return Ok(arena.float(f.asin()));
-                    }
+                    && let Some(f) = i.to_f64()
+                {
+                    return Ok(arena.float(f.asin()));
+                }
             }
             Err("math.Asin requires 1 number argument".to_string())
         }
@@ -341,9 +354,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.acos()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(f) = i.to_f64() {
-                        return Ok(arena.float(f.acos()));
-                    }
+                    && let Some(f) = i.to_f64()
+                {
+                    return Ok(arena.float(f.acos()));
+                }
             }
             Err("math.Acos requires 1 number argument".to_string())
         }
@@ -352,9 +366,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.atan()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(f) = i.to_f64() {
-                        return Ok(arena.float(f.atan()));
-                    }
+                    && let Some(f) = i.to_f64()
+                {
+                    return Ok(arena.float(f.atan()));
+                }
             }
             Err("math.Atan requires 1 number argument".to_string())
         }
@@ -381,9 +396,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.sqrt()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(n) = i.to_f64() {
-                        return Ok(arena.float(n.sqrt()));
-                    }
+                    && let Some(n) = i.to_f64()
+                {
+                    return Ok(arena.float(n.sqrt()));
+                }
             }
             Err("math.Sqrt requires 1 number argument".to_string())
         }
@@ -410,9 +426,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.ln()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(n) = i.to_f64() {
-                        return Ok(arena.float(n.ln()));
-                    }
+                    && let Some(n) = i.to_f64()
+                {
+                    return Ok(arena.float(n.ln()));
+                }
             }
             Err("math.Log requires 1 number argument".to_string())
         }
@@ -421,9 +438,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.log10()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(n) = i.to_f64() {
-                        return Ok(arena.float(n.log10()));
-                    }
+                    && let Some(n) = i.to_f64()
+                {
+                    return Ok(arena.float(n.log10()));
+                }
             }
             Err("math.Log10 requires 1 number argument".to_string())
         }
@@ -432,9 +450,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.log2()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(n) = i.to_f64() {
-                        return Ok(arena.float(n.log2()));
-                    }
+                    && let Some(n) = i.to_f64()
+                {
+                    return Ok(arena.float(n.log2()));
+                }
             }
             Err("math.Log2 requires 1 number argument".to_string())
         }
@@ -461,9 +480,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.cbrt()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(f) = i.to_f64() {
-                        return Ok(arena.float(f.cbrt()));
-                    }
+                    && let Some(f) = i.to_f64()
+                {
+                    return Ok(arena.float(f.cbrt()));
+                }
             }
             Err("math.Cbrt requires 1 number argument".to_string())
         }
@@ -472,9 +492,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.exp()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(f) = i.to_f64() {
-                        return Ok(arena.float(f.exp()));
-                    }
+                    && let Some(f) = i.to_f64()
+                {
+                    return Ok(arena.float(f.exp()));
+                }
             }
             Err("math.Exp requires 1 number argument".to_string())
         }
@@ -483,9 +504,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.exp2()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(f) = i.to_f64() {
-                        return Ok(arena.float(f.exp2()));
-                    }
+                    && let Some(f) = i.to_f64()
+                {
+                    return Ok(arena.float(f.exp2()));
+                }
             }
             Err("math.Exp2 requires 1 number argument".to_string())
         }
@@ -494,9 +516,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.exp_m1()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(f) = i.to_f64() {
-                        return Ok(arena.float(f.exp_m1()));
-                    }
+                    && let Some(f) = i.to_f64()
+                {
+                    return Ok(arena.float(f.exp_m1()));
+                }
             }
             Err("math.Expm1 requires 1 number argument".to_string())
         }
@@ -505,9 +528,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.ln_1p()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(f) = i.to_f64() {
-                        return Ok(arena.float(f.ln_1p()));
-                    }
+                    && let Some(f) = i.to_f64()
+                {
+                    return Ok(arena.float(f.ln_1p()));
+                }
             }
             Err("math.Log1p requires 1 number argument".to_string())
         }
@@ -589,9 +613,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.sin()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(n) = i.to_f64() {
-                        return Ok(arena.float(n.sin()));
-                    }
+                    && let Some(n) = i.to_f64()
+                {
+                    return Ok(arena.float(n.sin()));
+                }
             }
             Err("math.Sin requires 1 number argument".to_string())
         }
@@ -600,9 +625,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.cos()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(n) = i.to_f64() {
-                        return Ok(arena.float(n.cos()));
-                    }
+                    && let Some(n) = i.to_f64()
+                {
+                    return Ok(arena.float(n.cos()));
+                }
             }
             Err("math.Cos requires 1 number argument".to_string())
         }
@@ -611,9 +637,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.sinh()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(n) = i.to_f64() {
-                        return Ok(arena.float(n.sinh()));
-                    }
+                    && let Some(n) = i.to_f64()
+                {
+                    return Ok(arena.float(n.sinh()));
+                }
             }
             Err("math.Sinh requires 1 number argument".to_string())
         }
@@ -622,9 +649,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.cosh()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(n) = i.to_f64() {
-                        return Ok(arena.float(n.cosh()));
-                    }
+                    && let Some(n) = i.to_f64()
+                {
+                    return Ok(arena.float(n.cosh()));
+                }
             }
             Err("math.Cosh requires 1 number argument".to_string())
         }
@@ -633,9 +661,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.tanh()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(n) = i.to_f64() {
-                        return Ok(arena.float(n.tanh()));
-                    }
+                    && let Some(n) = i.to_f64()
+                {
+                    return Ok(arena.float(n.tanh()));
+                }
             }
             Err("math.Tanh requires 1 number argument".to_string())
         }
@@ -644,9 +673,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.asinh()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(n) = i.to_f64() {
-                        return Ok(arena.float(n.asinh()));
-                    }
+                    && let Some(n) = i.to_f64()
+                {
+                    return Ok(arena.float(n.asinh()));
+                }
             }
             Err("math.Asinh requires 1 number argument".to_string())
         }
@@ -655,9 +685,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.acosh()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(n) = i.to_f64() {
-                        return Ok(arena.float(n.acosh()));
-                    }
+                    && let Some(n) = i.to_f64()
+                {
+                    return Ok(arena.float(n.acosh()));
+                }
             }
             Err("math.Acosh requires 1 number argument".to_string())
         }
@@ -666,9 +697,10 @@ pub fn call_math(
                 if let Some(Value::Float(f)) = arena.get(arg0) {
                     return Ok(arena.float(f.atanh()));
                 } else if let Some(Value::Int(i)) = arena.get(arg0)
-                    && let Some(n) = i.to_f64() {
-                        return Ok(arena.float(n.atanh()));
-                    }
+                    && let Some(n) = i.to_f64()
+                {
+                    return Ok(arena.float(n.atanh()));
+                }
             }
             Err("math.Atanh requires 1 number argument".to_string())
         }
@@ -725,7 +757,9 @@ pub fn call_math(
                 };
                 if let (Some(a), Some(b)) = (v0, v1) {
                     if b == 0.0 {
-                        return Err("error in call to math.MultipleOf: division by zero".to_string());
+                        return Err(
+                            "error in call to math.MultipleOf: division by zero".to_string()
+                        );
                     }
                     let rem = (a / b).round();
                     let diff = (a - rem * b).abs();
@@ -734,96 +768,116 @@ pub fn call_math(
             }
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(i)) = arena.get(arg0)
-                && let Some(n) = i.to_i64() {
-                    let target = arena.alloc(Value::Int(n.into()));
-                    return Ok(arena.alloc(Value::BuiltinValidator {
-                        name: format!("math.MultipleOf({n})"),
-                        target,
-                    }));
-                }
+                && let Some(n) = i.to_i64()
+            {
+                let target = arena.alloc(Value::Int(n.into()));
+                return Ok(arena.alloc(Value::BuiltinValidator {
+                    name: format!("math.MultipleOf({n})"),
+                    target,
+                }));
+            }
             Err("math.MultipleOf requires 1 or 2 number arguments".to_string())
         }
 
         // --- math/bits & bits package ---
         ("bits" | "math/bits", "And") => {
             if args.len() >= 2
-                && let (Some(Value::Int(a)), Some(Value::Int(b))) = (arena.get(args[0]), arena.get(args[1]))
-                && let (Some(a_i), Some(b_i)) = (a.to_i64(), b.to_i64()) {
-                    return Ok(arena.int(a_i & b_i));
-                }
+                && let (Some(Value::Int(a)), Some(Value::Int(b))) =
+                    (arena.get(args[0]), arena.get(args[1]))
+                && let (Some(a_i), Some(b_i)) = (a.to_i64(), b.to_i64())
+            {
+                return Ok(arena.int(a_i & b_i));
+            }
             Err("bits.And requires 2 integer arguments".to_string())
         }
         ("bits" | "math/bits", "Or") => {
             if args.len() >= 2
-                && let (Some(Value::Int(a)), Some(Value::Int(b))) = (arena.get(args[0]), arena.get(args[1]))
-                && let (Some(a_i), Some(b_i)) = (a.to_i64(), b.to_i64()) {
-                    return Ok(arena.int(a_i | b_i));
-                }
+                && let (Some(Value::Int(a)), Some(Value::Int(b))) =
+                    (arena.get(args[0]), arena.get(args[1]))
+                && let (Some(a_i), Some(b_i)) = (a.to_i64(), b.to_i64())
+            {
+                return Ok(arena.int(a_i | b_i));
+            }
             Err("bits.Or requires 2 integer arguments".to_string())
         }
         ("bits" | "math/bits", "Xor") => {
             if args.len() >= 2
-                && let (Some(Value::Int(a)), Some(Value::Int(b))) = (arena.get(args[0]), arena.get(args[1]))
-                && let (Some(a_i), Some(b_i)) = (a.to_i64(), b.to_i64()) {
-                    return Ok(arena.int(a_i ^ b_i));
-                }
+                && let (Some(Value::Int(a)), Some(Value::Int(b))) =
+                    (arena.get(args[0]), arena.get(args[1]))
+                && let (Some(a_i), Some(b_i)) = (a.to_i64(), b.to_i64())
+            {
+                return Ok(arena.int(a_i ^ b_i));
+            }
             Err("bits.Xor requires 2 integer arguments".to_string())
         }
         ("bits" | "math/bits", "Lsh") => {
             if args.len() >= 2
-                && let (Some(Value::Int(x)), Some(Value::Int(n))) = (arena.get(args[0]), arena.get(args[1]))
-                && let (Some(x_i), Some(n_u)) = (x.to_i64(), n.to_u32()) {
-                    return Ok(arena.int(x_i << n_u));
-                }
+                && let (Some(Value::Int(x)), Some(Value::Int(n))) =
+                    (arena.get(args[0]), arena.get(args[1]))
+                && let (Some(x_i), Some(n_u)) = (x.to_i64(), n.to_u32())
+            {
+                return Ok(arena.int(x_i << n_u));
+            }
             Err("bits.Lsh requires 1 integer and 1 shift count argument".to_string())
         }
         ("bits" | "math/bits", "Rsh") => {
             if args.len() >= 2
-                && let (Some(Value::Int(x)), Some(Value::Int(n))) = (arena.get(args[0]), arena.get(args[1]))
-                && let (Some(x_i), Some(n_u)) = (x.to_i64(), n.to_u32()) {
-                    return Ok(arena.int(x_i >> n_u));
-                }
+                && let (Some(Value::Int(x)), Some(Value::Int(n))) =
+                    (arena.get(args[0]), arena.get(args[1]))
+                && let (Some(x_i), Some(n_u)) = (x.to_i64(), n.to_u32())
+            {
+                return Ok(arena.int(x_i >> n_u));
+            }
             Err("bits.Rsh requires 1 integer and 1 shift count argument".to_string())
         }
         ("bits" | "math/bits", "OnesCount") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(x)) = arena.get(arg0)
-                && let Some(x_u) = x.to_u64() {
-                    return Ok(arena.int(x_u.count_ones() as i64));
-                }
+                && let Some(x_u) = x.to_u64()
+            {
+                return Ok(arena.int(x_u.count_ones() as i64));
+            }
             Err("bits.OnesCount requires 1 non-negative integer argument".to_string())
         }
         ("bits" | "math/bits", "Len") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(x)) = arena.get(arg0)
-                && let Some(x_u) = x.to_u64() {
-                    let len = if x_u == 0 { 0 } else { 64 - x_u.leading_zeros() };
-                    return Ok(arena.int(len as i64));
-                }
+                && let Some(x_u) = x.to_u64()
+            {
+                let len = if x_u == 0 {
+                    0
+                } else {
+                    64 - x_u.leading_zeros()
+                };
+                return Ok(arena.int(len as i64));
+            }
             Err("bits.Len requires 1 non-negative integer argument".to_string())
         }
         ("bits" | "math/bits", "LeadingZeros") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(x)) = arena.get(arg0)
-                && let Some(x_u) = x.to_u64() {
-                    return Ok(arena.int(x_u.leading_zeros() as i64));
-                }
+                && let Some(x_u) = x.to_u64()
+            {
+                return Ok(arena.int(x_u.leading_zeros() as i64));
+            }
             Err("bits.LeadingZeros requires 1 non-negative integer argument".to_string())
         }
         ("bits" | "math/bits", "TrailingZeros") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(x)) = arena.get(arg0)
-                && let Some(x_u) = x.to_u64() {
-                    return Ok(arena.int(x_u.trailing_zeros() as i64));
-                }
+                && let Some(x_u) = x.to_u64()
+            {
+                return Ok(arena.int(x_u.trailing_zeros() as i64));
+            }
             Err("bits.TrailingZeros requires 1 non-negative integer argument".to_string())
         }
         ("bits" | "math/bits", "Reverse") => {
             if let Some(&arg0) = args.first()
                 && let Some(Value::Int(x)) = arena.get(arg0)
-                && let Some(x_u) = x.to_u64() {
-                    return Ok(arena.int(x_u.reverse_bits() as i64));
-                }
+                && let Some(x_u) = x.to_u64()
+            {
+                return Ok(arena.int(x_u.reverse_bits() as i64));
+            }
             Err("bits.Reverse requires 1 non-negative integer argument".to_string())
         }
         _ => Err(format!("unknown math function: {pkg}.{func_name}")),
