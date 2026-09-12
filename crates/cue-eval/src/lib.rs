@@ -56,6 +56,7 @@ pub fn validate_json(schema_source: &str, data: &serde_json::Value) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::value::*;
 
     #[test]
     fn test_unify_scalars_and_types() {
@@ -276,6 +277,122 @@ mod tests {
         let json = eval_to_json(cue_src).unwrap();
         assert_eq!(json["root"]["val"], 1);
         assert_eq!(json["root"]["next"]["val"], 2);
+    }
+
+    #[test]
+    fn test_recursive_service_dependency_cycle_graceful_resolution() {
+        // Reproduces the exact cycle scenario reported in enve dev:
+        // #Service references dependsOn?: [...#DependencyRef]
+        // #DependencyRef references #ServiceDependency
+        // #ServiceDependency references #Service via service: string | #Service
+        let cue_src = r#"
+            #DependencyConditionMode: "ready" | "healthy"
+            #DependencyRef: string | #ServiceDependency
+            #ServiceDependency: {
+                service: string | #Service
+                condition: #DependencyConditionMode
+            }
+            #Service: {
+                name?: string
+                dependsOn?: [...#DependencyRef]
+            }
+
+            backend: #Service & {
+                name: "backend"
+                dependsOn: [
+                    #ServiceDependency & {
+                        service: "postgres"
+                        condition: "ready"
+                    }
+                ]
+            }
+        "#;
+        let json = eval_to_json(cue_src).expect("should evaluate without stack overflow");
+        assert_eq!(json["backend"]["name"], "backend");
+        assert_eq!(json["backend"]["dependsOn"][0]["service"], "postgres");
+        assert_eq!(json["backend"]["dependsOn"][0]["condition"], "ready");
+    }
+
+    #[test]
+    fn test_unify_struct_cycle_detection() {
+        let mut arena = ValueArena::new();
+        let s1_id = arena.alloc(Value::Struct(StructValue::new(false)));
+        let s2_id = arena.alloc(Value::Struct(StructValue::new(false)));
+
+        // Mutually recursive structs: s1.next = s2, s2.next = s1
+        if let Some(Value::Struct(s1)) = arena.get_mut(s1_id) {
+            s1.insert_field("next".to_string(), s2_id, false);
+        }
+        if let Some(Value::Struct(s2)) = arena.get_mut(s2_id) {
+            s2.insert_field("next".to_string(), s1_id, false);
+        }
+
+        // Unifying s1 with s2 would cause infinite recursion without cycle detection
+        let result_id = unify(&mut arena, s1_id, s2_id);
+        let result_val = arena.get(result_id);
+        assert!(
+            matches!(result_val, Some(Value::Bottom(b)) if b.message.contains("cycle error: cyclic")),
+            "expected cyclic unification detected, got: {:?}",
+            result_val
+        );
+    }
+
+    #[test]
+    fn test_unify_struct_recursion_depth_limit() {
+        let mut arena = ValueArena::new();
+        // Create twin chains of nested structs deeper than MAX_STRUCT_DEPTH (64)
+        let mut chain1 = arena.alloc(Value::Struct(StructValue::new(false)));
+        let mut chain2 = arena.alloc(Value::Struct(StructValue::new(false)));
+        for i in 0..70 {
+            let mut s1 = StructValue::new(false);
+            s1.insert_field(format!("f{i}"), chain1, false);
+            chain1 = arena.alloc(Value::Struct(s1));
+
+            let mut s2 = StructValue::new(false);
+            s2.insert_field(format!("f{i}"), chain2, false);
+            chain2 = arena.alloc(Value::Struct(s2));
+        }
+
+        let res_id = unify(&mut arena, chain1, chain2);
+        let res_val = arena.get(res_id);
+        assert!(
+            matches!(res_val, Some(Value::Bottom(b)) if b.message.contains("struct recursion depth limit exceeded")),
+            "expected struct recursion depth limit exceeded, got: {:?}",
+            res_val
+        );
+    }
+
+    #[test]
+    fn test_unify_disjunction_cycle_detection() {
+        let mut arena = ValueArena::new();
+        // Disjunction containing itself as a branch
+        let d_id = arena.alloc(Value::Disjunction {
+            branches: vec![],
+        });
+        if let Some(Value::Disjunction { branches }) = arena.get_mut(d_id) {
+            branches.push(DisjunctionBranch {
+                default: false,
+                val: d_id,
+            });
+        }
+        let forty_two = arena.int(42);
+        let res_id = unify(&mut arena, d_id, forty_two);
+        let res_val = arena.get(res_id);
+        assert!(
+            matches!(res_val, Some(Value::Bottom(b)) if b.message.contains("cyclic disjunction unification detected") || b.message.contains("no matching disjunction branch")),
+            "expected graceful failure on cyclic disjunction, got: {:?}",
+            res_val
+        );
+    }
+
+    #[test]
+    fn test_recursive_disjunction_cycle_fails_gracefully() {
+        let cue_src = r#"
+            #CycleDisj: int | #CycleDisj
+            val: #CycleDisj & "not_an_int"
+        "#;
+        let res = eval_to_json(cue_src);
+        assert!(res.is_err());
     }
 
     #[test]

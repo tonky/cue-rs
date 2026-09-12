@@ -3,19 +3,86 @@ use num_traits::ToPrimitive;
 use regex::Regex;
 use std::collections::BTreeSet;
 
+/// Maximum nesting depth for struct unification before failing with a cycle error.
+pub const MAX_STRUCT_DEPTH: usize = 64;
+
+/// Maximum nesting depth for disjunction unification before failing with a cycle error.
+pub const MAX_DISJUNCTION_DEPTH: usize = 64;
+
+/// Maximum total recursion depth for unification before failing with a cycle error.
+pub const MAX_TOTAL_DEPTH: usize = 128;
+
+/// Tracking context for cycle detection and recursion depth guarding in unification.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UnifyContext {
+    pub struct_depth: usize,
+    pub disjunction_depth: usize,
+    pub total_depth: usize,
+    pub active_pairs: BTreeSet<(ValueId, ValueId)>,
+    pub active_structs: BTreeSet<(ValueId, ValueId)>,
+    pub active_disjunctions: BTreeSet<(ValueId, ValueId)>,
+}
+
+impl UnifyContext {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Unify two values in the arena, computing their greatest lower bound (meet: a ⊓ b).
 pub fn unify(arena: &mut ValueArena, v1_id: ValueId, v2_id: ValueId) -> ValueId {
+    let mut ctx = UnifyContext::new();
+    unify_with_context(arena, v1_id, v2_id, &mut ctx)
+}
+
+/// Unify two values with an explicit unification context for recursion and cycle guarding.
+pub fn unify_with_context(
+    arena: &mut ValueArena,
+    v1_id: ValueId,
+    v2_id: ValueId,
+    ctx: &mut UnifyContext,
+) -> ValueId {
+    unify_internal(arena, v1_id, v2_id, ctx)
+}
+
+fn unify_internal(
+    arena: &mut ValueArena,
+    v1_id: ValueId,
+    v2_id: ValueId,
+    ctx: &mut UnifyContext,
+) -> ValueId {
     if v1_id == v2_id {
         return v1_id;
     }
 
-    let val1 = match arena.get(v1_id) {
-        Some(v) => v.clone(),
-        None => return arena.bottom("invalid node id"),
+    if ctx.total_depth >= MAX_TOTAL_DEPTH {
+        return arena.bottom("cycle error: unification recursion depth limit exceeded");
+    }
+
+    let pair = (v1_id.min(v2_id), v1_id.max(v2_id));
+    if !ctx.active_pairs.insert(pair) {
+        return arena.bottom("cycle error: cyclic dependency between values detected");
+    }
+    ctx.total_depth += 1;
+
+    let res = unify_logic(arena, v1_id, v2_id, ctx);
+
+    ctx.total_depth = ctx.total_depth.saturating_sub(1);
+    ctx.active_pairs.remove(&pair);
+    res
+}
+
+fn unify_logic(
+    arena: &mut ValueArena,
+    v1_id: ValueId,
+    v2_id: ValueId,
+    ctx: &mut UnifyContext,
+) -> ValueId {
+    let Some(val1) = arena.get(v1_id).cloned() else {
+        return arena.bottom("invalid node id");
     };
-    let val2 = match arena.get(v2_id) {
-        Some(v) => v.clone(),
-        None => return arena.bottom("invalid node id"),
+    let Some(val2) = arena.get(v2_id).cloned() else {
+        return arena.bottom("invalid node id");
     };
 
     // 1. Bottom propagation: _|_ ⊓ x = _|_
@@ -36,10 +103,10 @@ pub fn unify(arena: &mut ValueArena, v1_id: ValueId, v2_id: ValueId) -> ValueId 
 
     // 3. Disjunction handling: (A | B) ⊓ C
     if let Value::Disjunction { branches } = &val1 {
-        return unify_disjunction(arena, branches, v2_id);
+        return unify_disjunction(arena, v1_id, branches, v2_id, ctx);
     }
     if let Value::Disjunction { branches } = &val2 {
-        return unify_disjunction(arena, branches, v1_id);
+        return unify_disjunction(arena, v2_id, branches, v1_id, ctx);
     }
 
     // 4. Bounds constraints
@@ -60,10 +127,10 @@ pub fn unify(arena: &mut ValueArena, v1_id: ValueId, v2_id: ValueId) -> ValueId 
 
     // 5. Validators & Composite Validators
     if let Value::Validators(list) = &val1 {
-        return unify_validators_list(arena, list.clone(), v2_id);
+        return unify_validators_list(arena, list.clone(), v2_id, ctx);
     }
     if let Value::Validators(list) = &val2 {
-        return unify_validators_list(arena, list.clone(), v1_id);
+        return unify_validators_list(arena, list.clone(), v1_id, ctx);
     }
 
     if let Value::BuiltinValidator { name, target } = &val1 {
@@ -76,13 +143,13 @@ pub fn unify(arena: &mut ValueArena, v1_id: ValueId, v2_id: ValueId) -> ValueId 
     // 6. Recursive Reference Resolution
     if let Value::RecursiveRef { target, .. } = &val1 {
         if let Some(t_id) = target {
-            return unify(arena, *t_id, v2_id);
+            return unify_internal(arena, *t_id, v2_id, ctx);
         }
         return v1_id;
     }
     if let Value::RecursiveRef { target, .. } = &val2 {
         if let Some(t_id) = target {
-            return unify(arena, v1_id, *t_id);
+            return unify_internal(arena, v1_id, *t_id, ctx);
         }
         return v2_id;
     }
@@ -161,7 +228,9 @@ pub fn unify(arena: &mut ValueArena, v1_id: ValueId, v2_id: ValueId) -> ValueId 
         (concrete, Value::Type(t)) => unify_type_and_concrete(arena, t, concrete, v1_id),
 
         // Struct vs Struct
-        (Value::Struct(s1), Value::Struct(s2)) => unify_structs(arena, s1, s2),
+        (Value::Struct(s1), Value::Struct(s2)) => {
+            unify_structs(arena, v1_id, s1, v2_id, s2, ctx)
+        }
 
         // List vs List
         (
@@ -173,7 +242,7 @@ pub fn unify(arena: &mut ValueArena, v1_id: ValueId, v2_id: ValueId) -> ValueId 
                 elements: e2,
                 ellipsis: el2,
             },
-        ) => unify_lists(arena, e1, el1, e2, el2),
+        ) => unify_lists(arena, e1, el1, e2, el2, ctx),
 
         // Mismatched types
         _ => arena.bottom("conflicting incompatible types"),
@@ -490,7 +559,36 @@ pub fn field_matches_pattern(arena: &ValueArena, pattern_val: ValueId, field_nam
     }
 }
 
-fn unify_structs(arena: &mut ValueArena, s1: &StructValue, s2: &StructValue) -> ValueId {
+fn unify_structs(
+    arena: &mut ValueArena,
+    s1_id: ValueId,
+    s1: &StructValue,
+    s2_id: ValueId,
+    s2: &StructValue,
+    ctx: &mut UnifyContext,
+) -> ValueId {
+    if ctx.struct_depth >= MAX_STRUCT_DEPTH {
+        return arena.bottom("cycle error: struct recursion depth limit exceeded");
+    }
+    let pair = (s1_id.min(s2_id), s1_id.max(s2_id));
+    if !ctx.active_structs.insert(pair) {
+        return arena.bottom("cycle error: cyclic struct unification detected");
+    }
+    ctx.struct_depth += 1;
+
+    let res = unify_structs_inner(arena, s1, s2, ctx);
+
+    ctx.struct_depth = ctx.struct_depth.saturating_sub(1);
+    ctx.active_structs.remove(&pair);
+    res
+}
+
+fn unify_structs_inner(
+    arena: &mut ValueArena,
+    s1: &StructValue,
+    s2: &StructValue,
+    ctx: &mut UnifyContext,
+) -> ValueId {
     // Closedness validation with pattern constraints support
     if s1.is_closed {
         for k in s2.fields.keys() {
@@ -535,7 +633,7 @@ fn unify_structs(arena: &mut ValueArena, s1: &StructValue, s2: &StructValue) -> 
     for key in all_keys {
         let entry = match (s1.fields.get(&key), s2.fields.get(&key)) {
             (Some(e1), Some(e2)) => {
-                let unified_val = unify(arena, e1.val, e2.val);
+                let unified_val = unify_internal(arena, e1.val, e2.val, ctx);
                 if let Some(Value::Bottom(_)) = arena.get(unified_val) {
                     return unified_val;
                 }
@@ -553,7 +651,7 @@ fn unify_structs(arena: &mut ValueArena, s1: &StructValue, s2: &StructValue) -> 
         let mut cur_val = entry.val;
         for pc in &merged.pattern_constraints {
             if field_matches_pattern(arena, pc.pattern_val, &key) {
-                cur_val = unify(arena, cur_val, pc.target_val);
+                cur_val = unify_internal(arena, cur_val, pc.target_val, ctx);
                 if let Some(Value::Bottom(_)) = arena.get(cur_val) {
                     return cur_val;
                 }
@@ -579,7 +677,7 @@ fn unify_structs(arena: &mut ValueArena, s1: &StructValue, s2: &StructValue) -> 
     for key in all_def_keys {
         let entry = match (s1.definitions.get(&key), s2.definitions.get(&key)) {
             (Some(e1), Some(e2)) => {
-                let unified_val = unify(arena, e1.val, e2.val);
+                let unified_val = unify_internal(arena, e1.val, e2.val, ctx);
                 if let Some(Value::Bottom(_)) = arena.get(unified_val) {
                     return unified_val;
                 }
@@ -601,7 +699,7 @@ fn unify_structs(arena: &mut ValueArena, s1: &StructValue, s2: &StructValue) -> 
     for key in all_hidden_keys {
         let entry = match (s1.hidden.get(&key), s2.hidden.get(&key)) {
             (Some(e1), Some(e2)) => {
-                let unified_val = unify(arena, e1.val, e2.val);
+                let unified_val = unify_internal(arena, e1.val, e2.val, ctx);
                 if let Some(Value::Bottom(_)) = arena.get(unified_val) {
                     return unified_val;
                 }
@@ -626,6 +724,7 @@ fn unify_lists(
     el1: &Option<ValueId>,
     e2: &[ValueId],
     el2: &Option<ValueId>,
+    ctx: &mut UnifyContext,
 ) -> ValueId {
     let max_len = e1.len().max(e2.len());
 
@@ -666,7 +765,7 @@ fn unify_lists(
 
         match (val1, val2) {
             (Some(v1), Some(v2)) => {
-                let u = unify(arena, v1, v2);
+                let u = unify_internal(arena, v1, v2, ctx);
                 if let Some(Value::Bottom(_)) = arena.get(u) {
                     return u;
                 }
@@ -681,7 +780,7 @@ fn unify_lists(
 
     let unified_ellipsis = match (*el1, *el2) {
         (Some(p1), Some(p2)) => {
-            let u = unify(arena, p1, p2);
+            let u = unify_internal(arena, p1, p2, ctx);
             if let Some(Value::Bottom(_)) = arena.get(u) {
                 return u;
             }
@@ -703,8 +802,32 @@ fn unify_lists(
 
 fn unify_disjunction(
     arena: &mut ValueArena,
+    disj_id: ValueId,
     branches: &[DisjunctionBranch],
     other_id: ValueId,
+    ctx: &mut UnifyContext,
+) -> ValueId {
+    if ctx.disjunction_depth >= MAX_DISJUNCTION_DEPTH {
+        return arena.bottom("cycle error: disjunction recursion depth limit exceeded");
+    }
+    let pair = (disj_id.min(other_id), disj_id.max(other_id));
+    if !ctx.active_disjunctions.insert(pair) {
+        return arena.bottom("cycle error: cyclic disjunction unification detected");
+    }
+    ctx.disjunction_depth += 1;
+
+    let res = unify_disjunction_inner(arena, branches, other_id, ctx);
+
+    ctx.disjunction_depth = ctx.disjunction_depth.saturating_sub(1);
+    ctx.active_disjunctions.remove(&pair);
+    res
+}
+
+fn unify_disjunction_inner(
+    arena: &mut ValueArena,
+    branches: &[DisjunctionBranch],
+    other_id: ValueId,
+    ctx: &mut UnifyContext,
 ) -> ValueId {
     if let Some(Value::Disjunction {
         branches: other_branches,
@@ -715,7 +838,7 @@ fn unify_disjunction(
         for b1 in branches {
             for b2 in &other_branches {
                 let cp = arena.checkpoint();
-                let u = unify(arena, b1.val, b2.val);
+                let u = unify_internal(arena, b1.val, b2.val, ctx);
                 if let Some(Value::Bottom(b)) = arena.get(u) {
                     branch_errors.push(b.to_string());
                     arena.rollback(cp);
@@ -750,7 +873,7 @@ fn unify_disjunction(
 
     for branch in branches {
         let cp = arena.checkpoint();
-        let u = unify(arena, branch.val, other_id);
+        let u = unify_internal(arena, branch.val, other_id, ctx);
         if let Some(Value::Bottom(b)) = arena.get(u) {
             // This branch conflicted, rollback allocations made during the branch
             branch_errors.push(b.to_string());
@@ -785,6 +908,7 @@ fn unify_validators_list(
     arena: &mut ValueArena,
     mut list: Vec<ValueId>,
     other_id: ValueId,
+    ctx: &mut UnifyContext,
 ) -> ValueId {
     let other = match arena.get(other_id) {
         Some(v) => v.clone(),
@@ -815,7 +939,7 @@ fn unify_validators_list(
         _ => {
             let mut cur = other_id;
             for validator_id in list {
-                cur = unify(arena, validator_id, cur);
+                cur = unify_internal(arena, validator_id, cur, ctx);
                 if let Some(Value::Bottom(_)) = arena.get(cur) {
                     return cur;
                 }
