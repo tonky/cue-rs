@@ -114,6 +114,8 @@ impl PackageLoader {
 
         let mut root_struct = StructValue::new(false);
         evaluator.eval_decls_into_struct(&parsed_file.decls, &mut root_struct)?;
+        let parent_dir = file_path.parent().unwrap_or_else(|| Path::new("."));
+        Self::attach_origin_dir_to_structs(&mut evaluator, &mut root_struct, parent_dir);
 
         let root_id = evaluator.arena.alloc(Value::Struct(root_struct));
         Ok((evaluator, root_id))
@@ -177,6 +179,8 @@ impl PackageLoader {
         let all_decls: Vec<Decl> = parsed_files.into_iter().flat_map(|f| f.decls).collect();
         let mut package_struct = StructValue::new(false);
         evaluator.eval_decls_into_struct(&all_decls, &mut package_struct)?;
+        let canonical_dir = std::fs::canonicalize(dir.as_ref()).unwrap_or_else(|_| dir.as_ref().to_path_buf());
+        Self::attach_origin_dir_to_structs(&mut evaluator, &mut package_struct, &canonical_dir);
 
         let root_id = evaluator.arena.alloc(Value::Struct(package_struct));
         Ok((evaluator, root_id))
@@ -275,6 +279,43 @@ impl PackageLoader {
 
         files.sort();
         Ok(files)
+    }
+
+    fn attach_origin_dir_to_structs(
+        evaluator: &mut Evaluator,
+        root: &mut StructValue,
+        origin_dir: &Path,
+    ) {
+        let dir_str = origin_dir.to_string_lossy();
+        let origin_id = evaluator.arena.string(dir_str.to_string());
+
+        let mut queue = Vec::new();
+        for entry in root.fields.values() {
+            queue.push(entry.val);
+        }
+
+        let mut visited = std::collections::HashSet::new();
+        while let Some(vid) = queue.pop() {
+            if !visited.insert(vid) {
+                continue;
+            }
+            if let Some(Value::Struct(s)) = evaluator.arena.get_mut(vid) {
+                let is_service = s.fields.contains_key("command")
+                    || s.fields.contains_key("image")
+                    || s.fields.contains_key("readinessProbe")
+                    || s.fields.contains_key("healthCheck")
+                    || (s.fields.contains_key("name") && s.fields.contains_key("port"))
+                    || s.fields.contains_key("lifecycle");
+
+                if is_service && !s.fields.contains_key("originDir") {
+                    s.insert_field("originDir".to_string(), origin_id, false);
+                }
+
+                for entry in s.fields.values() {
+                    queue.push(entry.val);
+                }
+            }
+        }
     }
 }
 
