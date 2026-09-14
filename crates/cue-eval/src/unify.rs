@@ -485,6 +485,13 @@ fn unify_bounds(
             for (op, target_id) in constraints {
                 if let Some(Value::String(pattern)) = arena.get(target_id) {
                     match op {
+                        BoundOp::NotEqual => {
+                            if s_val == pattern {
+                                return arena.bottom(format!(
+                                    "string {s_val:?} does not satisfy bound {op} {pattern:?}"
+                                ));
+                            }
+                        }
                         BoundOp::RegexMatch => {
                             if let Ok(re) = Regex::new(pattern) {
                                 if !re.is_match(s_val) {
