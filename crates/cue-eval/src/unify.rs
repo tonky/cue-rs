@@ -228,9 +228,7 @@ fn unify_logic(
         (concrete, Value::Type(t)) => unify_type_and_concrete(arena, t, concrete, v1_id),
 
         // Struct vs Struct
-        (Value::Struct(s1), Value::Struct(s2)) => {
-            unify_structs(arena, v1_id, s1, v2_id, s2, ctx)
-        }
+        (Value::Struct(s1), Value::Struct(s2)) => unify_structs(arena, v1_id, s1, v2_id, s2, ctx),
 
         // List vs List
         (
@@ -641,7 +639,9 @@ fn unify_structs_inner(
         let entry = match (s1.fields.get(&key), s2.fields.get(&key)) {
             (Some(e1), Some(e2)) => {
                 let unified_val = unify_internal(arena, e1.val, e2.val, ctx);
-                if let Some(Value::Bottom(_)) = arena.get(unified_val) {
+                if matches!(arena.get(unified_val), Some(Value::Bottom(_)))
+                    && !(e1.optional && e2.optional)
+                {
                     return unified_val;
                 }
                 FieldEntry {
@@ -659,7 +659,7 @@ fn unify_structs_inner(
         for pc in &merged.pattern_constraints {
             if field_matches_pattern(arena, pc.pattern_val, &key) {
                 cur_val = unify_internal(arena, cur_val, pc.target_val, ctx);
-                if let Some(Value::Bottom(_)) = arena.get(cur_val) {
+                if matches!(arena.get(cur_val), Some(Value::Bottom(_))) && !entry.optional {
                     return cur_val;
                 }
             }

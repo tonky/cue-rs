@@ -1,6 +1,7 @@
 use crate::unify::unify;
 use crate::value::{
-    BoundOp, DisjunctionBranch as ValueBranch, StructValue, TypeKind, Value, ValueArena, ValueId,
+    BoundOp, DisjunctionBranch as ValueBranch, FieldEntry, StructValue, TypeKind, Value,
+    ValueArena, ValueId,
 };
 use cue_syntax::ast::*;
 use num_bigint::BigInt;
@@ -21,6 +22,8 @@ pub struct Evaluator {
     pub arena: ValueArena,
     scopes: Vec<HashMap<String, ValueId>>,
     resolving_symbols: HashSet<String>,
+    referenced_values: HashSet<ValueId>,
+    comprehension_depth: usize,
     pub placeholders: HashMap<String, ValueId>,
     pub import_aliases: HashMap<String, String>,
     pub imported_packages: HashMap<String, ValueId>,
@@ -38,6 +41,8 @@ impl Evaluator {
             arena: ValueArena::new(),
             scopes: vec![HashMap::new()],
             resolving_symbols: HashSet::new(),
+            referenced_values: HashSet::new(),
+            comprehension_depth: 0,
             placeholders: HashMap::new(),
             import_aliases: HashMap::new(),
             imported_packages: HashMap::new(),
@@ -139,8 +144,29 @@ impl Evaluator {
         decls: &[Decl],
         target_struct: &mut StructValue,
     ) -> Result<(), EvalError> {
+        // A reference must see every declaration of a static field, including
+        // declarations appearing after the reference in source order.
+        let decls = Self::collect_field_declarations(decls);
+        let dynamic_base = decls
+            .iter()
+            .any(|decl| {
+                matches!(
+                    decl,
+                    Decl::Field(FieldDecl {
+                        label: Label::Dynamic(_),
+                        ..
+                    })
+                )
+            })
+            .then(|| {
+                (
+                    target_struct.clone(),
+                    self.scopes.clone(),
+                    self.referenced_values.clone(),
+                )
+            });
         // Pass 1: Pre-register definition placeholders for recursive and forward references
-        for decl in decls {
+        for decl in &decls {
             if let Decl::Field(f) = decl
                 && let Some(name) = f.label.name()
                 && f.label.is_definition()
@@ -166,7 +192,7 @@ impl Evaluator {
             let mut made_progress = false;
 
             for &decl in &pending_decls {
-                let resolved = self.eval_single_decl(decl, target_struct)?;
+                let resolved = self.eval_single_decl(decl, target_struct, false)?;
                 if resolved {
                     made_progress = true;
                 } else {
@@ -176,13 +202,40 @@ impl Evaluator {
 
             if !made_progress {
                 // Saturated / cannot resolve further; final evaluation accepts bottom errors
-                for &decl in &pending_decls {
-                    self.eval_single_decl(decl, target_struct)?;
+                for &decl in &next_pending {
+                    self.eval_single_decl(decl, target_struct, true)?;
                 }
                 break;
             }
 
             pending_decls = next_pending;
+        }
+
+        // Once computed labels are known, collect their declarations with the
+        // static fields and evaluate references again from the original scope.
+        // Otherwise an earlier reference can retain a pre-merge snapshot.
+        if let Some((base_struct, base_scopes, base_references)) = dynamic_base {
+            let mut named_decls = decls.clone();
+            for decl in &mut named_decls {
+                if let Decl::Field(field) = decl
+                    && let Label::Dynamic(expr) = &field.label
+                {
+                    let label = self.eval_expr(expr)?;
+                    match self.arena.get(label) {
+                        Some(Value::String(name)) => field.label = Label::String(name.clone()),
+                        _ => {
+                            return Err(EvalError::Evaluation(
+                                "unresolved reference or non-string dynamic field label"
+                                    .to_string(),
+                            ));
+                        }
+                    }
+                }
+            }
+            *target_struct = base_struct;
+            self.scopes = base_scopes;
+            self.referenced_values = base_references;
+            return self.eval_decls_into_struct(&named_decls, target_struct);
         }
 
         // Apply pattern constraints to matching fields
@@ -204,6 +257,39 @@ impl Evaluator {
         Ok(())
     }
 
+    fn collect_field_declarations(decls: &[Decl]) -> Vec<Decl> {
+        let mut collected: Vec<Decl> = Vec::with_capacity(decls.len());
+        let mut positions = HashMap::new();
+        for decl in decls {
+            if let Decl::Field(field) = decl
+                && let Some(name) = field.label.name()
+            {
+                // Quoted labels share the ordinary namespace, even when their
+                // text starts with a definition or hidden-field prefix.
+                let key = (
+                    name.to_string(),
+                    field.label.is_definition(),
+                    field.label.is_hidden(),
+                );
+                if let Some(&index) = positions.get(&key) {
+                    let Decl::Field(previous) = &mut collected[index] else {
+                        unreachable!();
+                    };
+                    previous.optional &= field.optional;
+                    previous.value = Expr::Binary {
+                        op: BinaryOp::Unify,
+                        left: Box::new(previous.value.clone()),
+                        right: Box::new(field.value.clone()),
+                    };
+                    continue;
+                }
+                positions.insert(key, collected.len());
+            }
+            collected.push(decl.clone());
+        }
+        collected
+    }
+
     fn is_unresolved(&self, val_id: ValueId) -> bool {
         match self.arena.get(val_id) {
             Some(Value::Bottom(reason)) => reason.message.contains("unresolved reference"),
@@ -221,6 +307,7 @@ impl Evaluator {
         &mut self,
         decl: &Decl,
         target_struct: &mut StructValue,
+        final_pass: bool,
     ) -> Result<bool, EvalError> {
         match decl {
             Decl::Field(f) => match &f.label {
@@ -236,10 +323,23 @@ impl Evaluator {
                         let name = name.clone();
                         let val_id = self.eval_expr(&f.value)?;
                         let is_unresolved = self.is_unresolved(val_id);
-                        target_struct.insert_field(name.clone(), val_id, f.optional);
+                        if is_unresolved && !final_pass {
+                            return Ok(false);
+                        }
+                        let val_id = self.unify_decl_field(
+                            &mut target_struct.fields,
+                            &name,
+                            val_id,
+                            f.optional,
+                        )?;
                         self.insert_binding(&name, val_id);
                         Ok(!is_unresolved)
                     } else if self.is_unresolved(label_val_id) {
+                        if final_pass {
+                            return Err(EvalError::Evaluation(
+                                "unresolved reference in dynamic field label".to_string(),
+                            ));
+                        }
                         Ok(false)
                     } else {
                         Ok(true)
@@ -248,23 +348,28 @@ impl Evaluator {
                 _ => {
                     let val_id = self.eval_expr(&f.value)?;
                     let is_unresolved = self.is_unresolved(val_id);
+                    // A retry must not meet a transient unresolved-reference bottom
+                    // with a resolved declaration: bottom would permanently win.
+                    if is_unresolved && !final_pass {
+                        return Ok(false);
+                    }
                     if let Some(name) = f.label.name() {
-                        if f.label.is_definition() {
-                            if let Some(&placeholder_id) = self.placeholders.get(name)
-                                && let Some(Value::RecursiveRef { target, .. }) =
-                                    self.arena.get_mut(placeholder_id)
-                            {
-                                *target = Some(val_id);
-                            }
-                            target_struct.insert_def(name.to_string(), val_id, f.optional);
-                            self.insert_binding(name, val_id);
+                        let fields = if f.label.is_definition() {
+                            &mut target_struct.definitions
                         } else if f.label.is_hidden() {
-                            target_struct.insert_hidden(name.to_string(), val_id, f.optional);
-                            self.insert_binding(name, val_id);
+                            &mut target_struct.hidden
                         } else {
-                            target_struct.insert_field(name.to_string(), val_id, f.optional);
-                            self.insert_binding(name, val_id);
+                            &mut target_struct.fields
+                        };
+                        let val_id = self.unify_decl_field(fields, name, val_id, f.optional)?;
+                        if f.label.is_definition()
+                            && let Some(&placeholder_id) = self.placeholders.get(name)
+                            && let Some(Value::RecursiveRef { target, .. }) =
+                                self.arena.get_mut(placeholder_id)
+                        {
+                            *target = Some(val_id);
                         }
+                        self.insert_binding(name, val_id);
                     }
                     Ok(!is_unresolved)
                 }
@@ -284,19 +389,89 @@ impl Evaluator {
             Decl::Embedding(expr) => {
                 let embedded_id = self.eval_expr(expr)?;
                 let is_unresolved = self.is_unresolved(embedded_id);
+                if is_unresolved && !final_pass {
+                    return Ok(false);
+                }
                 let current_id = self.arena.alloc(Value::Struct(target_struct.clone()));
                 let unified_id = unify(&mut self.arena, current_id, embedded_id);
                 if let Some(Value::Struct(s)) = self.arena.get(unified_id) {
+                    for (before, after) in [
+                        (&target_struct.fields, &s.fields),
+                        (&target_struct.definitions, &s.definitions),
+                        (&target_struct.hidden, &s.hidden),
+                    ] {
+                        for (name, entry) in before {
+                            if let Some(updated) = after.get(name)
+                                && entry.val != updated.val
+                                && self.referenced_values.contains(&entry.val)
+                            {
+                                return Err(EvalError::Evaluation(format!(
+                                    "embedding modifies previously referenced field '{name}': \
+                                     deferred embedded-field unification is not supported"
+                                )));
+                            }
+                        }
+                    }
                     *target_struct = s.clone();
+                    self.bind_struct_fields(target_struct);
+                } else if let Some(Value::Bottom(reason)) = self.arena.get(unified_id) {
+                    return Err(EvalError::Evaluation(reason.to_string()));
                 }
                 Ok(!is_unresolved)
             }
             Decl::Comprehension(comp) => {
-                self.eval_comprehension(comp, target_struct)?;
+                self.comprehension_depth += 1;
+                let result = self.eval_comprehension(comp, target_struct);
+                self.comprehension_depth -= 1;
+                result?;
+                // Loop-local bindings have been popped; subsequent references
+                // must resolve to the final generated field values.
+                self.bind_struct_fields(target_struct);
                 Ok(true)
             }
             _ => Ok(true),
         }
+    }
+
+    fn bind_struct_fields(&mut self, value: &StructValue) {
+        for (name, entry) in value
+            .fields
+            .iter()
+            .chain(&value.definitions)
+            .chain(&value.hidden)
+        {
+            self.insert_binding(name, entry.val);
+        }
+    }
+
+    fn unify_decl_field(
+        &mut self,
+        fields: &mut std::collections::BTreeMap<String, FieldEntry>,
+        name: &str,
+        val: ValueId,
+        optional: bool,
+    ) -> Result<ValueId, EvalError> {
+        // Generated fields still use eager evaluation. Until dependency
+        // reevaluation is supported, fail rather than export references that
+        // retain a value from before a generated constraint (including loops).
+        if self.comprehension_depth > 0
+            && let Some(entry) = fields.get(name)
+            && entry.val != val
+            && self.referenced_values.contains(&entry.val)
+        {
+            return Err(EvalError::Evaluation(format!(
+                "comprehension modifies previously referenced field '{name}': \
+                 deferred generated-field unification is not supported"
+            )));
+        }
+        let entry = fields
+            .entry(name.to_string())
+            .and_modify(|entry| {
+                entry.val = unify(&mut self.arena, entry.val, val);
+                entry.optional &= optional;
+            })
+            .or_insert(FieldEntry { val, optional });
+        Ok(entry.val)
     }
 
     fn eval_comprehension(
@@ -334,8 +509,9 @@ impl Evaluator {
                 let val_id = self.eval_expr(expr)?;
                 self.push_scope();
                 self.insert_binding(ident, val_id);
-                self.eval_comprehension_clause(clause_idx + 1, comp, target_struct)?;
+                let result = self.eval_comprehension_clause(clause_idx + 1, comp, target_struct);
                 self.pop_scope();
+                result?;
             }
             ComprehensionClause::For { key, value, source } => {
                 let src_id = self.eval_expr(source)?;
@@ -353,8 +529,10 @@ impl Evaluator {
                                 let k_id = self.arena.int(idx as i64);
                                 self.insert_binding(k_name, k_id);
                             }
-                            self.eval_comprehension_clause(clause_idx + 1, comp, target_struct)?;
+                            let result =
+                                self.eval_comprehension_clause(clause_idx + 1, comp, target_struct);
                             self.pop_scope();
+                            result?;
                         }
                     }
                     Value::Struct(s) => {
@@ -365,8 +543,10 @@ impl Evaluator {
                                 let k_id = self.arena.string(k.clone());
                                 self.insert_binding(k_name, k_id);
                             }
-                            self.eval_comprehension_clause(clause_idx + 1, comp, target_struct)?;
+                            let result =
+                                self.eval_comprehension_clause(clause_idx + 1, comp, target_struct);
                             self.pop_scope();
+                            result?;
                         }
                     }
                     _ => {}
@@ -473,6 +653,7 @@ impl Evaluator {
                 }
 
                 if let Some(val) = self.lookup_binding(id) {
+                    self.referenced_values.insert(val);
                     Ok(val)
                 } else {
                     Ok(self.arena.bottom(format!("unresolved reference '{id}'")))
@@ -481,8 +662,20 @@ impl Evaluator {
             Expr::Struct(s) => {
                 let mut struct_val = StructValue::new(false);
                 self.push_scope();
-                self.eval_decls_into_struct(&s.decls, &mut struct_val)?;
+                let result = self.eval_decls_into_struct(&s.decls, &mut struct_val);
                 self.pop_scope();
+                if let Err(error) = result {
+                    // Carry an incomplete nested struct to the enclosing retry
+                    // loop, which may resolve its dynamic labels in a later pass.
+                    return match error {
+                        EvalError::Evaluation(message)
+                            if message.contains("unresolved reference") =>
+                        {
+                            Ok(self.arena.bottom(message))
+                        }
+                        error => Err(error),
+                    };
+                }
                 Ok(self.arena.alloc(Value::Struct(struct_val)))
             }
             Expr::List(l) => {
@@ -707,7 +900,8 @@ impl Evaluator {
                         InterpolationPart::Lit(s) => result_str.push_str(s),
                         InterpolationPart::Expr(e) => {
                             let mut val_id = self.eval_expr(e)?;
-                            while let Some(Value::Disjunction { branches }) = self.arena.get(val_id) {
+                            while let Some(Value::Disjunction { branches }) = self.arena.get(val_id)
+                            {
                                 if let Some(b) = branches.iter().find(|b| b.default) {
                                     val_id = b.val;
                                 } else if let Some(b) = branches.first() {
@@ -1039,7 +1233,11 @@ impl Evaluator {
     }
 
     /// Export evaluated value to JSON with path tracking for precise error diagnostics.
-    pub fn to_json_at_path(&self, val_id: ValueId, path: &str) -> Result<serde_json::Value, String> {
+    pub fn to_json_at_path(
+        &self,
+        val_id: ValueId,
+        path: &str,
+    ) -> Result<serde_json::Value, String> {
         match self.arena.get(val_id) {
             Some(Value::Null) => Ok(serde_json::Value::Null),
             Some(Value::Bool(b)) => Ok(serde_json::Value::Bool(*b)),
@@ -1115,7 +1313,9 @@ impl Evaluator {
                 if path == "$" {
                     Err("cannot export non-concrete top value to JSON".to_string())
                 } else {
-                    Err(format!("cannot export non-concrete top value at '{path}' to JSON"))
+                    Err(format!(
+                        "cannot export non-concrete top value at '{path}' to JSON"
+                    ))
                 }
             }
             Some(Value::Type(t)) => {
@@ -1129,21 +1329,27 @@ impl Evaluator {
                 if path == "$" {
                     Err("cannot export bound constraint to JSON".to_string())
                 } else {
-                    Err(format!("cannot export bound constraint at '{path}' to JSON"))
+                    Err(format!(
+                        "cannot export bound constraint at '{path}' to JSON"
+                    ))
                 }
             }
             Some(Value::BuiltinValidator { .. }) => {
                 if path == "$" {
                     Err("cannot export validator constraint to JSON".to_string())
                 } else {
-                    Err(format!("cannot export validator constraint at '{path}' to JSON"))
+                    Err(format!(
+                        "cannot export validator constraint at '{path}' to JSON"
+                    ))
                 }
             }
             Some(Value::Validators(_)) => {
                 if path == "$" {
                     Err("cannot export validator constraints to JSON".to_string())
                 } else {
-                    Err(format!("cannot export validator constraints at '{path}' to JSON"))
+                    Err(format!(
+                        "cannot export validator constraints at '{path}' to JSON"
+                    ))
                 }
             }
             Some(Value::RecursiveRef { name, .. }) => {
