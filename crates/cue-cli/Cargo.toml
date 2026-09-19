@@ -20,4 +20,4 @@ cue-test-harness = { path = "../cue-test-harness" }
 clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
 serde_json = "1.0"
-serde_yaml = "0.9"
+serde_yaml_ng = "0.10"

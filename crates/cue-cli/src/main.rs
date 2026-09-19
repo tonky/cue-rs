@@ -156,7 +156,7 @@ fn main() -> Result<()> {
 
             match format.to_lowercase().as_str() {
                 "yaml" | "yml" => {
-                    let yml = serde_yaml::to_string(&json)?;
+                    let yml = serde_yaml_ng::to_string(&json)?;
                     print!("{yml}");
                 }
                 _ => {
@@ -286,7 +286,7 @@ fn main() -> Result<()> {
                     == Some("yaml")
                     || file.extension().and_then(|s| s.to_str()) == Some("yml")
                 {
-                    serde_yaml::from_str(&content)
+                    serde_yaml_ng::from_str(&content)
                         .with_context(|| "Failed to parse file as valid YAML")?
                 } else {
                     serde_json::from_str(&content)

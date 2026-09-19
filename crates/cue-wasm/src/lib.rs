@@ -8,7 +8,7 @@ pub fn eval_cue(source: &str, format: Option<String>) -> Result<String, String> 
     let fmt = format.as_deref().unwrap_or("json").to_lowercase();
     match fmt.as_str() {
         "yaml" | "yml" => {
-            serde_yaml::to_string(&json_val).map_err(|e| format!("YAML serialization error: {e}"))
+            serde_yaml_ng::to_string(&json_val).map_err(|e| format!("YAML serialization error: {e}"))
         }
         _ => serde_json::to_string_pretty(&json_val)
             .map_err(|e| format!("JSON serialization error: {e}")),

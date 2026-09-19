@@ -150,7 +150,7 @@ pub fn call_encoding(
         ("yaml" | "encoding/yaml", "Marshal") => {
             if let Some(&arg0) = args.first() {
                 let j = value_to_json(arena, arg0)?;
-                let s = serde_yaml::to_string(&j).map_err(|e| e.to_string())?;
+                let s = serde_yaml_ng::to_string(&j).map_err(|e| e.to_string())?;
                 return Ok(arena.string(s));
             }
             Err("yaml.Marshal requires 1 argument".to_string())
@@ -160,7 +160,7 @@ pub fn call_encoding(
                 && let Some(Value::String(s)) = arena.get(arg0)
             {
                 let parsed: serde_json::Value =
-                    serde_yaml::from_str(s).map_err(|e| format!("yaml.Unmarshal failed: {e}"))?;
+                    serde_yaml_ng::from_str(s).map_err(|e| format!("yaml.Unmarshal failed: {e}"))?;
                 return Ok(json_to_value(arena, parsed));
             }
             Err("yaml.Unmarshal requires 1 YAML string argument".to_string())
@@ -169,7 +169,7 @@ pub fn call_encoding(
             if let Some(&arg0) = args.first()
                 && let Some(Value::String(s)) = arena.get(arg0)
             {
-                let is_valid = serde_yaml::from_str::<serde_yaml::Value>(s).is_ok();
+                let is_valid = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(s).is_ok();
                 return Ok(arena.bool(is_valid));
             }
             Err("yaml.Valid requires 1 YAML string argument".to_string())
@@ -178,7 +178,7 @@ pub fn call_encoding(
             if let Some(&arg0) = args.first()
                 && let Some(Value::String(s)) = arena.get(arg0)
             {
-                let is_valid = serde_yaml::from_str::<serde_yaml::Value>(s).is_ok();
+                let is_valid = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(s).is_ok();
                 return Ok(arena.bool(is_valid));
             }
             Err("yaml.Validate requires 1 YAML string argument".to_string())
