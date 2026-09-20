@@ -588,6 +588,15 @@ fn unify_structs(
     res
 }
 
+/// A merged field is the unification of both sides' conjuncts, in written order:
+/// the left literal's expression, then whatever overrode it.
+fn merge_conjuncts(e1: &FieldEntry, e2: &FieldEntry) -> Vec<Conjunct> {
+    let mut conjuncts = Vec::with_capacity(e1.conjuncts.len() + e2.conjuncts.len());
+    conjuncts.extend(e1.conjuncts.iter().cloned());
+    conjuncts.extend(e2.conjuncts.iter().cloned());
+    conjuncts
+}
+
 fn unify_structs_inner(
     arena: &mut ValueArena,
     s1: &StructValue,
@@ -644,10 +653,11 @@ fn unify_structs_inner(
                 {
                     return unified_val;
                 }
-                FieldEntry {
-                    val: unified_val,
-                    optional: e1.optional && e2.optional,
-                }
+                FieldEntry::with_conjuncts(
+                    unified_val,
+                    e1.optional && e2.optional,
+                    merge_conjuncts(e1, e2),
+                )
             }
             (Some(e1), None) => e1.clone(),
             (None, Some(e2)) => e2.clone(),
@@ -667,10 +677,7 @@ fn unify_structs_inner(
 
         merged.fields.insert(
             key,
-            FieldEntry {
-                val: cur_val,
-                optional: entry.optional,
-            },
+            FieldEntry::with_conjuncts(cur_val, entry.optional, entry.conjuncts),
         );
     }
 
@@ -688,10 +695,11 @@ fn unify_structs_inner(
                 if let Some(Value::Bottom(_)) = arena.get(unified_val) {
                     return unified_val;
                 }
-                FieldEntry {
-                    val: unified_val,
-                    optional: e1.optional && e2.optional,
-                }
+                FieldEntry::with_conjuncts(
+                    unified_val,
+                    e1.optional && e2.optional,
+                    merge_conjuncts(e1, e2),
+                )
             }
             (Some(e1), None) => e1.clone(),
             (None, Some(e2)) => e2.clone(),
@@ -710,10 +718,11 @@ fn unify_structs_inner(
                 if let Some(Value::Bottom(_)) = arena.get(unified_val) {
                     return unified_val;
                 }
-                FieldEntry {
-                    val: unified_val,
-                    optional: e1.optional && e2.optional,
-                }
+                FieldEntry::with_conjuncts(
+                    unified_val,
+                    e1.optional && e2.optional,
+                    merge_conjuncts(e1, e2),
+                )
             }
             (Some(e1), None) => e1.clone(),
             (None, Some(e2)) => e2.clone(),
@@ -1169,4 +1178,192 @@ fn is_valid_uuid_str(s: &str) -> bool {
         }
     }
     true
+}
+
+/// Comparison budget for [`compare_values`], in node pairs. The walk is over a
+/// graph that may share and repeat subtrees, and only the pairs on the current
+/// path are remembered, so a comparison of two large values is bounded here
+/// rather than paid in full.
+const MAX_EQUIVALENCE_NODES: usize = 4096;
+
+/// What comparing two values under the budget could establish.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Equivalence {
+    /// Same content throughout.
+    Equal,
+    /// A difference was found.
+    Different,
+    /// The budget ran out first. Neither answer is available, and a caller that
+    /// must choose should note that "different" is not the cautious one: it is
+    /// what a caller looking for a fixpoint would loop on forever.
+    Unknown,
+}
+
+/// Whether two values hold the same content, not merely the same id.
+///
+/// Evaluating one expression twice yields two ids for one value, so identity
+/// alone cannot tell a field that was overridden from a field that was derived
+/// again. Everything reachable is compared, and a pair already under comparison
+/// counts as equal, which is what makes a recursive schema terminate.
+pub fn compare_values(arena: &ValueArena, a: ValueId, b: ValueId) -> Equivalence {
+    let mut active = BTreeSet::new();
+    let mut budget = MAX_EQUIVALENCE_NODES;
+    if equivalent(arena, a, b, &mut active, &mut budget) {
+        Equivalence::Equal
+    } else if budget == 0 {
+        Equivalence::Unknown
+    } else {
+        Equivalence::Different
+    }
+}
+
+fn equivalent(
+    arena: &ValueArena,
+    a: ValueId,
+    b: ValueId,
+    active: &mut BTreeSet<(ValueId, ValueId)>,
+    budget: &mut usize,
+) -> bool {
+    if a == b {
+        return true;
+    }
+    if *budget == 0 {
+        return false;
+    }
+    *budget -= 1;
+
+    let pair = (a.min(b), a.max(b));
+    if !active.insert(pair) {
+        // Already being compared further up: a cycle, and a difference would have
+        // shown on the way in.
+        return true;
+    }
+    let result = equivalent_inner(arena, a, b, active, budget);
+    active.remove(&pair);
+    result
+}
+
+fn equivalent_inner(
+    arena: &ValueArena,
+    a: ValueId,
+    b: ValueId,
+    active: &mut BTreeSet<(ValueId, ValueId)>,
+    budget: &mut usize,
+) -> bool {
+    let (Some(left), Some(right)) = (arena.get(a), arena.get(b)) else {
+        return false;
+    };
+    match (left, right) {
+        (Value::Struct(left), Value::Struct(right)) => {
+            if left.is_closed != right.is_closed
+                || left.pattern_constraints.len() != right.pattern_constraints.len()
+            {
+                return false;
+            }
+            let sections = [
+                (&left.fields, &right.fields),
+                (&left.definitions, &right.definitions),
+                (&left.hidden, &right.hidden),
+            ];
+            for (left, right) in sections {
+                if left.len() != right.len() {
+                    return false;
+                }
+                for ((left_name, left_entry), (right_name, right_entry)) in left.iter().zip(right) {
+                    if left_name != right_name
+                        || left_entry.optional != right_entry.optional
+                        || !equivalent(arena, left_entry.val, right_entry.val, active, budget)
+                    {
+                        return false;
+                    }
+                }
+            }
+            left.pattern_constraints
+                .iter()
+                .zip(&right.pattern_constraints)
+                .all(|(left, right)| {
+                    equivalent(arena, left.pattern_val, right.pattern_val, active, budget)
+                        && equivalent(arena, left.target_val, right.target_val, active, budget)
+                })
+        }
+        (
+            Value::List {
+                elements: left,
+                ellipsis: left_tail,
+            },
+            Value::List {
+                elements: right,
+                ellipsis: right_tail,
+            },
+        ) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right)
+                    .all(|(left, right)| equivalent(arena, *left, *right, active, budget))
+                && match (left_tail, right_tail) {
+                    (None, None) => true,
+                    (Some(left), Some(right)) => equivalent(arena, *left, *right, active, budget),
+                    _ => false,
+                }
+        }
+        (Value::Disjunction { branches: left }, Value::Disjunction { branches: right }) => {
+            left.len() == right.len()
+                && left.iter().zip(right).all(|(left, right)| {
+                    left.default == right.default
+                        && equivalent(arena, left.val, right.val, active, budget)
+                })
+        }
+        (
+            Value::Bounds {
+                base_type: left_type,
+                constraints: left,
+            },
+            Value::Bounds {
+                base_type: right_type,
+                constraints: right,
+            },
+        ) => {
+            left_type == right_type
+                && left.len() == right.len()
+                && left.iter().zip(right).all(|(left, right)| {
+                    left.0 == right.0 && equivalent(arena, left.1, right.1, active, budget)
+                })
+        }
+        (
+            Value::BuiltinValidator {
+                name: left_name,
+                target: left,
+            },
+            Value::BuiltinValidator {
+                name: right_name,
+                target: right,
+            },
+        ) => left_name == right_name && equivalent(arena, *left, *right, active, budget),
+        (Value::Validators(left), Value::Validators(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right)
+                    .all(|(left, right)| equivalent(arena, *left, *right, active, budget))
+        }
+        (
+            Value::RecursiveRef {
+                name: left_name,
+                target: left,
+            },
+            Value::RecursiveRef {
+                name: right_name,
+                target: right,
+            },
+        ) => {
+            left_name == right_name
+                && match (left, right) {
+                    (None, None) => true,
+                    (Some(left), Some(right)) => equivalent(arena, *left, *right, active, budget),
+                    _ => false,
+                }
+        }
+        (left, right) => left == right,
+    }
 }

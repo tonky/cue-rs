@@ -1,3 +1,4 @@
+pub mod deps;
 pub mod eval;
 pub mod importer;
 pub mod manifest;

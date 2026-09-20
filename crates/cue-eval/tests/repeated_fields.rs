@@ -200,8 +200,15 @@ fn repeated_fields_preserve_each_declarations_lexical_scope() {
 }
 
 #[test]
-fn generated_repeated_fields_cannot_export_stale_service_references() {
-    let error = eval_to_json(
+fn generated_repeated_fields_reach_earlier_service_references() {
+    // A comprehension or an embedding may constrain a field another field has
+    // already read. The reader is derived again, as upstream v0.16.1 does, rather
+    // than exporting what it read before the constraint or refusing to export.
+    let expected = json!({
+        "environmentPolicy": {"mode": "restricted"}, "command": "sleep 60"
+    });
+
+    let result = eval_to_json(
         r#"
         service: {command: "sleep 60"}
         services: worker: service
@@ -210,12 +217,10 @@ fn generated_repeated_fields_cannot_export_stale_service_references() {
         }
     "#,
     )
-    .unwrap_err()
-    .to_string();
-    assert!(
-        error.contains("embedding modifies previously referenced field"),
-        "{error}"
-    );
+    .unwrap();
+    assert_eq!(result["service"], expected);
+    assert_eq!(result["services"]["worker"], expected);
+
     for label in ["service", "#Service", "_service"] {
         let source = format!(
             r#"
@@ -226,12 +231,11 @@ fn generated_repeated_fields_cannot_export_stale_service_references() {
             }}
         "#
         );
-        let error = eval_to_json(&source).unwrap_err().to_string();
-        assert!(
-            error.contains("comprehension modifies previously referenced field"),
-            "{error}"
-        );
+        let result = eval_to_json(&source).unwrap();
+        assert_eq!(result["services"]["worker"], expected, "{source}");
     }
+
+    // The same, with the declaration order that already worked.
     let result = eval_to_json(
         r#"
         service: {command: "sleep 60"}
@@ -242,11 +246,6 @@ fn generated_repeated_fields_cannot_export_stale_service_references() {
     "#,
     )
     .unwrap();
-    assert_eq!(
-        result["service"],
-        json!({
-            "environmentPolicy": {"mode": "restricted"}, "command": "sleep 60"
-        })
-    );
+    assert_eq!(result["service"], expected);
     assert_eq!(result["services"]["worker"], result["service"]);
 }

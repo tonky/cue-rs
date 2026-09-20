@@ -84,8 +84,8 @@ impl PackageLoader {
 
     /// Load and evaluate a single .cue file with module and vendored package resolution.
     pub fn load_file<P: AsRef<Path>>(file: P) -> Result<(Evaluator, ValueId), EvalError> {
-        let canonical_file = std::fs::canonicalize(file.as_ref())
-            .unwrap_or_else(|_| file.as_ref().to_path_buf());
+        let canonical_file =
+            std::fs::canonicalize(file.as_ref()).unwrap_or_else(|_| file.as_ref().to_path_buf());
         let file_path = canonical_file.as_path();
         if !file_path.is_file() {
             return Err(EvalError::Evaluation(format!(
@@ -179,7 +179,8 @@ impl PackageLoader {
         let all_decls: Vec<Decl> = parsed_files.into_iter().flat_map(|f| f.decls).collect();
         let mut package_struct = StructValue::new(false);
         evaluator.eval_decls_into_struct(&all_decls, &mut package_struct)?;
-        let canonical_dir = std::fs::canonicalize(dir.as_ref()).unwrap_or_else(|_| dir.as_ref().to_path_buf());
+        let canonical_dir =
+            std::fs::canonicalize(dir.as_ref()).unwrap_or_else(|_| dir.as_ref().to_path_buf());
         Self::attach_origin_dir_to_structs(&mut evaluator, &mut package_struct, &canonical_dir);
 
         let root_id = evaluator.arena.alloc(Value::Struct(package_struct));
@@ -319,7 +320,11 @@ impl PackageLoader {
     }
 }
 
-pub fn clone_value_into(from_arena: &ValueArena, to_arena: &mut ValueArena, id: ValueId) -> ValueId {
+pub fn clone_value_into(
+    from_arena: &ValueArena,
+    to_arena: &mut ValueArena,
+    id: ValueId,
+) -> ValueId {
     let mut memo = std::collections::HashMap::new();
     clone_value_into_memo(from_arena, to_arena, id, &mut memo)
 }
@@ -395,28 +400,37 @@ fn clone_value_into_memo(
             for (k, entry) in &s.fields {
                 new_s.fields.insert(
                     k.clone(),
-                    FieldEntry {
-                        val: clone_value_into_memo(from_arena, to_arena, entry.val, memo),
-                        optional: entry.optional,
-                    },
+                    // Conjuncts hold value ids of the source arena, so a cross-arena
+                    // clone keeps only the value. An imported package is already
+                    // evaluated; nothing re-derives it here.
+                    FieldEntry::value(
+                        clone_value_into_memo(from_arena, to_arena, entry.val, memo),
+                        entry.optional,
+                    ),
                 );
             }
             for (k, entry) in &s.definitions {
                 new_s.definitions.insert(
                     k.clone(),
-                    FieldEntry {
-                        val: clone_value_into_memo(from_arena, to_arena, entry.val, memo),
-                        optional: entry.optional,
-                    },
+                    // Conjuncts hold value ids of the source arena, so a cross-arena
+                    // clone keeps only the value. An imported package is already
+                    // evaluated; nothing re-derives it here.
+                    FieldEntry::value(
+                        clone_value_into_memo(from_arena, to_arena, entry.val, memo),
+                        entry.optional,
+                    ),
                 );
             }
             for (k, entry) in &s.hidden {
                 new_s.hidden.insert(
                     k.clone(),
-                    FieldEntry {
-                        val: clone_value_into_memo(from_arena, to_arena, entry.val, memo),
-                        optional: entry.optional,
-                    },
+                    // Conjuncts hold value ids of the source arena, so a cross-arena
+                    // clone keeps only the value. An imported package is already
+                    // evaluated; nothing re-derives it here.
+                    FieldEntry::value(
+                        clone_value_into_memo(from_arena, to_arena, entry.val, memo),
+                        entry.optional,
+                    ),
                 );
             }
             for pc in &s.pattern_constraints {
@@ -475,11 +489,9 @@ fn clone_value_into_memo(
             let new_id = to_arena.alloc(placeholder);
             memo.insert(id, new_id);
 
-            let cloned_target = target.map(|t| clone_value_into_memo(from_arena, to_arena, t, memo));
-            if let Some(Value::RecursiveRef {
-                target: t_ref, ..
-            }) = to_arena.get_mut(new_id)
-            {
+            let cloned_target =
+                target.map(|t| clone_value_into_memo(from_arena, to_arena, t, memo));
+            if let Some(Value::RecursiveRef { target: t_ref, .. }) = to_arena.get_mut(new_id) {
                 *t_ref = cloned_target;
             }
             new_id

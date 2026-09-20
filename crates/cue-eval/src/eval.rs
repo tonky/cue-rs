@@ -1,14 +1,29 @@
 use crate::unify::unify;
+use crate::unify::{Equivalence, compare_values};
 use crate::value::{
-    BoundOp, DisjunctionBranch as ValueBranch, FieldEntry, StructValue, TypeKind, Value,
-    ValueArena, ValueId,
+    BoundOp, Conjunct, DisjunctionBranch as ValueBranch, FieldEntry, StructValue, Thunk, ThunkEnv,
+    TypeKind, Value, ValueArena, ValueId,
 };
 use cue_syntax::ast::*;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::rc::Rc;
 use std::str::FromStr;
 use thiserror::Error;
+
+/// Sweeps one merged struct may take to settle. A chain of n references needs
+/// n of them, so this only stops a recipe that never settles at all.
+const MAX_REDERIVE_SWEEPS: usize = 256;
+
+/// What one re-derivation sweep did: which fields moved, so the next sweep knows
+/// what to derive, and whether anything was written at all, which is what the
+/// caller's copy on write turns on.
+#[derive(Debug, Default)]
+struct Sweep {
+    moved: HashSet<String>,
+    wrote: bool,
+}
 
 #[derive(Error, Debug)]
 pub enum EvalError {
@@ -18,13 +33,49 @@ pub enum EvalError {
     Evaluation(String),
 }
 
+/// Which map of a struct a field lives in. Definitions and hidden fields keep
+/// their sigil in the name, so the three never collide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Section {
+    Field,
+    Definition,
+    Hidden,
+}
+
+impl Section {
+    fn map(self, s: &StructValue) -> &BTreeMap<String, FieldEntry> {
+        match self {
+            Section::Field => &s.fields,
+            Section::Definition => &s.definitions,
+            Section::Hidden => &s.hidden,
+        }
+    }
+
+    fn map_mut(self, s: &mut StructValue) -> &mut BTreeMap<String, FieldEntry> {
+        match self {
+            Section::Field => &mut s.fields,
+            Section::Definition => &mut s.definitions,
+            Section::Hidden => &mut s.hidden,
+        }
+    }
+}
+
+const SECTIONS: [Section; 3] = [Section::Field, Section::Definition, Section::Hidden];
+
 pub struct Evaluator {
     pub arena: ValueArena,
     scopes: Vec<HashMap<String, ValueId>>,
     resolving_symbols: HashSet<String>,
-    referenced_values: HashSet<ValueId>,
-    comprehension_depth: usize,
+    /// Environment of the struct literal being evaluated, which its fields
+    /// capture as the scope their recipes run in.
+    current_env: Option<Rc<ThunkEnv>>,
     pub placeholders: HashMap<String, ValueId>,
+    /// How many field recipes re-derivation has run, and how many structs it
+    /// gave up on at the sweep cap. Evaluation never reads them; they are what a
+    /// test asserts on to keep the pass proportional to what a merge changed
+    /// rather than to the size of the struct it changed it in.
+    pub derivations: usize,
+    pub unsettled: usize,
     pub import_aliases: HashMap<String, String>,
     pub imported_packages: HashMap<String, ValueId>,
 }
@@ -41,9 +92,10 @@ impl Evaluator {
             arena: ValueArena::new(),
             scopes: vec![HashMap::new()],
             resolving_symbols: HashSet::new(),
-            referenced_values: HashSet::new(),
-            comprehension_depth: 0,
+            current_env: None,
             placeholders: HashMap::new(),
+            derivations: 0,
+            unsettled: 0,
             import_aliases: HashMap::new(),
             imported_packages: HashMap::new(),
         };
@@ -144,9 +196,30 @@ impl Evaluator {
         decls: &[Decl],
         target_struct: &mut StructValue,
     ) -> Result<(), EvalError> {
+        // The literal being evaluated owns `current_env` while it runs, and the
+        // one it is written inside takes it back afterwards.
+        let enclosing = self.current_env.take();
+        let result = self.eval_decls_scoped(decls, target_struct);
+        self.current_env = enclosing;
+        result
+    }
+
+    fn eval_decls_scoped(
+        &mut self,
+        decls: &[Decl],
+        target_struct: &mut StructValue,
+    ) -> Result<(), EvalError> {
         // A reference must see every declaration of a static field, including
         // declarations appearing after the reference in source order.
         let decls = Self::collect_field_declarations(decls);
+        // Captured once per literal and shared by its thunks: every field of this
+        // struct was written in the same lexical scope.
+        let env = Rc::new(ThunkEnv::new(
+            self.scopes.clone(),
+            Self::collect_let_declarations(&decls),
+            Self::collect_field_names(&decls),
+        ));
+        self.current_env = Some(env.clone());
         let dynamic_base = decls
             .iter()
             .any(|decl| {
@@ -158,13 +231,7 @@ impl Evaluator {
                     })
                 )
             })
-            .then(|| {
-                (
-                    target_struct.clone(),
-                    self.scopes.clone(),
-                    self.referenced_values.clone(),
-                )
-            });
+            .then(|| (target_struct.clone(), self.scopes.clone()));
         // Pass 1: Pre-register definition placeholders for recursive and forward references
         for decl in &decls {
             if let Decl::Field(f) = decl
@@ -192,7 +259,7 @@ impl Evaluator {
             let mut made_progress = false;
 
             for &decl in &pending_decls {
-                let resolved = self.eval_single_decl(decl, target_struct, false)?;
+                let resolved = self.eval_single_decl(decl, target_struct, &env, false)?;
                 if resolved {
                     made_progress = true;
                 } else {
@@ -203,7 +270,7 @@ impl Evaluator {
             if !made_progress {
                 // Saturated / cannot resolve further; final evaluation accepts bottom errors
                 for &decl in &next_pending {
-                    self.eval_single_decl(decl, target_struct, true)?;
+                    self.eval_single_decl(decl, target_struct, &env, true)?;
                 }
                 break;
             }
@@ -214,7 +281,7 @@ impl Evaluator {
         // Once computed labels are known, collect their declarations with the
         // static fields and evaluate references again from the original scope.
         // Otherwise an earlier reference can retain a pre-merge snapshot.
-        if let Some((base_struct, base_scopes, base_references)) = dynamic_base {
+        if let Some((base_struct, base_scopes)) = dynamic_base {
             let mut named_decls = decls.clone();
             for decl in &mut named_decls {
                 if let Decl::Field(field) = decl
@@ -234,9 +301,17 @@ impl Evaluator {
             }
             *target_struct = base_struct;
             self.scopes = base_scopes;
-            self.referenced_values = base_references;
             return self.eval_decls_into_struct(&named_decls, target_struct);
         }
+
+        // A comprehension, an embedding or a pattern constraint can change a field
+        // after another field has already read it. Those are the paths whose
+        // readers need deriving again; an ordinary literal is derived again by
+        // the merge that changed it.
+        let needs_rederive = !target_struct.pattern_constraints.is_empty()
+            || decls
+                .iter()
+                .any(|d| matches!(d, Decl::Comprehension(_) | Decl::Embedding(_)));
 
         // Apply pattern constraints to matching fields
         let pattern_constraints = target_struct.pattern_constraints.clone();
@@ -254,7 +329,40 @@ impl Evaluator {
             }
         }
 
+        if needs_rederive {
+            let mut visiting = HashSet::new();
+            self.rederive_struct(target_struct, &mut visiting)?;
+        }
+
         Ok(())
+    }
+
+    /// Field names one literal declares outright. A reference inside it resolves
+    /// to these at whatever value the merged struct gives them; anything else it
+    /// names belongs to an enclosing scope and keeps resolving there.
+    fn collect_field_names(decls: &[Decl]) -> HashSet<String> {
+        decls
+            .iter()
+            .filter_map(|decl| match decl {
+                Decl::Field(field) => field.label.name().map(str::to_string),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// `let` and alias declarations of one literal, in declaration order. They are
+    /// scope bindings rather than fields, so a thunk cannot read them back from
+    /// the struct it is forced against and has to derive them again.
+    fn collect_let_declarations(decls: &[Decl]) -> Vec<(String, Rc<Expr>)> {
+        decls
+            .iter()
+            .filter_map(|decl| match decl {
+                Decl::Let { ident, expr } | Decl::Alias { ident, expr } => {
+                    Some((ident.clone(), Rc::new(expr.clone())))
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     fn collect_field_declarations(decls: &[Decl]) -> Vec<Decl> {
@@ -307,6 +415,7 @@ impl Evaluator {
         &mut self,
         decl: &Decl,
         target_struct: &mut StructValue,
+        env: &Rc<ThunkEnv>,
         final_pass: bool,
     ) -> Result<bool, EvalError> {
         match decl {
@@ -321,7 +430,7 @@ impl Evaluator {
                     let label_val_id = self.eval_expr(dyn_expr)?;
                     if let Some(Value::String(name)) = self.arena.get(label_val_id) {
                         let name = name.clone();
-                        let val_id = self.eval_expr(&f.value)?;
+                        let (val_id, conjunct) = self.eval_field_value(&f.value, env)?;
                         let is_unresolved = self.is_unresolved(val_id);
                         if is_unresolved && !final_pass {
                             return Ok(false);
@@ -331,7 +440,9 @@ impl Evaluator {
                             &name,
                             val_id,
                             f.optional,
+                            conjunct,
                         )?;
+                        self.note_field_name(&name);
                         self.insert_binding(&name, val_id);
                         Ok(!is_unresolved)
                     } else if self.is_unresolved(label_val_id) {
@@ -346,7 +457,7 @@ impl Evaluator {
                     }
                 }
                 _ => {
-                    let val_id = self.eval_expr(&f.value)?;
+                    let (val_id, conjunct) = self.eval_field_value(&f.value, env)?;
                     let is_unresolved = self.is_unresolved(val_id);
                     // A retry must not meet a transient unresolved-reference bottom
                     // with a resolved declaration: bottom would permanently win.
@@ -361,7 +472,8 @@ impl Evaluator {
                         } else {
                             &mut target_struct.fields
                         };
-                        let val_id = self.unify_decl_field(fields, name, val_id, f.optional)?;
+                        let val_id =
+                            self.unify_decl_field(fields, name, val_id, f.optional, conjunct)?;
                         if f.label.is_definition()
                             && let Some(&placeholder_id) = self.placeholders.get(name)
                             && let Some(Value::RecursiveRef { target, .. }) =
@@ -374,13 +486,9 @@ impl Evaluator {
                     Ok(!is_unresolved)
                 }
             },
-            Decl::Alias { ident, expr } => {
-                let val_id = self.eval_expr(expr)?;
-                let is_unresolved = self.is_unresolved(val_id);
-                self.insert_binding(ident, val_id);
-                Ok(!is_unresolved)
-            }
-            Decl::Let { ident, expr } => {
+            Decl::Alias { ident, expr } | Decl::Let { ident, expr } => {
+                // The binding is part of the literal's environment, so a field
+                // that reads it derives it again beside itself.
                 let val_id = self.eval_expr(expr)?;
                 let is_unresolved = self.is_unresolved(val_id);
                 self.insert_binding(ident, val_id);
@@ -395,23 +503,9 @@ impl Evaluator {
                 let current_id = self.arena.alloc(Value::Struct(target_struct.clone()));
                 let unified_id = unify(&mut self.arena, current_id, embedded_id);
                 if let Some(Value::Struct(s)) = self.arena.get(unified_id) {
-                    for (before, after) in [
-                        (&target_struct.fields, &s.fields),
-                        (&target_struct.definitions, &s.definitions),
-                        (&target_struct.hidden, &s.hidden),
-                    ] {
-                        for (name, entry) in before {
-                            if let Some(updated) = after.get(name)
-                                && entry.val != updated.val
-                                && self.referenced_values.contains(&entry.val)
-                            {
-                                return Err(EvalError::Evaluation(format!(
-                                    "embedding modifies previously referenced field '{name}': \
-                                     deferred embedded-field unification is not supported"
-                                )));
-                            }
-                        }
-                    }
+                    // An embedding may change a field another field has already
+                    // read; the pass at the end of the literal derives those
+                    // readers again.
                     *target_struct = s.clone();
                     self.bind_struct_fields(target_struct);
                 } else if let Some(Value::Bottom(reason)) = self.arena.get(unified_id) {
@@ -420,10 +514,7 @@ impl Evaluator {
                 Ok(!is_unresolved)
             }
             Decl::Comprehension(comp) => {
-                self.comprehension_depth += 1;
-                let result = self.eval_comprehension(comp, target_struct);
-                self.comprehension_depth -= 1;
-                result?;
+                self.eval_comprehension(comp, target_struct)?;
                 // Loop-local bindings have been popped; subsequent references
                 // must resolve to the final generated field values.
                 self.bind_struct_fields(target_struct);
@@ -433,6 +524,12 @@ impl Evaluator {
         }
     }
 
+    /// Make the struct's fields visible to the declarations that follow.
+    ///
+    /// This does not record them as names the literal declares: a field an
+    /// embedding contributed, or one a comprehension generated, was not written
+    /// here, so a reference to that name means the enclosing scope's and must go
+    /// on meaning it after a merge.
     fn bind_struct_fields(&mut self, value: &StructValue) {
         for (name, entry) in value
             .fields
@@ -444,34 +541,357 @@ impl Evaluator {
         }
     }
 
+    /// Record a field name as reachable from the literal being evaluated.
+    fn note_field_name(&self, name: &str) {
+        if let Some(env) = &self.current_env {
+            env.note_field(name);
+        }
+    }
+
     fn unify_decl_field(
         &mut self,
         fields: &mut std::collections::BTreeMap<String, FieldEntry>,
         name: &str,
         val: ValueId,
         optional: bool,
+        conjunct: Conjunct,
     ) -> Result<ValueId, EvalError> {
-        // Generated fields still use eager evaluation. Until dependency
-        // reevaluation is supported, fail rather than export references that
-        // retain a value from before a generated constraint (including loops).
-        if self.comprehension_depth > 0
-            && let Some(entry) = fields.get(name)
-            && entry.val != val
-            && self.referenced_values.contains(&entry.val)
-        {
-            return Err(EvalError::Evaluation(format!(
-                "comprehension modifies previously referenced field '{name}': \
-                 deferred generated-field unification is not supported"
-            )));
-        }
         let entry = fields
             .entry(name.to_string())
             .and_modify(|entry| {
                 entry.val = unify(&mut self.arena, entry.val, val);
                 entry.optional &= optional;
+                entry.conjuncts.push(conjunct.clone());
             })
-            .or_insert(FieldEntry { val, optional });
+            .or_insert_with(|| FieldEntry::with_conjuncts(val, optional, vec![conjunct]));
         Ok(entry.val)
+    }
+
+    /// Evaluate a field expression and keep the recipe that produced it: the
+    /// expression and the scope its struct literal was written in. A merge that
+    /// changes what the expression read runs it again from there.
+    fn eval_field_value(
+        &mut self,
+        expr: &Expr,
+        env: &Rc<ThunkEnv>,
+    ) -> Result<(ValueId, Conjunct), EvalError> {
+        let val = self.eval_expr(expr)?;
+        let deps = Rc::new(crate::deps::recipe_deps(expr, &env.lets));
+        Ok((
+            val,
+            Conjunct::Thunk(Thunk {
+                expr: Rc::new(expr.clone()),
+                env: env.clone(),
+                deps,
+            }),
+        ))
+    }
+
+    /// Derive again the fields of a struct the evaluator has just merged.
+    ///
+    /// A field beside the one the merge changed was evaluated against the value
+    /// that field had before, so its recipe runs again here, against the merged
+    /// struct, and replaces what it produced the first time. Replacement rather
+    /// than unification: the cached value came from the same recipe, and
+    /// `"v5" & "v9"` is bottom.
+    fn rederive(&mut self, id: ValueId) -> Result<ValueId, EvalError> {
+        let mut visiting = HashSet::new();
+        self.rederive_value(id, &mut visiting)
+    }
+
+    fn rederive_value(
+        &mut self,
+        id: ValueId,
+        visiting: &mut HashSet<ValueId>,
+    ) -> Result<ValueId, EvalError> {
+        let Some(Value::Struct(s)) = self.arena.get(id) else {
+            return Ok(id);
+        };
+        if !visiting.insert(id) {
+            // Already being derived further up: a cyclic graph, not a second copy.
+            return Ok(id);
+        }
+        let mut s = s.clone();
+        let changed = self.rederive_struct(&mut s, visiting);
+        visiting.remove(&id);
+        // Copy on write, so a value merged into this one keeps the id it had.
+        Ok(if changed? {
+            self.arena.alloc(Value::Struct(s))
+        } else {
+            id
+        })
+    }
+
+    fn rederive_struct(
+        &mut self,
+        s: &mut StructValue,
+        visiting: &mut HashSet<ValueId>,
+    ) -> Result<bool, EvalError> {
+        // Nothing merged into this struct, so no recipe's inputs moved: a name
+        // the literal does not declare resolves in the scope it was written in,
+        // which no merge can change.
+        // A field the merge gave a second recipe to is one whose value it may
+        // have moved; everything else in the struct is exactly what it was.
+        let mut moved: HashSet<String> = SECTIONS
+            .iter()
+            .flat_map(|section| section.map(s))
+            .filter(|(_, entry)| entry.conjuncts.len() > 1)
+            .map(|(name, _)| name.clone())
+            .collect();
+        if moved.is_empty() {
+            return Ok(false);
+        }
+        // A pattern constraint applies to a field without appearing among its
+        // conjuncts, so once the merge brought one in, treat every field as
+        // moved rather than reason about which labels it matches.
+        if !s.pattern_constraints.is_empty() {
+            moved = SECTIONS
+                .iter()
+                .flat_map(|section| section.map(s))
+                .map(|(name, _)| name.clone())
+                .collect();
+        }
+
+        let order = Self::derivation_order(s);
+        let mut changed = false;
+        // Deriving one field can change what the field beside it reads. In
+        // dependency order one sweep settles a chain, whichever way its names
+        // sort; a cycle among recipes needs another, so the sweep runs until
+        // nothing moves. The cap is a backstop that leaves the values as they
+        // are rather than inventing a cycle the file does not have.
+        let mut settled = false;
+        for _ in 0..MAX_REDERIVE_SWEEPS {
+            let sweep = self.rederive_sweep(s, &order, &moved)?;
+            changed |= sweep.wrote;
+            moved = sweep.moved;
+            if moved.is_empty() {
+                settled = true;
+                break;
+            }
+        }
+        if !settled {
+            self.unsettled += 1;
+        }
+
+        // Where the unifier merged two sides, their nested merges are below this
+        // value and are reached the same way.
+        for section in SECTIONS {
+            let names: Vec<String> = section.map(s).keys().cloned().collect();
+            for name in names {
+                let Some(entry) = section.map(s).get(&name) else {
+                    continue;
+                };
+                if entry.conjuncts.len() < 2 {
+                    continue;
+                }
+                let val = entry.val;
+                let derived = self.rederive_value(val, visiting)?;
+                if derived != val {
+                    if let Some(entry) = section.map_mut(s).get_mut(&name) {
+                        entry.val = derived;
+                    }
+                    changed = true;
+                }
+            }
+        }
+        Ok(changed)
+    }
+
+    /// The order to derive a struct's fields in: a field after the fields it
+    /// reads, so one sweep carries a change the whole length of a chain.
+    ///
+    /// Only names this struct holds are edges - anything else a recipe mentions
+    /// comes from an enclosing scope, which a merge here cannot change. Recipes
+    /// that read each other have no such order, and are left to the sweep loop.
+    fn derivation_order(s: &StructValue) -> Vec<(Section, String)> {
+        let mut nodes: Vec<(Section, String)> = Vec::new();
+        for section in SECTIONS {
+            nodes.extend(section.map(s).keys().map(|name| (section, name.clone())));
+        }
+        let held: HashSet<&str> = nodes.iter().map(|(_, name)| name.as_str()).collect();
+
+        // Fields that read this one, and how many of a field's reads are still
+        // to come: Kahn's algorithm over the reads-within-this-struct graph.
+        let mut readers: HashMap<&str, Vec<usize>> = HashMap::new();
+        let mut pending: Vec<usize> = vec![0; nodes.len()];
+        for (index, (section, name)) in nodes.iter().enumerate() {
+            let Some(entry) = section.map(s).get(name) else {
+                continue;
+            };
+            let mut read: HashSet<&str> = entry.deps().filter(|dep| held.contains(dep)).collect();
+            // A recipe that reads its own field is a cycle of one, and waiting
+            // for itself would keep it out of the order entirely.
+            read.remove(name.as_str());
+            pending[index] = read.len();
+            for dep in read {
+                readers.entry(dep).or_default().push(index);
+            }
+        }
+
+        let mut order: Vec<(Section, String)> = Vec::with_capacity(nodes.len());
+        let mut ready: Vec<usize> = (0..nodes.len()).filter(|i| pending[*i] == 0).collect();
+        let mut placed = vec![false; nodes.len()];
+        while let Some(index) = ready.pop() {
+            if std::mem::replace(&mut placed[index], true) {
+                continue;
+            }
+            order.push(nodes[index].clone());
+            if let Some(dependents) = readers.get(nodes[index].1.as_str()) {
+                for dependent in dependents {
+                    pending[*dependent] = pending[*dependent].saturating_sub(1);
+                    if pending[*dependent] == 0 {
+                        ready.push(*dependent);
+                    }
+                }
+            }
+        }
+        // Whatever a cycle left behind keeps its map order.
+        order.extend(
+            nodes
+                .into_iter()
+                .enumerate()
+                .filter(|(index, _)| !placed[*index])
+                .map(|(_, node)| node),
+        );
+        order
+    }
+
+    /// One sweep over the recipes that read a name the last sweep moved,
+    /// reporting the names this one moved.
+    ///
+    /// A recipe that produces the same value again has not moved: deriving one
+    /// expression twice yields two ids for one value, and treating that as a
+    /// change would never converge.
+    fn rederive_sweep(
+        &mut self,
+        s: &mut StructValue,
+        order: &[(Section, String)],
+        moved: &HashSet<String>,
+    ) -> Result<Sweep, EvalError> {
+        // Within the sweep a name that moves counts immediately, so a field
+        // later in the order sees it without waiting for the next sweep.
+        let mut live = moved.clone();
+        let mut sweep = Sweep::default();
+        for (section, name) in order {
+            let Some(entry) = section.map(s).get(name).cloned() else {
+                continue;
+            };
+            if !entry.reads_any(&live) {
+                continue;
+            }
+            let Some(val) = self.derive_field(&entry, s, name)? else {
+                continue;
+            };
+            if val == entry.val {
+                continue;
+            }
+            let verdict = compare_values(&self.arena, val, entry.val);
+            if verdict == Equivalence::Equal {
+                continue;
+            }
+            // Keep the derived value either way: it was produced from the
+            // merged struct, so it is at least as derived as the one it
+            // replaces.
+            if let Some(entry) = section.map_mut(s).get_mut(name) {
+                entry.val = val;
+            }
+            sweep.wrote = true;
+            // A value too large to compare settles here rather than moving. The
+            // other choice - counting it as movement - is what makes a struct of
+            // large literals sweep to the cap, re-deriving everything each time.
+            if verdict == Equivalence::Unknown {
+                continue;
+            }
+            live.insert(name.clone());
+            sweep.moved.insert(name.clone());
+        }
+        Ok(sweep)
+    }
+
+    /// Unify one field's recipes again. `None` keeps the value it has: a recipe
+    /// that derives to an unresolved reference is one the enclosing relaxation
+    /// loop has yet to satisfy, not a field that lost its value.
+    fn derive_field(
+        &mut self,
+        entry: &FieldEntry,
+        s: &StructValue,
+        name: &str,
+    ) -> Result<Option<ValueId>, EvalError> {
+        self.derivations += 1;
+        let mut val: Option<ValueId> = None;
+        for conjunct in &entry.conjuncts {
+            let conjunct_val = match conjunct {
+                Conjunct::Value(val) => *val,
+                Conjunct::Thunk(thunk) => match self.derive_thunk(thunk, s)? {
+                    Some(derived) => derived,
+                    None => return Ok(None),
+                },
+            };
+            val = Some(match val {
+                None => conjunct_val,
+                Some(previous) => unify(&mut self.arena, previous, conjunct_val),
+            });
+        }
+        let Some(mut val) = val else {
+            return Ok(None);
+        };
+
+        // Pattern constraints are part of the field's value, not of its recipe.
+        for pc in s.pattern_constraints.clone() {
+            if crate::unify::field_matches_pattern(&self.arena, pc.pattern_val, name) {
+                val = unify(&mut self.arena, val, pc.target_val);
+            }
+        }
+        Ok(Some(val))
+    }
+
+    /// Evaluate one recipe in the scope it was written in, under one frame
+    /// holding the merged values of the names its literal declares.
+    ///
+    /// Only those names: a literal that reads `policy` without declaring it
+    /// means the `policy` of the scope it was written in, not one a repeated
+    /// declaration contributed. A nested literal needs no frame of its own,
+    /// because deriving this field evaluates that literal again from here.
+    fn derive_thunk(
+        &mut self,
+        thunk: &Thunk,
+        s: &StructValue,
+    ) -> Result<Option<ValueId>, EvalError> {
+        let saved_scopes = std::mem::replace(&mut self.scopes, thunk.env.scopes.clone());
+        let saved_env = self.current_env.replace(thunk.env.clone());
+
+        self.push_scope();
+        for section in SECTIONS {
+            for (name, entry) in section.map(s) {
+                if thunk.env.owns_field(name) {
+                    self.insert_binding(name, entry.val);
+                }
+            }
+        }
+
+        // A binding is a recipe too, and reads the merged values beside it.
+        let mut result = Ok(None);
+        for (name, expr) in thunk.env.lets.clone() {
+            match self.eval_expr(&expr) {
+                // A binding that cannot be derived here keeps the value it was
+                // captured with; deriving again may only improve it.
+                Ok(val) if !self.is_unresolved(val) => self.insert_binding(&name, val),
+                Ok(_) => {}
+                Err(error) => {
+                    result = Err(error);
+                    break;
+                }
+            }
+        }
+        if result.is_ok() {
+            result = self
+                .eval_expr(&thunk.expr)
+                .map(|val| (!self.is_unresolved(val)).then_some(val));
+        }
+
+        self.scopes = saved_scopes;
+        self.current_env = saved_env;
+        result
     }
 
     fn eval_comprehension(
@@ -653,7 +1073,6 @@ impl Evaluator {
                 }
 
                 if let Some(val) = self.lookup_binding(id) {
-                    self.referenced_values.insert(val);
                     Ok(val)
                 } else {
                     Ok(self.arena.bottom(format!("unresolved reference '{id}'")))
@@ -708,7 +1127,10 @@ impl Evaluator {
                 let right_id = self.eval_expr(right)?;
 
                 match op {
-                    BinaryOp::Unify => Ok(unify(&mut self.arena, left_id, right_id)),
+                    BinaryOp::Unify => {
+                        let merged = unify(&mut self.arena, left_id, right_id);
+                        self.rederive(merged)
+                    }
                     BinaryOp::Disjoin => {
                         let branches = vec![
                             ValueBranch {

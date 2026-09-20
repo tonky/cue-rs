@@ -1,8 +1,11 @@
+use cue_syntax::ast::Expr;
 use num_bigint::BigInt;
 use serde::{Deserialize, Serialize};
 use slotmap::{SlotMap, new_key_type};
-use std::collections::BTreeMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
+use std::rc::Rc;
 
 new_key_type! {
     pub struct ValueId;
@@ -196,10 +199,145 @@ pub struct StructValue {
     pub is_closed: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// Lexical environment a field expression was written in.
+///
+/// Shared by every thunk of one struct literal, so capturing it costs one clone
+/// per literal rather than one per field.
+#[derive(Debug, Clone)]
+pub struct ThunkEnv {
+    /// The scope stack as it stood where the literal was written. Deriving a
+    /// field again runs its expression here, under one frame holding the merged
+    /// values of the names this literal declares.
+    pub scopes: Vec<HashMap<String, ValueId>>,
+    /// This literal's `let` and alias declarations, in source order. They are
+    /// scope bindings rather than fields, so a thunk cannot read them back from
+    /// a struct and derives them again beside the field that reads one.
+    pub lets: Vec<(String, Rc<Expr>)>,
+    /// Field names this literal declares. Only these are taken from the merged
+    /// struct: a name another conjunct contributed is not one this literal
+    /// wrote, so it keeps resolving in the scope it was written in.
+    pub own_fields: RefCell<HashSet<String>>,
+}
+
+impl ThunkEnv {
+    pub fn new(
+        scopes: Vec<HashMap<String, ValueId>>,
+        lets: Vec<(String, Rc<Expr>)>,
+        own_fields: HashSet<String>,
+    ) -> Self {
+        Self {
+            scopes,
+            lets,
+            own_fields: RefCell::new(own_fields),
+        }
+    }
+
+    pub fn owns_field(&self, name: &str) -> bool {
+        self.own_fields.borrow().contains(name)
+    }
+
+    /// A field this literal declares only once it runs - a dynamic label, or one
+    /// a comprehension or an embedding generates - is reachable the same way.
+    pub fn note_field(&self, name: &str) {
+        self.own_fields.borrow_mut().insert(name.to_string());
+    }
+}
+
+/// An unevaluated field expression together with the environment it was read in.
+#[derive(Debug, Clone)]
+pub struct Thunk {
+    pub expr: Rc<Expr>,
+    pub env: Rc<ThunkEnv>,
+    /// Every name the expression mentions, with the literal's `let` bindings
+    /// followed through. Deriving this recipe again can only produce something
+    /// new if one of these moved, so a merge elsewhere in the struct leaves it
+    /// alone. Over-approximate by construction - see [`crate::deps`].
+    pub deps: Rc<HashSet<String>>,
+}
+
+impl Thunk {
+    /// Whether any of the given names is one this recipe could read.
+    pub fn reads_any(&self, names: &HashSet<String>) -> bool {
+        if names.len() < self.deps.len() {
+            names.iter().any(|name| self.deps.contains(name))
+        } else {
+            self.deps.iter().any(|dep| names.contains(dep))
+        }
+    }
+}
+
+/// One of the values a field is the unification of.
+///
+/// Unifying two structs concatenates their conjunct lists, so an override keeps
+/// its place beside the expression it overrides and a re-forced thunk cannot
+/// discard it.
+#[derive(Debug, Clone)]
+pub enum Conjunct {
+    Value(ValueId),
+    Thunk(Thunk),
+}
+
+#[derive(Debug, Clone)]
 pub struct FieldEntry {
+    /// Unification of the conjuncts, cached so readers and export are unchanged.
     pub val: ValueId,
     pub optional: bool,
+    pub conjuncts: Vec<Conjunct>,
+}
+
+impl FieldEntry {
+    /// An entry whose recipe is the value itself: a field from a builtin, an
+    /// imported package or the unifier, which nothing re-derives but which must
+    /// still survive a merge with a field that is re-derived.
+    pub fn value(val: ValueId, optional: bool) -> Self {
+        Self {
+            val,
+            optional,
+            conjuncts: vec![Conjunct::Value(val)],
+        }
+    }
+
+    pub fn with_conjuncts(val: ValueId, optional: bool, conjuncts: Vec<Conjunct>) -> Self {
+        Self {
+            val,
+            optional,
+            conjuncts,
+        }
+    }
+
+    pub fn has_thunk(&self) -> bool {
+        self.conjuncts
+            .iter()
+            .any(|c| matches!(c, Conjunct::Thunk(_)))
+    }
+
+    /// Whether any recipe of this field could read one of the given names.
+    pub fn reads_any(&self, names: &HashSet<String>) -> bool {
+        self.conjuncts.iter().any(|conjunct| match conjunct {
+            Conjunct::Value(_) => false,
+            Conjunct::Thunk(thunk) => thunk.reads_any(names),
+        })
+    }
+
+    /// The names this field's recipes could read.
+    pub fn deps(&self) -> impl Iterator<Item = &str> {
+        self.conjuncts
+            .iter()
+            .filter_map(|conjunct| match conjunct {
+                Conjunct::Value(_) => None,
+                Conjunct::Thunk(thunk) => Some(thunk.deps.iter().map(String::as_str)),
+            })
+            .flatten()
+    }
+}
+
+/// Conjuncts record how a value was derived, not what it is, so they stay out of
+/// value equality: two fields holding the same value are equal however each was
+/// written.
+impl PartialEq for FieldEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.val == other.val && self.optional == other.optional
+    }
 }
 
 impl StructValue {
@@ -214,15 +352,16 @@ impl StructValue {
     }
 
     pub fn insert_field(&mut self, name: String, val: ValueId, optional: bool) {
-        self.fields.insert(name, FieldEntry { val, optional });
+        self.fields.insert(name, FieldEntry::value(val, optional));
     }
 
     pub fn insert_def(&mut self, name: String, val: ValueId, optional: bool) {
-        self.definitions.insert(name, FieldEntry { val, optional });
+        self.definitions
+            .insert(name, FieldEntry::value(val, optional));
     }
 
     pub fn insert_hidden(&mut self, name: String, val: ValueId, optional: bool) {
-        self.hidden.insert(name, FieldEntry { val, optional });
+        self.hidden.insert(name, FieldEntry::value(val, optional));
     }
 
     pub fn add_pattern_constraint(&mut self, pattern_val: ValueId, target_val: ValueId) {
