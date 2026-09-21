@@ -70,3 +70,49 @@ fn a_reference_chain_settles_whichever_way_it_sorts() {
         assert_eq!(unsettled, 0, "ascending={ascending}");
     }
 }
+
+/// The same, one import away. A package is now evaluated into the importer's
+/// arena so its fields keep their recipes, which is what lets the override reach
+/// `c` at all - and which also makes every one of them a candidate to derive
+/// again. The gate has to survive the boundary: only what reads `p` is derived.
+#[test]
+fn a_large_imported_definition_beside_an_override_is_not_rederived() {
+    let module = tempfile::tempdir().expect("temp dir");
+    let root = module.path();
+    std::fs::create_dir_all(root.join("cue.mod")).unwrap();
+    std::fs::create_dir_all(root.join("big")).unwrap();
+    std::fs::write(
+        root.join("cue.mod/module.cue"),
+        "module: \"example.com/cost@v0\"\nlanguage: version: \"v0.16.1\"\n",
+    )
+    .unwrap();
+
+    let mut big =
+        String::from("package big\n\n#Big: {\n\tp: int | *1\n\tc: \"v\\(p)\"\n\tdata: {\n");
+    for i in 0..600 {
+        big.push_str(&format!(
+            "\t\tf{i}: {{a: {i}, b: \"x{i}\", c: [{i}, {i}, {i}], d: {{e: {i}}}}}\n"
+        ));
+    }
+    big.push_str("\t}\n}\n");
+    std::fs::write(root.join("big/big.cue"), big).unwrap();
+    std::fs::write(
+        root.join("use.cue"),
+        "package use\n\nimport \"example.com/cost/big\"\n\nout: big.#Big & {p: 9}\n",
+    )
+    .unwrap();
+
+    let (evaluator, value) =
+        cue_eval::PackageLoader::load_file(root.join("use.cue")).expect("loads");
+    let json = evaluator.to_json(value).expect("exports");
+
+    assert_eq!(json["out"]["p"], serde_json::json!(9));
+    assert_eq!(json["out"]["c"], serde_json::json!("v9"));
+    assert_eq!(json["out"]["data"]["f599"]["a"], serde_json::json!(599));
+    assert_eq!(evaluator.unsettled, 0);
+    assert!(
+        evaluator.derivations < 32,
+        "one override re-derived {} recipes across an import",
+        evaluator.derivations
+    );
+}

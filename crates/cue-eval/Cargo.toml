@@ -22,3 +22,4 @@ num-traits = "0.2"
 
 [dev-dependencies]
 cue-test-harness = { path = "../cue-test-harness" }
+tempfile = "3"

@@ -199,6 +199,35 @@ pub struct StructValue {
     pub is_closed: bool,
 }
 
+/// The packages one file imported.
+///
+/// An import declaration binds an identifier in file scope, so which package a
+/// name means is a property of the file the name was written in, not of the
+/// evaluator. Two files may bind one identifier to two different packages, and
+/// a recipe derived again after it crossed an import boundary has to resolve
+/// its own.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Imports {
+    /// The identifier an import declaration binds, to the path it names.
+    pub aliases: HashMap<String, String>,
+    /// Import path to the package value loaded for it. Absent for a stdlib
+    /// package, which is answered by a builtin rather than by a value.
+    pub packages: HashMap<String, ValueId>,
+}
+
+impl Imports {
+    /// The import path an identifier names, which is the identifier itself when
+    /// no declaration bound it - a stdlib package is written under its own name.
+    pub fn path_of<'a>(&'a self, name: &'a str) -> &'a str {
+        self.aliases.get(name).map(String::as_str).unwrap_or(name)
+    }
+
+    /// The package value an identifier names, if one was loaded for it.
+    pub fn package_of(&self, name: &str) -> Option<ValueId> {
+        self.packages.get(self.path_of(name)).copied()
+    }
+}
+
 /// Lexical environment a field expression was written in.
 ///
 /// Shared by every thunk of one struct literal, so capturing it costs one clone
@@ -217,6 +246,9 @@ pub struct ThunkEnv {
     /// struct: a name another conjunct contributed is not one this literal
     /// wrote, so it keeps resolving in the scope it was written in.
     pub own_fields: RefCell<HashSet<String>>,
+    /// The packages the file holding this literal imported. Shared with every
+    /// other literal of that file, so capturing it is a refcount bump.
+    pub imports: Rc<Imports>,
 }
 
 impl ThunkEnv {
@@ -224,11 +256,13 @@ impl ThunkEnv {
         scopes: Vec<HashMap<String, ValueId>>,
         lets: Vec<(String, Rc<Expr>)>,
         own_fields: HashSet<String>,
+        imports: Rc<Imports>,
     ) -> Self {
         Self {
             scopes,
             lets,
             own_fields: RefCell::new(own_fields),
+            imports,
         }
     }
 

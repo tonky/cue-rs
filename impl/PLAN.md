@@ -27,3 +27,16 @@
    read what a merge moved, in dependency order. Four review gaps stay open in
    follow_up.md, none of them regressions. Lands as one change with phase 03;
    not committed.
+
+5. [Re-derive across the import boundary](05-rederive-across-imports.md): load an
+   imported package into the importer's arena so the recipes its fields carry
+   survive the import, and move a file's import set onto the environment its
+   literals capture.
+   Status: implemented and validated. 91 workspace tests green, 527/547 txtar
+   with HEAD's twenty failures unchanged, cost indistinguishable from HEAD
+   (0.82-0.83 s / 1.60 GB against 0.82-0.85 s / 1.61 GB). `enve`'s 74 enve-cue
+   tests green, and its posthog and distributed-monorepo examples gain 24 leaves
+   that now match `cue export` v0.16.1 with none regressed. A fourth stage was
+   added during the work: a struct swept its own recipes before descending into
+   the merges below it, so a field reading a nested override saw the pre-descent
+   value - a phase-04 defect the depth-3 import fixture uncovered. Not committed.

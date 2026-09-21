@@ -1,8 +1,8 @@
 use crate::unify::unify;
 use crate::unify::{Equivalence, compare_values};
 use crate::value::{
-    BoundOp, Conjunct, DisjunctionBranch as ValueBranch, FieldEntry, StructValue, Thunk, ThunkEnv,
-    TypeKind, Value, ValueArena, ValueId,
+    BoundOp, Conjunct, DisjunctionBranch as ValueBranch, FieldEntry, Imports, StructValue, Thunk,
+    ThunkEnv, TypeKind, Value, ValueArena, ValueId,
 };
 use cue_syntax::ast::*;
 use num_bigint::BigInt;
@@ -11,6 +11,11 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 use std::str::FromStr;
 use thiserror::Error;
+
+/// How deep the unresolved-reference walk descends. The value graph it walks
+/// can be cyclic, and the walk carries no visited set because it runs on every
+/// declaration of every relaxation pass.
+const MAX_UNRESOLVED_DEPTH: usize = 64;
 
 /// Sweeps one merged struct may take to settle. A chain of n references needs
 /// n of them, so this only stops a recipe that never settles at all.
@@ -76,8 +81,11 @@ pub struct Evaluator {
     /// rather than to the size of the struct it changed it in.
     pub derivations: usize,
     pub unsettled: usize,
-    pub import_aliases: HashMap<String, String>,
-    pub imported_packages: HashMap<String, ValueId>,
+    /// The packages the file being evaluated imported. A literal captures this
+    /// in its `ThunkEnv`, so a recipe derived again after it crossed an import
+    /// boundary resolves the packages *its* file imported rather than the
+    /// importer's.
+    pub imports: Rc<Imports>,
 }
 
 impl Default for Evaluator {
@@ -88,16 +96,24 @@ impl Default for Evaluator {
 
 impl Evaluator {
     pub fn new() -> Self {
+        Self::with_arena(ValueArena::new())
+    }
+
+    /// An evaluator that allocates into an arena another one already holds.
+    ///
+    /// An imported package is loaded into the arena of the file that imports it,
+    /// so the recipes its fields carry stay valid there and the merge that
+    /// overrides one of them re-derives its readers like any other merge.
+    pub fn with_arena(arena: ValueArena) -> Self {
         let mut evaluator = Self {
-            arena: ValueArena::new(),
+            arena,
             scopes: vec![HashMap::new()],
             resolving_symbols: HashSet::new(),
             current_env: None,
             placeholders: HashMap::new(),
             derivations: 0,
             unsettled: 0,
-            import_aliases: HashMap::new(),
-            imported_packages: HashMap::new(),
+            imports: Rc::new(Imports::default()),
         };
         evaluator.register_builtins();
         evaluator
@@ -183,7 +199,9 @@ impl Evaluator {
                     .unwrap_or(&imp.path)
                     .to_string()
             };
-            self.import_aliases.insert(pkg_name, imp.path.clone());
+            Rc::make_mut(&mut self.imports)
+                .aliases
+                .insert(pkg_name, imp.path.clone());
         }
 
         let mut root_struct = StructValue::new(false);
@@ -218,6 +236,7 @@ impl Evaluator {
             self.scopes.clone(),
             Self::collect_let_declarations(&decls),
             Self::collect_field_names(&decls),
+            self.imports.clone(),
         ));
         self.current_env = Some(env.clone());
         let dynamic_base = decls
@@ -398,15 +417,53 @@ impl Evaluator {
         collected
     }
 
+    /// Whether a value carries a reference nothing has resolved yet.
+    ///
+    /// Two callers, one meaning: the relaxation loop retries a declaration that
+    /// answers yes, and a re-derived recipe that answers yes keeps the value it
+    /// had rather than replacing it with a reference the merge cannot satisfy.
+    ///
+    /// Every composite is walked, not only the ones that hold a field. A
+    /// disjunction is the one that bites: `string | *"\(pkg.name)"` deriving to
+    /// a default branch of bottom exports as `_|_`, so judging it resolved
+    /// overwrites a good value with a broken one.
     fn is_unresolved(&self, val_id: ValueId) -> bool {
+        self.is_unresolved_within(val_id, MAX_UNRESOLVED_DEPTH)
+    }
+
+    fn is_unresolved_within(&self, val_id: ValueId, depth: usize) -> bool {
+        // A value graph can be cyclic. Past the budget, answer as this walk did
+        // before it descended into composites at all: resolved, and written.
+        let Some(depth) = depth.checked_sub(1) else {
+            return false;
+        };
+        let any = |ids: &mut dyn Iterator<Item = ValueId>| -> bool {
+            for id in ids {
+                if self.is_unresolved_within(id, depth) {
+                    return true;
+                }
+            }
+            false
+        };
         match self.arena.get(val_id) {
             Some(Value::Bottom(reason)) => reason.message.contains("unresolved reference"),
-            Some(Value::Struct(s)) => {
-                s.fields.values().any(|f| self.is_unresolved(f.val))
-                    || s.definitions.values().any(|f| self.is_unresolved(f.val))
-                    || s.hidden.values().any(|f| self.is_unresolved(f.val))
+            Some(Value::Struct(s)) => any(&mut s
+                .fields
+                .values()
+                .chain(s.definitions.values())
+                .chain(s.hidden.values())
+                .map(|f| f.val)),
+            Some(Value::List { elements, ellipsis }) => {
+                any(&mut elements.iter().copied().chain(*ellipsis))
             }
-            Some(Value::List { elements, .. }) => elements.iter().any(|&e| self.is_unresolved(e)),
+            Some(Value::Disjunction { branches }) => any(&mut branches.iter().map(|b| b.val)),
+            Some(Value::Bounds { constraints, .. }) => {
+                any(&mut constraints.iter().map(|(_, id)| *id))
+            }
+            Some(Value::Validators(targets)) => any(&mut targets.iter().copied()),
+            Some(Value::BuiltinValidator { target, .. }) => {
+                self.is_unresolved_within(*target, depth)
+            }
             _ => false,
         }
     }
@@ -654,13 +711,19 @@ impl Evaluator {
 
         let order = Self::derivation_order(s);
         let mut changed = false;
-        // Deriving one field can change what the field beside it reads. In
-        // dependency order one sweep settles a chain, whichever way its names
-        // sort; a cycle among recipes needs another, so the sweep runs until
-        // nothing moves. The cap is a backstop that leaves the values as they
-        // are rather than inventing a cycle the file does not have.
+        // Two things move a field here. Deriving the field beside it, and
+        // descending into a field the unifier merged, which settles a nested
+        // override that a field above it reads. Both feed the same worklist, so
+        // both run in one loop until nothing moves: in dependency order one
+        // sweep settles a chain, whichever way its names sort, and a cycle among
+        // recipes needs another. The cap is a backstop that leaves the values as
+        // they are rather than inventing a cycle the file does not have.
         let mut settled = false;
         for _ in 0..MAX_REDERIVE_SWEEPS {
+            let descent = self.rederive_children(s, visiting)?;
+            changed |= descent.wrote;
+            moved.extend(descent.moved);
+
             let sweep = self.rederive_sweep(s, &order, &moved)?;
             changed |= sweep.wrote;
             moved = sweep.moved;
@@ -672,9 +735,22 @@ impl Evaluator {
         if !settled {
             self.unsettled += 1;
         }
+        Ok(changed)
+    }
 
-        // Where the unifier merged two sides, their nested merges are below this
-        // value and are reached the same way.
+    /// Descend into the fields the unifier merged, reporting the ones whose
+    /// value the descent changed.
+    ///
+    /// Where the unifier merged two sides, their nested merges are below this
+    /// value and are reached the same way. A field above one of them reads the
+    /// settled value, not the value the merge left behind, so what moves here
+    /// joins what the sweep beside it has to derive again.
+    fn rederive_children(
+        &mut self,
+        s: &mut StructValue,
+        visiting: &mut HashSet<ValueId>,
+    ) -> Result<Sweep, EvalError> {
+        let mut descent = Sweep::default();
         for section in SECTIONS {
             let names: Vec<String> = section.map(s).keys().cloned().collect();
             for name in names {
@@ -686,15 +762,17 @@ impl Evaluator {
                 }
                 let val = entry.val;
                 let derived = self.rederive_value(val, visiting)?;
-                if derived != val {
-                    if let Some(entry) = section.map_mut(s).get_mut(&name) {
-                        entry.val = derived;
-                    }
-                    changed = true;
+                if derived == val {
+                    continue;
                 }
+                if let Some(entry) = section.map_mut(s).get_mut(&name) {
+                    entry.val = derived;
+                }
+                descent.wrote = true;
+                descent.moved.insert(name);
             }
         }
-        Ok(changed)
+        Ok(descent)
     }
 
     /// The order to derive a struct's fields in: a field after the fields it
@@ -859,6 +937,9 @@ impl Evaluator {
     ) -> Result<Option<ValueId>, EvalError> {
         let saved_scopes = std::mem::replace(&mut self.scopes, thunk.env.scopes.clone());
         let saved_env = self.current_env.replace(thunk.env.clone());
+        // The recipe may have been written in another file, and `pkg.Name` means
+        // what `pkg` names there.
+        let saved_imports = std::mem::replace(&mut self.imports, thunk.env.imports.clone());
 
         self.push_scope();
         for section in SECTIONS {
@@ -891,6 +972,7 @@ impl Evaluator {
 
         self.scopes = saved_scopes;
         self.current_env = saved_env;
+        self.imports = saved_imports;
         result
     }
 
@@ -1206,20 +1288,19 @@ impl Evaluator {
             }
             Expr::Selector { expr, field } => {
                 if let Expr::Ident(pkg_name) = expr.as_ref() {
-                    let canonical_pkg = self
-                        .import_aliases
-                        .get(pkg_name)
-                        .map(|s| s.as_str())
-                        .unwrap_or(pkg_name.as_str());
-                    if let Some(&pkg_struct_id) = self.imported_packages.get(canonical_pkg)
+                    let imports = self.imports.clone();
+                    if let Some(pkg_struct_id) = imports.package_of(pkg_name)
                         && let Some(Value::Struct(s)) = self.arena.get(pkg_struct_id)
                         && let Some(f) = s.fields.get(field).or_else(|| s.definitions.get(field))
                     {
                         return Ok(f.val);
                     }
-                    if let Ok(res) =
-                        crate::stdlib::call_stdlib_func(&mut self.arena, canonical_pkg, field, &[])
-                    {
+                    if let Ok(res) = crate::stdlib::call_stdlib_func(
+                        &mut self.arena,
+                        imports.path_of(pkg_name),
+                        field,
+                        &[],
+                    ) {
                         return Ok(res);
                     }
                 }
@@ -1416,15 +1497,11 @@ impl Evaluator {
         if let Expr::Selector { expr, field } = func_expr
             && let Expr::Ident(pkg) = &**expr
         {
-            let canonical_pkg = self
-                .import_aliases
-                .get(pkg)
-                .cloned()
-                .unwrap_or_else(|| pkg.clone());
+            let imports = self.imports.clone();
 
             match crate::stdlib::call_stdlib_func(
                 &mut self.arena,
-                &canonical_pkg,
+                imports.path_of(pkg),
                 field,
                 &evaluated_args,
             ) {

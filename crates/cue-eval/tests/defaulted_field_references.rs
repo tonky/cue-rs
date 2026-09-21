@@ -22,8 +22,9 @@
 //! is the only reason to write such a preset, so the defect reaches a user as a connection
 //! refused rather than as an evaluation error.
 
-use cue_eval::eval_to_json;
+use cue_eval::{PackageLoader, eval_to_json};
 use serde_json::json;
+use std::path::Path;
 
 /// The smallest form: one struct literal, one override, no definition and no reference.
 #[test]
@@ -252,5 +253,168 @@ plain: #Postgres
             "healthCheck": {"port": 5432, "command": "pg_isready -p 5432"},
             "readiness": {"port": 5432},
         })
+    );
+}
+
+/// The same defect one package boundary away, which is where `enve` actually meets it:
+/// `pkgs.#PostgresService` is imported, not written beside the override.
+///
+/// Fixed 2026-09-20 for a definition in the same source; this path was still stale
+/// afterwards, so it is asserted separately rather than folded into the cases above.
+/// Through the import, upstream `cue` v0.16.1 gives `command: "postgres … -p 15432"` and
+/// `DATABASE_URL: postgresql://posthog@localhost:15432/postgres`, and `enve` gave 5432
+/// for both.
+#[test]
+fn an_imported_definition_propagates_the_importers_overrides() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/defaulted_field_references/overridden.cue");
+    let (evaluator, root) = PackageLoader::load_file(fixture).unwrap();
+    let result = evaluator.to_json(root).unwrap();
+
+    assert_eq!(
+        result["overridden"],
+        json!({
+            "size": 15432,
+            "root": "/dev/shm/r",
+            "who": "analytics",
+            "label": "run -r /dev/shm/r -n 15432",
+            "copy": 15432,
+            "inner": {"tag": "analytics@15432"},
+        })
+    );
+    // Untouched across the boundary too: the defaults still reach their readers.
+    assert_eq!(
+        result["byDefault"],
+        json!({
+            "size": 5432,
+            "root": "/var/lib",
+            "who": "nobody",
+            "label": "run -r /var/lib -n 5432",
+            "copy": 5432,
+            "inner": {"tag": "nobody@5432"},
+        })
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Across the import boundary.
+//
+// A package used to be evaluated in an arena of its own and deep-copied into the
+// importer's, which could not carry a field's recipes and dropped them, so an
+// imported field arrived as a value that reads nothing and never derived again.
+// It is now evaluated into the importer's arena, and the file it was written in
+// carries its own import set, so `pkg.Name` inside a recipe still means what that
+// file bound it to. Every expectation below is `cue export` v0.16.1.
+// ---------------------------------------------------------------------------
+
+fn fixture(name: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/defaulted_field_references")
+        .join(name)
+}
+
+fn export(name: &str) -> serde_json::Value {
+    let (evaluator, root) = PackageLoader::load_file(fixture(name)).unwrap();
+    evaluator.to_json(root).unwrap()
+}
+
+/// An imported recipe that reads a package **it** imported, derived again at the
+/// importer's override. Before the import set moved onto the environment a recipe
+/// captures, this derived under the importer's imports, where `naming` is absent.
+#[test]
+fn an_imported_recipe_resolves_the_packages_its_own_file_imported() {
+    let result = export("nested_import.cue");
+
+    assert_eq!(
+        result["viaOverride"],
+        json!({"size": 15432, "label": "svc-15432", "copy": 15432})
+    );
+    assert_eq!(
+        result["viaDefault"],
+        json!({"size": 5432, "label": "svc-5432", "copy": 5432})
+    );
+}
+
+/// The importer and the imported file both bind `naming`, to different packages.
+/// One evaluator-wide alias map cannot hold two, and answers whichever it kept:
+/// `host-15432`, the importer's package, inside a recipe that never named it.
+#[test]
+fn two_files_may_bind_one_identifier_to_two_packages() {
+    let result = export("colliding_aliases.cue");
+
+    assert_eq!(result["hostPrefix"], json!("host"));
+    assert_eq!(
+        result["overridden"],
+        json!({"size": 15432, "label": "svc-15432", "copy": 15432})
+    );
+}
+
+/// Three packages deep - `stacks` reads `presets` reads `naming` - with the
+/// override written at the top. `summary` reads a field of the nested merge, so
+/// it settles only once the descent into `preset` has.
+#[test]
+fn an_override_reaches_readers_three_packages_away() {
+    assert_eq!(
+        export("depth_three.cue")["stack"],
+        json!({
+            "preset": {"size": 15432, "label": "svc-15432", "copy": 15432},
+            "summary": "svc-15432/15432",
+        })
+    );
+}
+
+/// The same package imported by two files of one package, each overriding it
+/// differently. The two merges must not see each other.
+#[test]
+fn two_files_of_a_package_override_one_import_independently() {
+    let (evaluator, root) = PackageLoader::load_dir(fixture("shared")).unwrap();
+    let result = evaluator.to_json(root).unwrap();
+
+    assert_eq!(result["alpha"]["copy"], json!(1111));
+    assert_eq!(result["alpha"]["label"], json!("run -r /var/lib -n 1111"));
+    assert_eq!(result["beta"]["copy"], json!(2222));
+    assert_eq!(result["beta"]["label"], json!("run -r /var/lib -n 2222"));
+}
+
+/// An import that resolves to nothing. The loader lends its arena to the package
+/// it is loading, so a package that fails to load must hand it back: the file
+/// still loads, and still reports what it reported before.
+#[test]
+fn an_import_that_cannot_be_loaded_leaves_the_importer_intact() {
+    let (evaluator, root) = PackageLoader::load_file(fixture("missing_import.cue"))
+        .expect("the file itself still loads");
+    let error = evaluator
+        .to_json(root)
+        .expect_err("the unresolvable reference is still an error");
+
+    assert!(
+        error.contains("unresolved reference 'nosuch'"),
+        "unexpected error: {error}"
+    );
+}
+
+/// A recipe that derives to a reference nothing can resolve keeps the value it
+/// had - the rule that makes re-derivation safe against a forward reference.
+/// A disjunction used to hide such a reference from that test, so the default
+/// branch was written as bottom and the field exported as `_|_`.
+///
+/// `let b = a2` above `let a2 = p` is the open forward-`let` gap, so upstream's
+/// `"v9"` is still out of reach here; what this pins is that the value stays a
+/// string rather than becoming an export failure.
+#[test]
+fn an_unresolved_reference_inside_a_disjunction_keeps_the_previous_value() {
+    assert_eq!(
+        eval_to_json(
+            r#"
+x: {
+	let b = a2
+	let a2 = p
+	p: int | *5
+	c: string | *"v\(b)"
+} & {p: 9}
+"#
+        )
+        .unwrap(),
+        json!({"x": {"p": 9, "c": "v5"}})
     );
 }

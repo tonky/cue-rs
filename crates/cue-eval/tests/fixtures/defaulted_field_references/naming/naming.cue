@@ -1,0 +1,3 @@
+package naming
+
+prefix: "svc"

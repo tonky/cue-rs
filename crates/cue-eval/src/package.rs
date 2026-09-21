@@ -1,7 +1,5 @@
 use crate::eval::{EvalError, Evaluator};
-use crate::value::{
-    DisjunctionBranch, FieldEntry, PatternConstraint, StructValue, Value, ValueArena, ValueId,
-};
+use crate::value::{StructValue, Value, ValueId};
 use cue_syntax::ast::Decl;
 use std::path::{Path, PathBuf};
 
@@ -132,7 +130,23 @@ impl PackageLoader {
         target_pkg: Option<&str>,
     ) -> Result<(Evaluator, ValueId), EvalError> {
         let mut evaluator = Evaluator::new();
-        let files = Self::find_cue_files(dir.as_ref())?;
+        let root_id = Self::load_dir_into(dir.as_ref(), target_pkg, &mut evaluator)?;
+        Ok((evaluator, root_id))
+    }
+
+    /// Load a package into an evaluator the caller owns, so every value it
+    /// allocates - and every recipe its fields carry - lives in that arena.
+    ///
+    /// The package gets its own `Evaluator`, because a scope stack, a
+    /// placeholder table and an import set are per package. It shares only the
+    /// arena, which is what keeps an imported field's conjuncts usable at the
+    /// importer's merge.
+    fn load_dir_into(
+        dir: &Path,
+        target_pkg: Option<&str>,
+        evaluator: &mut Evaluator,
+    ) -> Result<ValueId, EvalError> {
+        let files = Self::find_cue_files(dir)?;
 
         if files.is_empty() {
             return Err(EvalError::Evaluation(
@@ -167,24 +181,22 @@ impl PackageLoader {
         if parsed_files.is_empty() {
             return Err(EvalError::Evaluation(format!(
                 "No .cue files found in directory {}",
-                dir.as_ref().display()
+                dir.display()
             )));
         }
 
-        let mod_roots = Self::find_all_module_roots(dir.as_ref());
+        let mod_roots = Self::find_all_module_roots(dir);
 
         // Process imports across parsed files and resolve external/module packages
-        Self::resolve_imports_for_files(&parsed_files, &mod_roots, &mut evaluator)?;
+        Self::resolve_imports_for_files(&parsed_files, &mod_roots, evaluator)?;
 
         let all_decls: Vec<Decl> = parsed_files.into_iter().flat_map(|f| f.decls).collect();
         let mut package_struct = StructValue::new(false);
         evaluator.eval_decls_into_struct(&all_decls, &mut package_struct)?;
-        let canonical_dir =
-            std::fs::canonicalize(dir.as_ref()).unwrap_or_else(|_| dir.as_ref().to_path_buf());
-        Self::attach_origin_dir_to_structs(&mut evaluator, &mut package_struct, &canonical_dir);
+        let canonical_dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+        Self::attach_origin_dir_to_structs(evaluator, &mut package_struct, &canonical_dir);
 
-        let root_id = evaluator.arena.alloc(Value::Struct(package_struct));
-        Ok((evaluator, root_id))
+        Ok(evaluator.arena.alloc(Value::Struct(package_struct)))
     }
 
     fn resolve_imports_for_files(
@@ -205,9 +217,11 @@ impl PackageLoader {
                     .alias
                     .clone()
                     .unwrap_or_else(|| default_alias.to_string());
-                evaluator.import_aliases.insert(alias, imp.path.clone());
+                std::rc::Rc::make_mut(&mut evaluator.imports)
+                    .aliases
+                    .insert(alias, imp.path.clone());
 
-                if evaluator.imported_packages.contains_key(&imp.path) {
+                if evaluator.imports.packages.contains_key(&imp.path) {
                     continue;
                 }
 
@@ -243,15 +257,20 @@ impl PackageLoader {
 
                     if let Some(p_dir) = pkg_dir
                         && p_dir.is_dir()
-                        && let Ok((sub_eval, sub_val)) =
-                            Self::load_dir_with_package(&p_dir, pkg_qualifier)
                     {
-                        let imported_id =
-                            clone_value_into(&sub_eval.arena, &mut evaluator.arena, sub_val);
-                        evaluator
-                            .imported_packages
-                            .insert(imp.path.clone(), imported_id);
-                        break;
+                        // The package is evaluated into this evaluator's arena, so
+                        // its values keep their ids here and the recipes its fields
+                        // carry survive the import. The arena comes back either way:
+                        // a package that fails to load must not take it with it.
+                        let mut sub = Evaluator::with_arena(std::mem::take(&mut evaluator.arena));
+                        let loaded = Self::load_dir_into(&p_dir, pkg_qualifier, &mut sub);
+                        evaluator.arena = std::mem::take(&mut sub.arena);
+                        if let Ok(package_id) = loaded {
+                            std::rc::Rc::make_mut(&mut evaluator.imports)
+                                .packages
+                                .insert(imp.path.clone(), package_id);
+                            break;
+                        }
                     }
                 }
             }
@@ -316,185 +335,6 @@ impl PackageLoader {
                     queue.push(entry.val);
                 }
             }
-        }
-    }
-}
-
-pub fn clone_value_into(
-    from_arena: &ValueArena,
-    to_arena: &mut ValueArena,
-    id: ValueId,
-) -> ValueId {
-    let mut memo = std::collections::HashMap::new();
-    clone_value_into_memo(from_arena, to_arena, id, &mut memo)
-}
-
-fn clone_value_into_memo(
-    from_arena: &ValueArena,
-    to_arena: &mut ValueArena,
-    id: ValueId,
-    memo: &mut std::collections::HashMap<ValueId, ValueId>,
-) -> ValueId {
-    if let Some(&cloned) = memo.get(&id) {
-        return cloned;
-    }
-
-    let Some(val) = from_arena.get(id) else {
-        return to_arena.alloc(Value::Top);
-    };
-
-    match val {
-        Value::Top => to_arena.alloc(Value::Top),
-        Value::Bottom(msg) => to_arena.alloc(Value::Bottom(msg.clone())),
-        Value::Null => to_arena.alloc(Value::Null),
-        Value::Bool(b) => to_arena.alloc(Value::Bool(*b)),
-        Value::Int(i) => to_arena.alloc(Value::Int(i.clone())),
-        Value::Float(f) => to_arena.alloc(Value::Float(*f)),
-        Value::String(s) => to_arena.alloc(Value::String(s.clone())),
-        Value::Bytes(b) => to_arena.alloc(Value::Bytes(b.clone())),
-        Value::Type(t) => to_arena.alloc(Value::Type(*t)),
-        Value::Bounds {
-            base_type,
-            constraints,
-        } => {
-            let cloned_constraints = constraints
-                .iter()
-                .map(|(op, v)| (*op, clone_value_into_memo(from_arena, to_arena, *v, memo)))
-                .collect();
-            let new_id = to_arena.alloc(Value::Bounds {
-                base_type: *base_type,
-                constraints: cloned_constraints,
-            });
-            memo.insert(id, new_id);
-            new_id
-        }
-        Value::List { elements, ellipsis } => {
-            let placeholder = Value::List {
-                elements: Vec::new(),
-                ellipsis: None,
-            };
-            let new_id = to_arena.alloc(placeholder);
-            memo.insert(id, new_id);
-
-            let cloned_elems = elements
-                .iter()
-                .map(|&e| clone_value_into_memo(from_arena, to_arena, e, memo))
-                .collect();
-            let cloned_el = ellipsis.map(|e| clone_value_into_memo(from_arena, to_arena, e, memo));
-            if let Some(Value::List {
-                elements: el_ref,
-                ellipsis: el_ref_el,
-            }) = to_arena.get_mut(new_id)
-            {
-                *el_ref = cloned_elems;
-                *el_ref_el = cloned_el;
-            }
-            new_id
-        }
-        Value::Struct(s) => {
-            let placeholder = StructValue::new(s.is_closed);
-            let new_id = to_arena.alloc(Value::Struct(placeholder));
-            memo.insert(id, new_id);
-
-            let mut new_s = StructValue::new(s.is_closed);
-            for (k, entry) in &s.fields {
-                new_s.fields.insert(
-                    k.clone(),
-                    // Conjuncts hold value ids of the source arena, so a cross-arena
-                    // clone keeps only the value. An imported package is already
-                    // evaluated; nothing re-derives it here.
-                    FieldEntry::value(
-                        clone_value_into_memo(from_arena, to_arena, entry.val, memo),
-                        entry.optional,
-                    ),
-                );
-            }
-            for (k, entry) in &s.definitions {
-                new_s.definitions.insert(
-                    k.clone(),
-                    // Conjuncts hold value ids of the source arena, so a cross-arena
-                    // clone keeps only the value. An imported package is already
-                    // evaluated; nothing re-derives it here.
-                    FieldEntry::value(
-                        clone_value_into_memo(from_arena, to_arena, entry.val, memo),
-                        entry.optional,
-                    ),
-                );
-            }
-            for (k, entry) in &s.hidden {
-                new_s.hidden.insert(
-                    k.clone(),
-                    // Conjuncts hold value ids of the source arena, so a cross-arena
-                    // clone keeps only the value. An imported package is already
-                    // evaluated; nothing re-derives it here.
-                    FieldEntry::value(
-                        clone_value_into_memo(from_arena, to_arena, entry.val, memo),
-                        entry.optional,
-                    ),
-                );
-            }
-            for pc in &s.pattern_constraints {
-                new_s.pattern_constraints.push(PatternConstraint {
-                    pattern_val: clone_value_into_memo(from_arena, to_arena, pc.pattern_val, memo),
-                    target_val: clone_value_into_memo(from_arena, to_arena, pc.target_val, memo),
-                });
-            }
-            if let Some(Value::Struct(s_ref)) = to_arena.get_mut(new_id) {
-                *s_ref = new_s;
-            }
-            new_id
-        }
-        Value::Disjunction { branches } => {
-            let placeholder = Value::Disjunction {
-                branches: Vec::new(),
-            };
-            let new_id = to_arena.alloc(placeholder);
-            memo.insert(id, new_id);
-
-            let cloned_branches = branches
-                .iter()
-                .map(|b| DisjunctionBranch {
-                    val: clone_value_into_memo(from_arena, to_arena, b.val, memo),
-                    default: b.default,
-                })
-                .collect();
-            if let Some(Value::Disjunction { branches: b_ref }) = to_arena.get_mut(new_id) {
-                *b_ref = cloned_branches;
-            }
-            new_id
-        }
-        Value::BuiltinValidator { name, target } => {
-            let cloned_target = clone_value_into_memo(from_arena, to_arena, *target, memo);
-            let new_id = to_arena.alloc(Value::BuiltinValidator {
-                name: name.clone(),
-                target: cloned_target,
-            });
-            memo.insert(id, new_id);
-            new_id
-        }
-        Value::Validators(vec) => {
-            let cloned_vec = vec
-                .iter()
-                .map(|&v| clone_value_into_memo(from_arena, to_arena, v, memo))
-                .collect();
-            let new_id = to_arena.alloc(Value::Validators(cloned_vec));
-            memo.insert(id, new_id);
-            new_id
-        }
-        Value::RecursiveRef { name, target } => {
-            let placeholder = Value::RecursiveRef {
-                name: name.clone(),
-                target: None,
-            };
-            let new_id = to_arena.alloc(placeholder);
-            memo.insert(id, new_id);
-
-            let cloned_target =
-                target.map(|t| clone_value_into_memo(from_arena, to_arena, t, memo));
-            if let Some(Value::RecursiveRef { target: t_ref, .. }) = to_arena.get_mut(new_id) {
-                *t_ref = cloned_target;
-            }
-            new_id
         }
     }
 }
