@@ -839,6 +839,34 @@ fn unify_disjunction(
     res
 }
 
+/// Keeps a branch only if no branch already kept holds the same content.
+///
+/// Unifying a disjunction against a structurally equal copy of itself examines
+/// every pair and finds that half of them succeed - producing the branches it
+/// already had. Pushing those blindly doubles the width for no change in
+/// meaning, and four files each unifying one service disjunction took that to
+/// 2^23 branches and 3.1 GB before the allocator refused.
+///
+/// Three things this has to get right. Each trial allocates a fresh node, so
+/// the comparison is over content and not over [`ValueId`]. It runs as a branch
+/// is kept rather than over the finished list, because it is quadratic in the
+/// branches kept and the whole point is that the count stays small. And a
+/// survivor inherits the default mark of every copy it absorbs, since losing it
+/// would silently change which branch an ambiguous disjunction exports.
+///
+/// [`Equivalence::Unknown`] - the comparison budget running out on a large
+/// branch - keeps the branch. A duplicate kept costs width; a distinct branch
+/// dropped costs meaning.
+fn push_branch(arena: &ValueArena, kept: &mut Vec<DisjunctionBranch>, branch: DisjunctionBranch) {
+    for existing in kept.iter_mut() {
+        if compare_values(arena, existing.val, branch.val) == Equivalence::Equal {
+            existing.default |= branch.default;
+            return;
+        }
+    }
+    kept.push(branch);
+}
+
 fn unify_disjunction_inner(
     arena: &mut ValueArena,
     branches: &[DisjunctionBranch],
@@ -860,10 +888,14 @@ fn unify_disjunction_inner(
                     arena.rollback(cp);
                     continue;
                 }
-                valid_branches.push(DisjunctionBranch {
-                    default: b1.default || b2.default,
-                    val: u,
-                });
+                push_branch(
+                    arena,
+                    &mut valid_branches,
+                    DisjunctionBranch {
+                        default: b1.default || b2.default,
+                        val: u,
+                    },
+                );
             }
         }
         return match valid_branches.len() {
@@ -896,10 +928,14 @@ fn unify_disjunction_inner(
             arena.rollback(cp);
             continue;
         }
-        valid_branches.push(DisjunctionBranch {
-            default: branch.default,
-            val: u,
-        });
+        push_branch(
+            arena,
+            &mut valid_branches,
+            DisjunctionBranch {
+                default: branch.default,
+                val: u,
+            },
+        );
     }
 
     match valid_branches.len() {

@@ -66,3 +66,14 @@
    spike takes all recorded shapes to byte-for-byte agreement with `cue export`
    v0.16.1, keeps 105 workspace tests green and leaves the corpus at 526/547
    with the same 21 failures.
+
+8. [Disjunction branch dedup](08-disjunction-branch-dedup.md): keep a branch
+   only if no branch already kept holds the same content, so unifying a
+   disjunction with an equal copy of itself stops doubling its width.
+   This is the 2026-09-22 `monorepo-go` abort: four files each unifying the same
+   service disjunction take it to 2^23 branches and 3.1 GB before the allocator
+   refuses. Status: implemented and validated. The package exports in 0.01 s at
+   13 MB where it aborted at 3.1 GB; branch width peaks at 2 instead of 2^23.
+   110 workspace tests green (up from 105), Clippy clean, corpus unchanged at
+   526/547. Three of the five new tests fail if the deduplication is removed,
+   at 7, 7 and 1024 branches.

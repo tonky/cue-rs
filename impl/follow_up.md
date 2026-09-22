@@ -160,3 +160,19 @@ has escaped into the output as a JSON string. Either verdict beats this one: a
 structural-cycle error, or an incomplete field dropped at export. The recursive
 schema shapes around it terminate correctly, so this is about the verdict, not
 about termination.
+
+## A disjunction is never normalised
+
+Phase 08 drops a branch equal to one already kept, which is what the
+`monorepo-go` abort needed. Upstream also drops a branch *subsumed* by another,
+and cue-rs has no ordering relation to decide that with - `compare_values`
+answers equal, different or unknown, not narrower. Until it does, a disjunction
+of `{t: "x"} | {t: string}` keeps both branches where upstream keeps one. No
+reported case needs it; it is the other half of normalisation and belongs with
+whatever gives cue-rs a subsumption check.
+
+Two smaller pieces sit behind the same work: `compare_values` answering
+`Unknown` past its 4096-node budget keeps a duplicate branch, which the content
+hash already wanted under "Re-derivation cost" would settle; and `ValueArena`'s
+`SlotMap` never returns capacity after a rollback, so a peak is paid for the
+life of the process. Neither is reachable now that the doubling is gone.
