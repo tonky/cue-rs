@@ -159,8 +159,8 @@ pub fn call_encoding(
             if let Some(&arg0) = args.first()
                 && let Some(Value::String(s)) = arena.get(arg0)
             {
-                let parsed: serde_json::Value =
-                    serde_yaml_ng::from_str(s).map_err(|e| format!("yaml.Unmarshal failed: {e}"))?;
+                let parsed: serde_json::Value = serde_yaml_ng::from_str(s)
+                    .map_err(|e| format!("yaml.Unmarshal failed: {e}"))?;
                 return Ok(json_to_value(arena, parsed));
             }
             Err("yaml.Unmarshal requires 1 YAML string argument".to_string())

@@ -367,9 +367,7 @@ mod tests {
     fn test_unify_disjunction_cycle_detection() {
         let mut arena = ValueArena::new();
         // Disjunction containing itself as a branch
-        let d_id = arena.alloc(Value::Disjunction {
-            branches: vec![],
-        });
+        let d_id = arena.alloc(Value::Disjunction { branches: vec![] });
         if let Some(Value::Disjunction { branches }) = arena.get_mut(d_id) {
             branches.push(DisjunctionBranch {
                 default: false,
