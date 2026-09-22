@@ -1337,10 +1337,13 @@ impl Evaluator {
                         elements.push(elem_id);
                     }
                 }
-                let ellipsis = if let Some(el) = &l.ellipsis {
-                    Some(self.eval_expr(el)?)
-                } else {
-                    None
+                // `[...]` names no element type but is still open, and the value model
+                // says "open to this" with `Some`. Reading the missing type as a closed
+                // list made `[...] & [1, 2]` a length conflict.
+                let ellipsis = match (&l.ellipsis, l.open) {
+                    (Some(el), _) => Some(self.eval_expr(el)?),
+                    (None, true) => Some(self.arena.top()),
+                    (None, false) => None,
                 };
                 Ok(self.arena.alloc(Value::List { elements, ellipsis }))
             }

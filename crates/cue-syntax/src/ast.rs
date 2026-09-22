@@ -189,21 +189,69 @@ pub enum ComprehensionClause {
     },
 }
 
+/// How a struct was written, so a format can give back the file it read.
+///
+/// The braces a file shows are not the braces its value has: `a: b: 1`, `a: {b: 1}` and
+/// the same field spelled over three lines are one struct. The value cannot say which was
+/// written and the parser is the only place that still knows, which is why this is
+/// recorded rather than guessed — the same reason [`StringForm`] exists.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum StructForm {
+    /// `{`, a declaration to a line, `}`. What a synthesised struct takes.
+    #[default]
+    Block,
+    /// `{a: 1, b: 2}` — every declaration on the line the brace opened.
+    Inline,
+    /// `a: b: 1` — the braces the author never wrote. Always exactly one declaration,
+    /// and only honoured while that declaration is a field that can carry the chain.
+    Path,
+}
+
+/// How a list was written. A list has no path spelling, so it has two forms, not three.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ListForm {
+    /// `[`, an element to a line with a trailing comma, `]`.
+    #[default]
+    Block,
+    /// `[1, 2, 3]` — every element on the line the bracket opened.
+    Inline,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StructLit {
     pub decls: Vec<Decl>,
+    #[serde(default)]
+    pub form: StructForm,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ListLit {
     pub elements: Vec<Expr>,
+    /// The type the elements past the written ones take: the `int` of `[...int]`.
+    ///
+    /// `None` alongside `open` is the bare `[...]`, which is why the two are separate
+    /// fields. Folding them into one lost the difference between a list open to anything
+    /// and a list closed at nothing, and `[...]` was written back as `[]` — a different
+    /// value, in a file the formatter had been asked only to lay out.
     pub ellipsis: Option<Box<Expr>>,
+    /// Whether `...` was written at all.
+    #[serde(default)]
+    pub open: bool,
+    #[serde(default)]
+    pub form: ListForm,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DisjunctionBranch {
     pub default: bool,
     pub expr: Expr,
+    /// Whether the author put this branch on a line of its own.
+    ///
+    /// A disjunction of seven named constants is the CUE idiom for an enum, and it is
+    /// written wrapped because one line of it is 150 characters. Nothing in the value
+    /// says so, so the break is recorded where it is read, like every other shape.
+    #[serde(default)]
+    pub on_new_line: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -173,3 +173,33 @@ Two smaller pieces sit behind the same work: `compare_values` answering
 hash already wanted under "Re-derivation cost" would settle; and `ValueArena`'s
 `SlotMap` never returns capacity after a rollback, so a peak is paid for the
 life of the process. Neither is reachable now that the doubling is gone.
+
+## The shape rules phase 09 left open
+
+All four are shapes upstream preserves and cue-rs normalises. None changes a
+value, and `cue fmt` leaves every one of cue-rs's outputs alone, so each costs
+a one-time diff and nothing after it.
+
+**A mixed composite settles on one side.** `{b: 1,` newline `c: 2}` has
+elements on both sides of a newline; upstream reproduces the mixture, and one
+bit recorded at the opening delimiter cannot. It collapses to whichever side
+the first element fell on. Closing it means a position per element, which is
+the whole of upstream's `RelPos` model and a phase of its own.
+
+**Trailing comments are still dropped.** `comment_positions.rs` names the
+position and has since phase 06. They are also a tabwriter cell upstream
+aligns, so closing the hole adds a cell to `Rendered`, not a rule.
+
+**An interpolated label gains parentheses.** `"\(k)": v` is written back as
+`("\(k)"): v`. The parser reads CUE's two spellings — an interpolated string
+label and a parenthesised dynamic one — as the same node, so the formatter has
+nothing to tell them apart with. It is the same defect as the parentheses
+phase 09 fixed for expressions, one level down, and wants the same answer: a
+form on the label.
+
+**Multiple attributes are one cell.** Upstream gives each its own column. No
+CUE file in either repository has two attributes on a field.
+
+**A wrapped `&` chain is not preserved.** `DisjunctionBranch::on_new_line`
+covers `|` because that is where the wrapping occurs in practice — a union of
+named constants. The same field on `Expr::Binary` would cover the rest.

@@ -216,6 +216,7 @@ pub fn fold_decl<F: Folder>(folder: &mut F, decl: Decl) -> Decl {
                     .into_iter()
                     .map(|d| folder.fold_decl(d))
                     .collect(),
+                form: comp.struct_lit.form,
             },
         }),
     }
@@ -273,6 +274,7 @@ pub fn fold_expr<F: Folder>(folder: &mut F, expr: Expr) -> Expr {
         | Expr::HiddenDefIdent(_) => expr,
 
         Expr::Struct(s) => Expr::Struct(StructLit {
+            form: s.form,
             decls: s.decls.into_iter().map(|d| folder.fold_decl(d)).collect(),
         }),
         Expr::List(l) => Expr::List(ListLit {
@@ -282,6 +284,8 @@ pub fn fold_expr<F: Folder>(folder: &mut F, expr: Expr) -> Expr {
                 .map(|e| folder.fold_expr(e))
                 .collect(),
             ellipsis: l.ellipsis.map(|e| Box::new(folder.fold_expr(*e))),
+            open: l.open,
+            form: l.form,
         }),
         Expr::Unary { op, expr } => Expr::Unary {
             op,
@@ -298,6 +302,7 @@ pub fn fold_expr<F: Folder>(folder: &mut F, expr: Expr) -> Expr {
                 .map(|b| DisjunctionBranch {
                     default: b.default,
                     expr: folder.fold_expr(b.expr),
+                    on_new_line: b.on_new_line,
                 })
                 .collect(),
         },

@@ -85,3 +85,19 @@
    110 workspace tests green (up from 105), Clippy clean, corpus unchanged at
    526/547. Three of the five new tests fail if the deduplication is removed,
    at 7, 7 and 1024 branches.
+
+9. [The shape a file was written in](09-formatter-shape.md): record which
+   composites were written on one line, which paths were written without
+   braces, and where a disjunction wrapped, and lay a block of fields out in
+   the columns `text/tabwriter` puts them in — so a file `cue fmt` has already
+   formatted is one `enve cue fmt` leaves alone.
+   Status: implemented and validated. 39 of enve's 40 CUE files now come back
+   byte-identical to `cue fmt` v0.16.1, and every one of the 40 is a fixed
+   point of it; `enve cue fmt --check` names the same 12 files upstream itself
+   rewrites, down from 39, which is what `just fmt` was waiting on. Measuring
+   it turned up two defects that change what a file means, both fixed here: the
+   formatter dropped parentheses, so `(a | b) & c` came back as `a | b & c`,
+   and `[...]` came back as `[]` — the latter in the evaluator too, where
+   `[...] & [1, 2]` was a length conflict. 132 workspace tests (up from 126),
+   corpus unchanged at 526/547, enve green at 693. Four stated divergences in
+   follow_up.md, every one of them a shape `cue fmt` accepts back unchanged.

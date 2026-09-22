@@ -106,7 +106,7 @@ pub struct Parser<'a> {
     /// token and never appears in a gap.
     trivia: Vec<Vec<Trivia>>,
     pos: usize,
-    _source: &'a str,
+    source: &'a str,
 }
 
 /// Source text the lexer discards but the formatter has to write back.
@@ -163,6 +163,41 @@ fn scan_trivia(gap: &str, after_token: bool) -> Vec<Trivia> {
 }
 
 impl<'a> Parser<'a> {
+    /// Whether the composite just opened keeps its elements on the delimiter's line.
+    ///
+    /// The gap between the delimiter and the token after it is the whole test: a newline
+    /// there is the author writing a block, its absence is the author writing a line. A
+    /// newline deeper in belongs to the composite that holds it, which is why
+    /// `{b: {` newline `c: 1` newline `}}` keeps its outer braces on one line.
+    ///
+    /// Call it with the delimiter's own span, before parsing what it encloses — once the
+    /// elements are parsed the position has moved past the gap being measured.
+    fn struct_form(&self, delimiter: &Range<usize>) -> StructForm {
+        if self.opens_inline(delimiter) {
+            StructForm::Inline
+        } else {
+            StructForm::Block
+        }
+    }
+
+    fn list_form(&self, delimiter: &Range<usize>) -> ListForm {
+        if self.opens_inline(delimiter) {
+            ListForm::Inline
+        } else {
+            ListForm::Block
+        }
+    }
+
+    fn opens_inline(&self, delimiter: &Range<usize>) -> bool {
+        self.tokens.get(self.pos).is_none_or(|(_, next)| {
+            !self
+                .source
+                .get(delimiter.end..next.start)
+                .unwrap_or_default()
+                .contains('\n')
+        })
+    }
+
     pub fn new(source: &'a str) -> Result<Self, ParseError> {
         let mut lexer = Token::lexer(source);
         let mut raw_tokens = Vec::new();
@@ -208,7 +243,7 @@ impl<'a> Parser<'a> {
             tokens,
             trivia,
             pos: 0,
-            _source: source,
+            source,
         })
     }
 
@@ -691,6 +726,7 @@ impl<'a> Parser<'a> {
             let inner_field = self.parse_field_decl()?;
             Expr::Struct(StructLit {
                 decls: vec![inner_field],
+                form: StructForm::Path,
             })
         } else {
             self.parse_expr()?
@@ -862,13 +898,14 @@ impl<'a> Parser<'a> {
         }
 
         self.match_token(&Token::Comma);
-        self.expect(Token::LBrace)?;
+        let open = self.expect(Token::LBrace)?;
+        let form = self.struct_form(&open);
         let decls = self.parse_decls_until(|p| p.peek() == Some(&Token::RBrace))?;
         self.expect(Token::RBrace)?;
 
         Ok(Decl::Comprehension(ComprehensionDecl {
             clauses,
-            struct_lit: StructLit { decls },
+            struct_lit: StructLit { decls, form },
         }))
     }
 
@@ -916,11 +953,13 @@ impl<'a> Parser<'a> {
             self.match_token(&Token::Comma);
         }
 
+        let open = self.peek_token().map(|(_, span)| span).unwrap_or_default();
         let expr = if self.match_token(&Token::LBrace) {
             if self.is_label_ahead() {
+                let form = self.struct_form(&open);
                 let decls = self.parse_decls_until(|p| p.peek() == Some(&Token::RBrace))?;
                 self.expect(Token::RBrace)?;
-                Expr::Struct(StructLit { decls })
+                Expr::Struct(StructLit { decls, form })
             } else {
                 let inner_expr = self.parse_expr()?;
                 self.match_token(&Token::Comma);
@@ -979,15 +1018,22 @@ impl<'a> Parser<'a> {
 
     fn parse_disjunction(&mut self) -> Result<Expr, ParseError> {
         let mut branches = Vec::new();
+        let mut on_new_line = false;
 
         loop {
             let default = self.match_token(&Token::Star);
             let expr = self.parse_unification()?;
-            branches.push(DisjunctionBranch { default, expr });
+            branches.push(DisjunctionBranch {
+                default,
+                expr,
+                on_new_line,
+            });
 
-            if !self.match_token(&Token::Pipe) {
+            let Some((Token::Pipe, pipe)) = self.tokens.get(self.pos).cloned() else {
                 break;
-            }
+            };
+            self.pos += 1;
+            on_new_line = !self.opens_inline(&pipe);
         }
 
         if branches.len() == 1 && !branches[0].default {
@@ -1202,13 +1248,16 @@ impl<'a> Parser<'a> {
             Token::HiddenIdent(id) => Ok(Expr::HiddenIdent(id)),
             Token::HiddenDefIdent(id) => Ok(Expr::HiddenDefIdent(id)),
             Token::LBrace => {
+                let form = self.struct_form(&span);
                 let decls = self.parse_decls_until(|p| p.peek() == Some(&Token::RBrace))?;
                 self.expect(Token::RBrace)?;
-                Ok(Expr::Struct(StructLit { decls }))
+                Ok(Expr::Struct(StructLit { decls, form }))
             }
             Token::LBracket => {
+                let form = self.list_form(&span);
                 let mut elements = Vec::new();
                 let mut ellipsis = None;
+                let mut open = false;
 
                 while !self.match_token(&Token::RBracket) && !self.is_eof() {
                     if self.match_token(&Token::Comma) {
@@ -1229,6 +1278,7 @@ impl<'a> Parser<'a> {
                             Some(Box::new(self.parse_expr()?))
                         };
                         ellipsis = elem_type;
+                        open = true;
                         self.match_token(&Token::Comma);
                         self.expect(Token::RBracket)?;
                         break;
@@ -1242,7 +1292,12 @@ impl<'a> Parser<'a> {
                 {
                     Ok(elements.pop().unwrap())
                 } else {
-                    Ok(Expr::List(ListLit { elements, ellipsis }))
+                    Ok(Expr::List(ListLit {
+                        elements,
+                        ellipsis,
+                        open,
+                        form,
+                    }))
                 }
             }
             Token::LParen => {

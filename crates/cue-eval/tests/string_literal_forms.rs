@@ -107,22 +107,53 @@ fn a_block_literal_is_written_back_as_a_block_literal() {
     // Flattening it to `"listen_addresses = '*'\nport = 5432"` is the same value and an
     // unreadable diff, so the form has to survive the round trip — indented under the
     // field it belongs to, however deeply that field is nested.
-    let source = concat!(
+    // The path is written as a path, as the author wrote it, so the literal indents one
+    // level from the line the field sits on — not from the braces the formatter used to
+    // invent for it. Both spellings below are byte-identical to `cue fmt` v0.16.1.
+    for (source, indent) in [
+        (
+            concat!(
+                "services: postgres: files: \"postgresql.conf\": \"\"\"\n",
+                "\tlisten_addresses = '*'\n",
+                "\tport = 5432\n",
+                "\t\"\"\"\n"
+            ),
+            "\t",
+        ),
+        (
+            concat!(
+                "services: {\n",
+                "\tpostgres: files: \"postgresql.conf\": \"\"\"\n",
+                "\t\tlisten_addresses = '*'\n",
+                "\t\tport = 5432\n",
+                "\t\t\"\"\"\n",
+                "}\n"
+            ),
+            "\t\t",
+        ),
+    ] {
+        let once = formatted(source);
+        assert!(
+            once.contains(&format!(
+                "\"postgresql.conf\": \"\"\"\n\
+                 {indent}listen_addresses = '*'\n\
+                 {indent}port = 5432\n\
+                 {indent}\"\"\"\n"
+            )),
+            "a block literal must stay one, indented under its field:\n{once}"
+        );
+        assert_eq!(
+            formatted(&once),
+            once,
+            "formatting the block literal is not idempotent:\n{once}"
+        );
+    }
+    let once = formatted(concat!(
         "services: postgres: files: \"postgresql.conf\": \"\"\"\n",
         "\tlisten_addresses = '*'\n",
         "\tport = 5432\n",
         "\t\"\"\"\n"
-    );
-    let once = formatted(source);
-    assert!(
-        once.contains(concat!(
-            "\"postgresql.conf\": \"\"\"\n",
-            "\t\t\t\tlisten_addresses = '*'\n",
-            "\t\t\t\tport = 5432\n",
-            "\t\t\t\t\"\"\"\n"
-        )),
-        "a block literal must stay one, indented under its field:\n{once}"
-    );
+    ));
     assert_eq!(
         cue_eval::eval_to_json(&once).unwrap()["services"]["postgres"]["files"]["postgresql.conf"],
         serde_json::Value::String("listen_addresses = '*'\nport = 5432".to_string()),
