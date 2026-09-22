@@ -54,6 +54,11 @@ branch. `short: f({d: 1})` breaks the run exactly as `short: {d: 1}` does. This
 is why a block of service declarations is never aligned and a block of
 environment variables always is.
 
+**Air.** A comment is separated from the declaration above it by a blank line unless
+that declaration is a field. A comment under a `let`, an embedding, an ellipsis, an
+attribute or a comprehension gets one; a comment under `a: 1` does not. Found by
+formatting the module and finding `cue fmt` still had a line to add to two files.
+
 **Wrapping.** A break inside an expression is the author's too. A disjunction of seven
 named constants is the CUE idiom for an enum and is written over lines because one line
 of it runs to 150 characters; upstream keeps the break where it was written, indented one
@@ -118,16 +123,17 @@ tool is then a fixed point of both, which is the only thing `just fmt` needs.
 
 ## Verification
 
-- `cue fmt` v0.16.1 as the oracle over 95 probes: 82 byte-identical, and **all 93 that
+- `cue fmt` v0.16.1 as the oracle over 105 probes: 92 byte-identical, and **all 103 that
   upstream parses satisfy the fixed-point property**. The 11 that differ are the three
   mixed shapes above and eight cases of two pre-existing gaps — dropped trailing
   comments, and parentheses around an interpolated label — both registered.
-- 33 of those cases are pinned in `crates/cue-syntax/tests/formatter_shape.rs`, with the
+- 42 of those cases are pinned in `crates/cue-syntax/tests/formatter_shape.rs`, with the
   expectation generated from upstream's bytes rather than transcribed.
-- enve's 40-file module: 39 of 40 byte-identical to `cue fmt`'s own output, the 40th
-  being the redundant parentheses. Every one of the 40 is a fixed point. `enve cue fmt
+- enve's 40-file module, formatted by this tree: **`cue fmt` rewrites none of the 40**.
+  39 of the 40 are byte-identical to upstream's own output, the 40th differing only in
+  parentheses the tree does not need. `enve cue fmt
   --check` now names **the same 12 files `cue fmt` itself rewrites**, down from 39, so
   `just fmt` can point at `enve cue fmt`.
-- 132 workspace tests (up from 126), corpus unchanged at 526/547 by name, Clippy and
+- 133 workspace tests (up from 126), corpus unchanged at 526/547 by name, Clippy and
   `fmt --check` clean.
 - enve, built against this tree: 693 tests, 0 failed.

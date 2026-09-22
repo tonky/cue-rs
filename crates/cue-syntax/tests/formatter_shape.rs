@@ -182,6 +182,67 @@ const CASES: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// The blank line upstream puts above a comment, and when it does not.
+///
+/// Found by formatting enve's `pkgs/services.cue`, where a comment explaining a measured
+/// timeout sits under a run of `let` bindings. Without it the module was formatted and
+/// `cue fmt` still had a line to add.
+const AIR: &[(&str, &str, &str)] = &[
+    (
+        "a comment under a let is given air",
+        "package p\n\nx: {\n\tlet a = 1\n\t// why\n\tlet c = 3\n}\n",
+        "package p\n\nx: {\n\tlet a = 1\n\n\t// why\n\tlet c = 3\n}\n",
+    ),
+    (
+        "a comment under a field is not",
+        "package p\n\nx: {\n\ta: 1\n\t// why\n\tc: 3\n}\n",
+        "package p\n\nx: {\n\ta: 1\n\t// why\n\tc: 3\n}\n",
+    ),
+    (
+        "what is above decides, not what is below",
+        "package p\n\nx: {\n\ta: 1\n\t// why\n\tlet c = 3\n}\n",
+        "package p\n\nx: {\n\ta: 1\n\t// why\n\tlet c = 3\n}\n",
+    ),
+    (
+        "an embedding counts as well",
+        "package p\n\nx: {\n\tfoo\n\t// why\n\tc: 3\n}\n",
+        "package p\n\nx: {\n\tfoo\n\n\t// why\n\tc: 3\n}\n",
+    ),
+    (
+        "and an ellipsis",
+        "package p\n\nx: {\n\t...\n\t// why\n\tc: 3\n}\n",
+        "package p\n\nx: {\n\t...\n\n\t// why\n\tc: 3\n}\n",
+    ),
+    (
+        "the second comment of a group does not repeat it",
+        "package p\n\nx: {\n\tlet a = 1\n\t// one\n\t// two\n\tlet c = 3\n}\n",
+        "package p\n\nx: {\n\tlet a = 1\n\n\t// one\n\t// two\n\tlet c = 3\n}\n",
+    ),
+    (
+        "a comment opening a block has nothing above it",
+        "package p\n\nx: {\n\t// why\n\tc: 3\n}\n",
+        "package p\n\nx: {\n\t// why\n\tc: 3\n}\n",
+    ),
+    (
+        "air already there is not doubled",
+        "package p\n\nx: {\n\tlet a = 1\n\n\t// why\n\tc: 3\n}\n",
+        "package p\n\nx: {\n\tlet a = 1\n\n\t// why\n\tc: 3\n}\n",
+    ),
+    (
+        "the rule is the same at the top level",
+        "package p\n\nlet a = 1\n// why\nc: 3\n",
+        "package p\n\nlet a = 1\n\n// why\nc: 3\n",
+    ),
+];
+
+#[test]
+fn a_comment_is_separated_from_what_is_not_a_field() {
+    for (what, src, expected) in AIR {
+        assert_eq!(&formatted(src), expected, "{what}");
+        assert_eq!(formatted(expected), *expected, "{what}: not idempotent");
+    }
+}
+
 fn formatted(src: &str) -> String {
     let file = parse_file(src).unwrap_or_else(|e| panic!("parse failed for {src:?}: {e:?}"));
     format_file(&file)

@@ -91,13 +91,13 @@
    braces, and where a disjunction wrapped, and lay a block of fields out in
    the columns `text/tabwriter` puts them in — so a file `cue fmt` has already
    formatted is one `enve cue fmt` leaves alone.
-   Status: implemented and validated. 39 of enve's 40 CUE files now come back
-   byte-identical to `cue fmt` v0.16.1, and every one of the 40 is a fixed
-   point of it; `enve cue fmt --check` names the same 12 files upstream itself
+   Status: implemented and validated. `cue fmt` v0.16.1 rewrites none of enve's
+   40 CUE files once this tree has formatted them, and 39 of the 40 come back
+   byte-identical to upstream's own output; `enve cue fmt --check` names the same 12 files upstream itself
    rewrites, down from 39, which is what `just fmt` was waiting on. Measuring
    it turned up two defects that change what a file means, both fixed here: the
    formatter dropped parentheses, so `(a | b) & c` came back as `a | b & c`,
    and `[...]` came back as `[]` — the latter in the evaluator too, where
-   `[...] & [1, 2]` was a length conflict. 132 workspace tests (up from 126),
+   `[...] & [1, 2]` was a length conflict. 133 workspace tests (up from 126),
    corpus unchanged at 526/547, enve green at 693. Four stated divergences in
    follow_up.md, every one of them a shape `cue fmt` accepts back unchanged.

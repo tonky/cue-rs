@@ -249,7 +249,13 @@ impl Rendered {
 /// comment, a blank line, an embedding, or a field too complicated to sit in cells ends
 /// the run by contributing no cells at all.
 fn format_block(decls: &[Decl], out: &mut String, indent: usize) {
-    let lines: Vec<Rendered> = decls.iter().map(|decl| render_decl(decl, indent)).collect();
+    let mut lines: Vec<Rendered> = Vec::with_capacity(decls.len());
+    for (at, decl) in decls.iter().enumerate() {
+        if needs_blank_line(decls, at) {
+            lines.push(Rendered::Opaque(String::new()));
+        }
+        lines.push(render_decl(decl, indent));
+    }
 
     for (line, widths) in lines.iter().zip(column_widths(&lines)) {
         match line {
@@ -266,6 +272,28 @@ fn format_block(decls: &[Decl], out: &mut String, indent: usize) {
         }
         out.push('\n');
     }
+}
+
+/// Whether a comment is given a blank line above it.
+///
+/// Upstream separates a comment from the declaration above unless that declaration is a
+/// field, so a comment under a `let`, an embedding, an ellipsis, an attribute or a
+/// comprehension gets a line of air and one under `a: 1` does not. A second comment of
+/// the same group does not repeat it, and a comment opening a block has nothing to be
+/// separated from.
+fn needs_blank_line(decls: &[Decl], at: usize) -> bool {
+    matches!(decls[at], Decl::Comment(_))
+        && matches!(
+            decls[..at].last(),
+            Some(
+                Decl::Alias { .. }
+                    | Decl::Let { .. }
+                    | Decl::Embedding(_)
+                    | Decl::Ellipsis(_)
+                    | Decl::Attribute(_)
+                    | Decl::Comprehension(_)
+            )
+        )
 }
 
 /// The width each cell is padded to, or zero where it is written as it is.

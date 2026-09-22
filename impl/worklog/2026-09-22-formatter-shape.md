@@ -6,12 +6,12 @@ not about layout at all.
 
 ## Method
 
-`cue fmt` v0.16.1 as the oracle, 95 probes, each one run through both
+`cue fmt` v0.16.1 as the oracle, 105 probes, each one run through both
 formatters and then through upstream again. The second pass is the one that
 matters: a divergence where upstream accepts our output back unchanged costs a
 one-time diff, and a divergence where it does not costs a diff on every run.
 That property — **upstream leaves our output alone** — is the contract, and it
-holds for all 93 probes upstream parses.
+holds for all 103 probes upstream parses.
 
 ## What upstream actually does
 
@@ -32,6 +32,11 @@ Not "expand structs" and "align fields". Four rules:
    blank line, an embedding, a `let`, an ellipsis, and a field that does not
    fit on one line.
 4. **A wrap inside an expression is kept**, indented one level.
+5. **A comment is separated from what is above it** by a blank line, unless that is
+   a field. This one was found late, by formatting the module and then asking
+   `cue fmt` whether it agreed: it had a line to add to two files, above a
+   comment explaining a measured timeout in a run of `let` bindings. It is the
+   reason the fixed-point check is run over the module and not only over probes.
 
 Rule 3 has two sharp edges, both measured rather than guessed. A field whose
 value holds a composite **anywhere** contributes no cells — `short: f({d: 1})`
@@ -84,12 +89,13 @@ its own evaluator rejects.
 
 ## Verification
 
-- 95 probes: 82 byte-identical to `cue fmt` v0.16.1; all 93 it parses are fixed
-  points. 33 pinned in `crates/cue-syntax/tests/formatter_shape.rs`, generated
-  from upstream's bytes rather than transcribed.
-- enve's module: 39 of 40 byte-identical, all 40 fixed points. `enve cue fmt
-  --check` names the same 12 files upstream rewrites, down from 39.
-- 132 workspace tests, 0 failed. Corpus 526/547, unchanged by name. Clippy and
+- 105 probes: 92 byte-identical to `cue fmt` v0.16.1; all 103 it parses are
+  fixed points. 42 pinned in `crates/cue-syntax/tests/formatter_shape.rs`,
+  generated from upstream's bytes rather than transcribed.
+- enve's module, formatted by this tree: `cue fmt` rewrites none of the 40, and
+  39 are byte-identical to its own output. `enve cue fmt --check` names the same
+  12 files upstream rewrites, down from 39.
+- 133 workspace tests, 0 failed. Corpus 526/547, unchanged by name. Clippy and
   `cargo fmt --check` clean.
 - enve built against this tree: 693 tests, 0 failed.
 
