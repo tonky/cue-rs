@@ -10,5 +10,5 @@ keywords = ["cue", "cuelang", "txtar", "testing", "conformance"]
 categories = ["development-tools::testing"]
 
 [dependencies]
-thiserror = "2.0"
-walkdir = "2.5"
+thiserror = { workspace = true }
+walkdir = { workspace = true }

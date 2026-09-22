@@ -12,24 +12,32 @@ pub fn derive_cue_validate(input: TokenStream) -> TokenStream {
 
     for attr in &input.attrs {
         if attr.path().is_ident("cue") {
-            let _ = attr.parse_nested_meta(|meta| {
+            let res = attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("schema") {
                     let value: Expr = meta.value()?.parse()?;
                     if let Expr::Lit(expr_lit) = value
                         && let Lit::Str(s) = expr_lit.lit
                     {
                         schema_str = Some(s.value());
+                        return Ok(());
                     }
+                    Err(meta.error("expected string literal for schema"))
                 } else if meta.path.is_ident("file") {
                     let value: Expr = meta.value()?.parse()?;
                     if let Expr::Lit(expr_lit) = value
                         && let Lit::Str(s) = expr_lit.lit
                     {
                         file_path = Some(s.value());
+                        return Ok(());
                     }
+                    Err(meta.error("expected string literal for file"))
+                } else {
+                    Err(meta.error("unrecognized cue attribute (expected 'schema' or 'file')"))
                 }
-                Ok(())
             });
+            if let Err(err) = res {
+                return err.to_compile_error().into();
+            }
         }
     }
 
@@ -54,12 +62,20 @@ pub fn derive_cue_validate(input: TokenStream) -> TokenStream {
         }
     };
 
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+
     let expanded = quote! {
-        impl #name {
-            pub fn cue_validate(&self) -> Result<(), String> {
+        impl #impl_generics cue_eval::CueValidate for #name #ty_generics #where_clause {
+            fn cue_validate(&self) -> Result<(), String> {
                 let json_val = serde_json::to_value(self)
                     .map_err(|e| format!("JSON serialization error during CUE validation: {e}"))?;
                 #validation_logic
+            }
+        }
+
+        impl #impl_generics #name #ty_generics #where_clause {
+            pub fn cue_validate(&self) -> Result<(), String> {
+                <Self as cue_eval::CueValidate>::cue_validate(self)
             }
         }
     };

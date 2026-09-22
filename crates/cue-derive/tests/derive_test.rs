@@ -28,3 +28,23 @@ fn test_cue_validate_failure() {
     };
     assert!(invalid.cue_validate().is_err());
 }
+
+#[derive(Debug, Serialize, Deserialize, CueValidate)]
+#[cue(schema = "#Container: { item: string, count: int & >=0 }")]
+struct Container<T: Serialize> {
+    item: T,
+    count: u32,
+}
+
+fn validate_generic<T: cue_eval::CueValidate>(val: &T) -> Result<(), String> {
+    val.cue_validate()
+}
+
+#[test]
+fn test_cue_validate_generic() {
+    let c = Container {
+        item: "data".to_string(),
+        count: 10,
+    };
+    assert!(validate_generic(&c).is_ok());
+}

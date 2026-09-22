@@ -139,6 +139,12 @@ pub fn call_strings(
                     (arena.get(args[0]), arena.get(args[1]))
                 && let Some(n) = count.to_usize()
             {
+                const MAX_REPEAT_BYTES: usize = 16 * 1024 * 1024; // 16 MB
+                if s.len().saturating_mul(n) > MAX_REPEAT_BYTES {
+                    return Err(format!(
+                        "strings.Repeat: resulting length exceeds maximum allowed bytes ({MAX_REPEAT_BYTES})"
+                    ));
+                }
                 return Ok(arena.string(s.repeat(n)));
             }
             Err("strings.Repeat requires 1 string and 1 positive integer argument".to_string())

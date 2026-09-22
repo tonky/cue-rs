@@ -87,28 +87,33 @@ fn unify_logic(
     v2_id: ValueId,
     ctx: &mut UnifyContext,
 ) -> ValueId {
-    let Some(val1) = arena.get(v1_id).cloned() else {
-        return arena.bottom("invalid node id");
-    };
-    let Some(val2) = arena.get(v2_id).cloned() else {
-        return arena.bottom("invalid node id");
+    let (v1_ref, v2_ref) = match (arena.get(v1_id), arena.get(v2_id)) {
+        (Some(v1), Some(v2)) => (v1, v2),
+        _ => return arena.bottom("invalid node id"),
     };
 
-    // 1. Bottom propagation: _|_ ⊓ x = _|_
-    if let Value::Bottom(_) = &val1 {
+    if v1_id == v2_id {
         return v1_id;
     }
-    if let Value::Bottom(_) = &val2 {
+
+    // 1. Bottom propagation: _|_ ⊓ x = _|_
+    if matches!(v1_ref, Value::Bottom(_)) {
+        return v1_id;
+    }
+    if matches!(v2_ref, Value::Bottom(_)) {
         return v2_id;
     }
 
     // 2. Top identity: _ ⊓ x = x
-    if let Value::Top = &val1 {
+    if matches!(v1_ref, Value::Top) {
         return v2_id;
     }
-    if let Value::Top = &val2 {
+    if matches!(v2_ref, Value::Top) {
         return v1_id;
     }
+
+    let val1 = v1_ref.clone();
+    let val2 = v2_ref.clone();
 
     // 3. Disjunction handling: (A | B) ⊓ C
     if let Value::Disjunction { branches } = &val1 {

@@ -10,9 +10,9 @@ keywords = ["cue", "cuelang", "parser", "ast", "formatter"]
 categories = ["parser-implementations", "config"]
 
 [dependencies]
-logos = "0.14"
-thiserror = "2.0"
-serde = { version = "1.0", features = ["derive"] }
+logos = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
 
 [dev-dependencies]
-insta = { version = "1.42", features = ["yaml"] }
+insta = { workspace = true }

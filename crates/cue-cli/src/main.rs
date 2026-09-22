@@ -342,7 +342,10 @@ fn sync_txtar_recursive(
     synced: &mut Vec<PathBuf>,
 ) -> Result<()> {
     if src.is_file() && src.extension().and_then(|s| s.to_str()) == Some("txtar") {
-        let file_name = src.file_name().unwrap().to_string_lossy();
+        let Some(file_name_os) = src.file_name() else {
+            return Ok(());
+        };
+        let file_name = file_name_os.to_string_lossy();
         if let Some(f) = filter
             && !file_name.contains(f)
             && !src.to_string_lossy().contains(f)
@@ -360,7 +363,10 @@ fn sync_txtar_recursive(
             if path.is_dir() {
                 sync_txtar_recursive(&path, dest, filter, synced)?;
             } else if path.extension().and_then(|s| s.to_str()) == Some("txtar") {
-                let file_name = path.file_name().unwrap().to_string_lossy();
+                let Some(file_name_os) = path.file_name() else {
+                    continue;
+                };
+                let file_name = file_name_os.to_string_lossy();
                 if let Some(f) = filter
                     && !file_name.contains(f)
                     && !path.to_string_lossy().contains(f)
@@ -386,7 +392,10 @@ fn derive_fixture_name(path: &std::path::Path) -> String {
         let sub = &p_str[pos + 1..];
         format!("upstream_{}", sub.replace('/', "_"))
     } else {
-        let base = path.file_name().unwrap().to_string_lossy();
+        let base = path
+            .file_name()
+            .map(|f| f.to_string_lossy())
+            .unwrap_or_else(|| std::borrow::Cow::Borrowed("fixture"));
         format!("upstream_{base}")
     }
 }

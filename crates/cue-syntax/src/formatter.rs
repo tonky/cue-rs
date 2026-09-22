@@ -318,7 +318,7 @@ fn column_widths(lines: &[Rendered]) -> Vec<Vec<usize>> {
                 .max()
                 .unwrap_or(0)
                 + 1;
-            for line in widths.iter_mut().take(end).skip(start) {
+            for line in &mut widths[start..end] {
                 line[column] = width;
             }
             start = end;

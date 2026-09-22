@@ -25,6 +25,8 @@ pub enum ParseError {
     UnterminatedString { span: Range<usize> },
     #[error("Interpolation is not supported here, at {span:?}")]
     InterpolationUnsupported { span: Range<usize> },
+    #[error("Recursion depth limit exceeded at {span:?}")]
+    RecursionDepthExceeded { span: Range<usize> },
 }
 
 impl ParseError {
@@ -57,6 +59,9 @@ impl ParseError {
                 span.clone(),
                 "interpolation is not supported here".to_string(),
             ),
+            ParseError::RecursionDepthExceeded { span } => {
+                (span.clone(), "recursion depth limit exceeded".to_string())
+            }
         };
 
         let mut line_num: usize = 1;
@@ -107,7 +112,10 @@ pub struct Parser<'a> {
     trivia: Vec<Vec<Trivia>>,
     pos: usize,
     source: &'a str,
+    depth: usize,
 }
+
+const MAX_PARSE_DEPTH: usize = 64;
 
 /// Source text the lexer discards but the formatter has to write back.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -244,6 +252,7 @@ impl<'a> Parser<'a> {
             trivia,
             pos: 0,
             source,
+            depth: 0,
         })
     }
 
@@ -701,6 +710,17 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_field_decl(&mut self) -> Result<Decl, ParseError> {
+        if self.depth >= MAX_PARSE_DEPTH {
+            let span = self.peek_token().map(|(_, s)| s).unwrap_or(0..0);
+            return Err(ParseError::RecursionDepthExceeded { span });
+        }
+        self.depth += 1;
+        let res = self.parse_field_decl_inner();
+        self.depth = self.depth.saturating_sub(1);
+        res
+    }
+
+    fn parse_field_decl_inner(&mut self) -> Result<Decl, ParseError> {
         // Optional prefix alias: `X = ...`
         if matches!(self.peek(), Some(Token::Ident(_) | Token::DefIdent(_)))
             && self.tokens.get(self.pos + 1).map(|(t, _)| t) == Some(&Token::Equal)
@@ -987,7 +1007,14 @@ impl<'a> Parser<'a> {
     // --- Expressions (Pratt Precedence) ---
 
     pub fn parse_expr(&mut self) -> Result<Expr, ParseError> {
-        self.parse_logical_or()
+        if self.depth >= MAX_PARSE_DEPTH {
+            let span = self.peek_token().map(|(_, s)| s).unwrap_or(0..0);
+            return Err(ParseError::RecursionDepthExceeded { span });
+        }
+        self.depth += 1;
+        let res = self.parse_logical_or();
+        self.depth = self.depth.saturating_sub(1);
+        res
     }
 
     fn parse_logical_or(&mut self) -> Result<Expr, ParseError> {

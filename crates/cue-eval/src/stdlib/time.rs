@@ -109,10 +109,13 @@ pub fn call_time(
     }
 }
 
+static RFC3339_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+    Regex::new(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
+        .expect("invariant: valid RFC3339 regex")
+});
+
 pub fn is_valid_rfc3339(s: &str) -> bool {
-    let re =
-        Regex::new(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$").unwrap();
-    re.is_match(s)
+    RFC3339_RE.is_match(s)
 }
 
 pub(crate) fn parse_duration_nanos(mut s: &str) -> Result<i64, String> {
@@ -124,9 +127,8 @@ pub(crate) fn parse_duration_nanos(mut s: &str) -> Result<i64, String> {
     let mut total_nanos: i64 = 0;
     let mut chars = s.char_indices().peekable();
 
-    while chars.peek().is_some() {
+    while let Some(&(start, _)) = chars.peek() {
         // Read numeric part
-        let start = chars.peek().unwrap().0;
         let mut end = start;
         let mut has_digit = false;
         while let Some(&(idx, ch)) = chars.peek() {

@@ -26,6 +26,11 @@ pub fn eval_to_json(source: &str) -> Result<serde_json::Value, EvalError> {
     evaluator.to_json(root_id).map_err(EvalError::Evaluation)
 }
 
+/// Trait for types that can validate themselves against a CUE schema.
+pub trait CueValidate {
+    fn cue_validate(&self) -> Result<(), String>;
+}
+
 /// Validate a JSON value against a CUE schema string.
 pub fn validate_json(schema_source: &str, data: &serde_json::Value) -> Result<(), EvalError> {
     let schema_file = cue_syntax::parse_file(schema_source)?;
@@ -36,7 +41,11 @@ pub fn validate_json(schema_source: &str, data: &serde_json::Value) -> Result<()
     // validate against that `#Definition`.
     let target_schema_id = if let Some(Value::Struct(s)) = evaluator.arena.get(schema_id) {
         if s.fields.is_empty() && !s.definitions.is_empty() {
-            s.definitions.values().next().unwrap().val
+            s.definitions
+                .values()
+                .next()
+                .map(|entry| entry.val)
+                .unwrap_or(schema_id)
         } else {
             schema_id
         }
@@ -48,7 +57,7 @@ pub fn validate_json(schema_source: &str, data: &serde_json::Value) -> Result<()
     let data_file = cue_syntax::parse_file(&data_cue_str)?;
     let data_id = evaluator.eval_file(&data_file)?;
 
-    let res_id = unify(&mut evaluator.arena, target_schema_id, data_id);
+    let res_id = evaluator.unify_and_rederive(target_schema_id, data_id)?;
     if let Some(Value::Bottom(b)) = evaluator.arena.get(res_id) {
         return Err(EvalError::Evaluation(format!("Validation failed: {b}")));
     }

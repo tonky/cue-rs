@@ -102,7 +102,10 @@ pub struct Evaluator {
     /// boundary resolves the packages *its* file imported rather than the
     /// importer's.
     pub imports: Rc<Imports>,
+    expr_depth: usize,
 }
+
+const MAX_EXPR_DEPTH: usize = 64;
 
 impl Default for Evaluator {
     fn default() -> Self {
@@ -130,6 +133,7 @@ impl Evaluator {
             derivations: 0,
             unsettled: 0,
             imports: Rc::new(Imports::default()),
+            expr_depth: 0,
         };
         evaluator.register_builtins();
         evaluator
@@ -788,6 +792,12 @@ impl Evaluator {
         self.rederive_value(id, &mut visiting)
     }
 
+    /// Unify two values in this evaluator's arena and re-derive any reader fields affected by the merge.
+    pub fn unify_and_rederive(&mut self, v1: ValueId, v2: ValueId) -> Result<ValueId, EvalError> {
+        let merged = unify(&mut self.arena, v1, v2);
+        self.rederive(merged)
+    }
+
     fn rederive_value(
         &mut self,
         id: ValueId,
@@ -1261,6 +1271,18 @@ impl Evaluator {
 
     /// Evaluate an AST Expression.
     pub fn eval_expr(&mut self, expr: &Expr) -> Result<ValueId, EvalError> {
+        if self.expr_depth >= MAX_EXPR_DEPTH {
+            return Err(EvalError::Evaluation(
+                "recursion depth limit exceeded during expression evaluation".to_string(),
+            ));
+        }
+        self.expr_depth += 1;
+        let res = self.eval_expr_inner(expr);
+        self.expr_depth = self.expr_depth.saturating_sub(1);
+        res
+    }
+
+    fn eval_expr_inner(&mut self, expr: &Expr) -> Result<ValueId, EvalError> {
         match expr {
             Expr::Bottom => Ok(self.arena.bottom("explicit bottom")),
             Expr::Top => Ok(self.arena.top()),

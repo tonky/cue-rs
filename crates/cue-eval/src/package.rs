@@ -225,6 +225,21 @@ impl PackageLoader {
                     continue;
                 }
 
+                // Disallow paths attempting directory traversal or absolute paths escaping the module
+                let p_check = Path::new(dir_path);
+                if p_check.is_absolute()
+                    || p_check.components().any(|c| {
+                        matches!(
+                            c,
+                            std::path::Component::ParentDir
+                                | std::path::Component::RootDir
+                                | std::path::Component::Prefix(_)
+                        )
+                    })
+                {
+                    continue;
+                }
+
                 for (mod_root, mod_info) in mod_roots {
                     let mod_base = mod_info
                         .module

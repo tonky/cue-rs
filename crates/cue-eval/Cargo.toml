@@ -10,16 +10,16 @@ keywords = ["cue", "cuelang", "evaluator", "unification", "lattice"]
 categories = ["config", "data-structures"]
 
 [dependencies]
-cue-syntax = { path = "../cue-syntax" }
-slotmap = "1.0"
-thiserror = "2.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-serde_yaml_ng = "0.10"
-regex = "1.11"
-num-bigint = "0.4"
-num-traits = "0.2"
+cue-syntax = { workspace = true }
+slotmap = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml_ng = { workspace = true }
+regex = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
 
 [dev-dependencies]
-cue-test-harness = { path = "../cue-test-harness" }
-tempfile = "3"
+cue-test-harness = { workspace = true }
+tempfile = { workspace = true }

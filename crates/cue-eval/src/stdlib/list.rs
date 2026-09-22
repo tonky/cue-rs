@@ -378,6 +378,12 @@ pub fn call_list(
                 && let Some(Value::Int(count_val)) = arena.get(args[1])
                 && let Some(count) = count_val.to_usize()
             {
+                const MAX_REPEAT_COUNT: usize = 1_000_000;
+                if count > MAX_REPEAT_COUNT {
+                    return Err(format!(
+                        "list.Repeat: count {count} exceeds maximum allowed elements ({MAX_REPEAT_COUNT})"
+                    ));
+                }
                 let elem = args[0];
                 let repeated = vec![elem; count];
                 return Ok(arena.alloc(Value::List {
