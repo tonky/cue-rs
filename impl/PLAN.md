@@ -62,10 +62,18 @@
    Five stages: a `BottomKind` on `BottomReason` first, so the three existing
    string matches and the new one move onto a type; then the export verdicts,
    the self-reference, and the messages upstream gives each kind of bottom.
-   Status: designed, confirmed, validated by spike, implementation next. The
-   spike takes all recorded shapes to byte-for-byte agreement with `cue export`
-   v0.16.1, keeps 105 workspace tests green and leaves the corpus at 526/547
-   with the same 21 failures.
+   Status: implemented and validated. A sixth stage was added during the work:
+   stages 3 and 4 fix self-reference one link deep, and the `needs` DAG a user
+   writes is a chain, so a pass that refines a pending declaration's partial
+   value now counts as progress - bounded against `MAX_UNRESOLVED_DEPTH`,
+   because a partial deeper than that walk is judged resolved and written with a
+   bottom inside it. 126 workspace tests green (up from 110), corpus unchanged
+   at 526/547 with the same 21 failures by name, Clippy and `fmt --check` clean,
+   cost 1.08x time and 1.09x memory. Every recorded shape agrees with `cue
+   export` v0.16.1 on the value, and the error cases on the verdict and path.
+   Two stated limits, both in follow_up.md: a chain longer than eight links, and
+   a non-converging value reported as an unresolved reference rather than as a
+   structural cycle.
 
 8. [Disjunction branch dedup](08-disjunction-branch-dedup.md): keep a branch
    only if no branch already kept holds the same content, so unifying a

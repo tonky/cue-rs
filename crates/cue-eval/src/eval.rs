@@ -1,8 +1,8 @@
 use crate::unify::unify;
 use crate::unify::{Equivalence, compare_values};
 use crate::value::{
-    BoundOp, Conjunct, DisjunctionBranch as ValueBranch, FieldEntry, Imports, StructValue, Thunk,
-    ThunkEnv, TypeKind, Value, ValueArena, ValueId,
+    BottomKind, BoundOp, Conjunct, DisjunctionBranch as ValueBranch, FieldEntry, Imports,
+    StructValue, Thunk, ThunkEnv, TypeKind, Value, ValueArena, ValueId,
 };
 use cue_syntax::ast::*;
 use num_bigint::BigInt;
@@ -30,12 +30,28 @@ struct Sweep {
     wrote: bool,
 }
 
+/// How many passes of a literal may be spent refining a partial value that no
+/// declaration has finished reading. Bounds the chain of self-references that
+/// can resolve, and stops a structural cycle refining forever.
+///
+/// Tied to [`MAX_UNRESOLVED_DEPTH`] rather than picked: a cycle unrolls a level
+/// or more per pass, and a partial deeper than that walk's budget is *judged
+/// resolved* and written with a bottom buried inside it. Eight leaves room for
+/// a cycle through four fields. A chain longer than eight links therefore does
+/// not resolve, where upstream resolves any length.
+const MAX_REFINEMENT_PASSES: usize = MAX_UNRESOLVED_DEPTH / 8;
+
 #[derive(Error, Debug)]
 pub enum EvalError {
     #[error("Parse error: {0}")]
     Parse(#[from] cue_syntax::parser::ParseError),
     #[error("Evaluation error: {0}")]
     Evaluation(String),
+    /// A name that has not resolved *yet*. The declaration loop retries a
+    /// literal that raises this, so it must stay distinguishable from an
+    /// evaluation error the loop should give up on. Same wording on purpose.
+    #[error("Evaluation error: {0}")]
+    Unresolved(String),
 }
 
 /// Which map of a struct a field lives in. Definitions and hidden fields keep
@@ -178,6 +194,14 @@ impl Evaluator {
         }
     }
 
+    /// Drop a binding this scope added, exposing whatever an enclosing scope
+    /// binds the same name to.
+    fn remove_binding(&mut self, name: &str) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.remove(name);
+        }
+    }
+
     pub fn lookup_binding(&self, name: &str) -> Option<ValueId> {
         for scope in self.scopes.iter().rev() {
             if let Some(&val) = scope.get(name) {
@@ -271,9 +295,17 @@ impl Evaluator {
         let mut pending_decls: Vec<&Decl> = decls.iter().collect();
         let max_iterations = decls.len() + 3;
         let mut iteration = 0;
+        let mut refinements = 0;
 
-        while !pending_decls.is_empty() && iteration < max_iterations {
+        while !pending_decls.is_empty() && iteration < max_iterations + refinements {
             iteration += 1;
+            // What the pending declarations are bound to going in. A pass that
+            // resolves nothing may still have refined one of these, and then the
+            // next pass has something new to read.
+            let before: Vec<Option<ValueId>> = pending_decls
+                .iter()
+                .map(|decl| Self::pending_binding_name(decl).and_then(|n| self.lookup_binding(n)))
+                .collect();
             let mut next_pending = Vec::new();
             let mut made_progress = false;
 
@@ -287,6 +319,23 @@ impl Evaluator {
             }
 
             if !made_progress {
+                let refining = self.refined_any(&pending_decls, &before);
+                if refining && refinements < MAX_REFINEMENT_PASSES {
+                    refinements += 1;
+                    pending_decls = next_pending;
+                    continue;
+                }
+                if refining {
+                    // Still growing with the allowance spent: the value does not
+                    // converge. Drop the partials so the final pass reports the
+                    // reference at the link it is written on rather than at the
+                    // bottom of however many levels were unrolled getting here.
+                    for &decl in &next_pending {
+                        if let Some(name) = Self::pending_binding_name(decl) {
+                            self.remove_binding(name);
+                        }
+                    }
+                }
                 // Saturated / cannot resolve further; final evaluation accepts bottom errors
                 for &decl in &next_pending {
                     self.eval_single_decl(decl, target_struct, &env, true)?;
@@ -310,7 +359,7 @@ impl Evaluator {
                     match self.arena.get(label) {
                         Some(Value::String(name)) => field.label = Label::String(name.clone()),
                         _ => {
-                            return Err(EvalError::Evaluation(
+                            return Err(EvalError::Unresolved(
                                 "unresolved reference or non-string dynamic field label"
                                     .to_string(),
                             ));
@@ -359,6 +408,44 @@ impl Evaluator {
     /// Field names one literal declares outright. A reference inside it resolves
     /// to these at whatever value the merged struct gives them; anything else it
     /// names belongs to an enclosing scope and keeps resolving there.
+    /// The name a pending declaration binds its partial value to, if any. The
+    /// same three conditions as the binding itself: a definition or a hidden
+    /// field is not read this way.
+    fn pending_binding_name(decl: &Decl) -> Option<&str> {
+        match decl {
+            Decl::Field(f) if !f.label.is_definition() && !f.label.is_hidden() => f.label.name(),
+            _ => None,
+        }
+    }
+
+    /// Whether a pass that resolved no declaration nevertheless left one of them
+    /// bound to more than it was.
+    ///
+    /// This is what lets a chain of self-references resolve. `stages: {a: …, b:
+    /// {needs: [stages.a]}, c: {needs: [stages.b]}}` is one declaration at this
+    /// level, so no pass of it ever "resolves" anything until the whole chain
+    /// does; without this the loop would give up after the first. Each pass
+    /// binds a partial `stages` one link deeper, and a chain of n links needs n
+    /// of them - a property of the user's graph, not of this literal's
+    /// declaration count, which is why the allowance is separate.
+    ///
+    /// It is bounded because a structural cycle refines forever: `a: {x: a}`
+    /// grows a level per pass and never finishes.
+    fn refined_any(&self, pending: &[&Decl], before: &[Option<ValueId>]) -> bool {
+        pending.iter().zip(before).any(|(decl, &prev)| {
+            let Some(name) = Self::pending_binding_name(decl) else {
+                return false;
+            };
+            match (prev, self.lookup_binding(name)) {
+                (None, Some(_)) => true,
+                (Some(prev), Some(now)) => {
+                    prev != now && compare_values(&self.arena, prev, now) != Equivalence::Equal
+                }
+                _ => false,
+            }
+        })
+    }
+
     fn collect_field_names(decls: &[Decl]) -> HashSet<String> {
         decls
             .iter()
@@ -446,7 +533,7 @@ impl Evaluator {
             false
         };
         match self.arena.get(val_id) {
-            Some(Value::Bottom(reason)) => reason.message.contains("unresolved reference"),
+            Some(Value::Bottom(reason)) => reason.kind.may_resolve_later(),
             Some(Value::Struct(s)) => any(&mut s
                 .fields
                 .values()
@@ -504,7 +591,7 @@ impl Evaluator {
                         Ok(!is_unresolved)
                     } else if self.is_unresolved(label_val_id) {
                         if final_pass {
-                            return Err(EvalError::Evaluation(
+                            return Err(EvalError::Unresolved(
                                 "unresolved reference in dynamic field label".to_string(),
                             ));
                         }
@@ -519,6 +606,30 @@ impl Evaluator {
                     // A retry must not meet a transient unresolved-reference bottom
                     // with a resolved declaration: bottom would permanently win.
                     if is_unresolved && !final_pass {
+                        // Bind what this pass *did* resolve, so the next one can
+                        // read it. Without this a field cannot see the field
+                        // that encloses it - `stages: {build: …, test: {needs:
+                        // [stages.build]}}` evaluates `stages.build` while
+                        // `stages` is still being built, so `stages` is unbound,
+                        // and no later pass learns anything new because nothing
+                        // ever bound it. A sibling forward reference works for
+                        // the opposite reason: its name is bound by the time the
+                        // reader is retried.
+                        //
+                        // Nothing is written into the struct - the return below
+                        // still comes before `unify_decl_field` - so a transient
+                        // bottom cannot win the field. Only the scope gains a
+                        // name, and only for the next pass.
+                        if let Some(name) = f.label.name()
+                            && !f.label.is_definition()
+                            && !f.label.is_hidden()
+                        {
+                            let partial = match target_struct.fields.get(name) {
+                                Some(entry) => unify(&mut self.arena, entry.val, val_id),
+                                None => val_id,
+                            };
+                            self.insert_binding(name, partial);
+                        }
                         return Ok(false);
                     }
                     if let Some(name) = f.label.name() {
@@ -566,7 +677,15 @@ impl Evaluator {
                     *target_struct = s.clone();
                     self.bind_struct_fields(target_struct);
                 } else if let Some(Value::Bottom(reason)) = self.arena.get(unified_id) {
-                    return Err(EvalError::Evaluation(reason.to_string()));
+                    // An embedding whose reference has not resolved yet is the
+                    // enclosing literal's business, not a failure: it carries the
+                    // bottom to its own retry loop.
+                    let message = reason.to_string();
+                    return Err(if reason.kind.may_resolve_later() {
+                        EvalError::Unresolved(message)
+                    } else {
+                        EvalError::Evaluation(message)
+                    });
                 }
                 Ok(!is_unresolved)
             }
@@ -599,6 +718,19 @@ impl Evaluator {
     }
 
     /// Record a field name as reachable from the literal being evaluated.
+    /// Whether the literal being evaluated declares this name as a field.
+    ///
+    /// Only the innermost literal is asked, which is all the evaluator keeps:
+    /// an enclosing literal's environment is saved and restored around this
+    /// one. A name an *enclosing* literal declares therefore reads as not
+    /// found until the pass that binds it, which is a wording difference on a
+    /// value that is an error either way.
+    fn declares_field(&self, name: &str) -> bool {
+        self.current_env
+            .as_ref()
+            .is_some_and(|env| env.owns_field(name))
+    }
+
     fn note_field_name(&self, name: &str) {
         if let Some(env) = &self.current_env {
             env.note_field(name);
@@ -1156,8 +1288,18 @@ impl Evaluator {
 
                 if let Some(val) = self.lookup_binding(id) {
                     Ok(val)
+                } else if self.declares_field(id) {
+                    // The literal being evaluated declares this name, so it is
+                    // not missing - it is not computed yet, which after the
+                    // final pass means it never will be.
+                    Ok(self
+                        .arena
+                        .bottom_of(BottomKind::Unresolved, "incomplete value"))
                 } else {
-                    Ok(self.arena.bottom(format!("unresolved reference '{id}'")))
+                    Ok(self.arena.bottom_of(
+                        BottomKind::ReferenceNotFound,
+                        format!("reference \"{id}\" not found"),
+                    ))
                 }
             }
             Expr::Struct(s) => {
@@ -1169,10 +1311,8 @@ impl Evaluator {
                     // Carry an incomplete nested struct to the enclosing retry
                     // loop, which may resolve its dynamic labels in a later pass.
                     return match error {
-                        EvalError::Evaluation(message)
-                            if message.contains("unresolved reference") =>
-                        {
-                            Ok(self.arena.bottom(message))
+                        EvalError::Unresolved(message) => {
+                            Ok(self.arena.bottom_of(BottomKind::Unresolved, message))
                         }
                         error => Err(error),
                     };
@@ -1312,7 +1452,13 @@ impl Evaluator {
                     if let Some(f) = s.fields.get(field).or_else(|| s.definitions.get(field)) {
                         Ok(f.val)
                     } else {
-                        Ok(self.arena.bottom(format!("unresolved reference '{field}'")))
+                        // The base resolved and has no such field. It may still
+                        // gain one on a later pass, which is why this kind is
+                        // one the relaxation loop retries.
+                        Ok(self.arena.bottom_of(
+                            BottomKind::UndefinedField,
+                            format!("undefined field: {field}"),
+                        ))
                     }
                 } else {
                     Ok(self.arena.bottom("selector on non-struct"))
@@ -1347,7 +1493,10 @@ impl Evaluator {
                         if let Some(f) = s.fields.get(key).or_else(|| s.definitions.get(key)) {
                             Ok(f.val)
                         } else {
-                            Ok(self.arena.bottom(format!("unresolved reference '{key}'")))
+                            Ok(self.arena.bottom_of(
+                                BottomKind::UndefinedField,
+                                format!("undefined field: {key}"),
+                            ))
                         }
                     }
                     _ => Ok(self.arena.bottom("indexing unsupported on target")),
@@ -1760,31 +1909,21 @@ impl Evaluator {
             Some(Value::Struct(s)) => {
                 let mut map = serde_json::Map::new();
                 for (k, entry) in &s.fields {
+                    // An optional field is a constraint on a field that may
+                    // appear, not a field: `cue export` emits none of them
+                    // whatever they hold, down to `a?: 1` exporting `{}`. This
+                    // used to ask instead whether the constraint looked
+                    // concrete, which let `b?: {x?: int}` through as `{}` and
+                    // `c?: [...string]` as `[]`.
+                    if entry.optional {
+                        continue;
+                    }
                     let field_path = if path == "$" {
                         k.clone()
                     } else {
                         format!("{}.{}", path, k)
                     };
-                    if entry.optional {
-                        if matches!(
-                            self.arena.get(entry.val),
-                            Some(
-                                Value::RecursiveRef { .. }
-                                    | Value::Top
-                                    | Value::Type(_)
-                                    | Value::Bounds { .. }
-                                    | Value::BuiltinValidator { .. }
-                                    | Value::Validators(_)
-                            )
-                        ) {
-                            continue;
-                        }
-                        if let Ok(v) = self.to_json_at_path(entry.val, &field_path) {
-                            map.insert(k.clone(), v);
-                        }
-                    } else {
-                        map.insert(k.clone(), self.to_json_at_path(entry.val, &field_path)?);
-                    }
+                    map.insert(k.clone(), self.to_json_at_path(entry.val, &field_path)?);
                 }
                 Ok(serde_json::Value::Object(map))
             }
@@ -1851,8 +1990,19 @@ impl Evaluator {
                     ))
                 }
             }
+            // A required field still holding the lazy node that stops a
+            // recursive definition expanding is precisely a structural cycle:
+            // the value is infinite. It used to be exported as the internal
+            // placeholder string. An *optional* recursive field never reaches
+            // here, because the struct arm above drops it first - which is what
+            // upstream does with `needs?: [...#Stage]` too.
             Some(Value::RecursiveRef { name, .. }) => {
-                Ok(serde_json::Value::String(format!("<ref:{name}>")))
+                let name = name.clone();
+                if path == "$" {
+                    Err(format!("structural cycle: '{name}'"))
+                } else {
+                    Err(format!("structural cycle at '{path}': '{name}'"))
+                }
             }
             Some(Value::Bytes(b)) => Ok(serde_json::Value::String(
                 String::from_utf8_lossy(b).to_string(),

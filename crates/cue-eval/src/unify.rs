@@ -45,6 +45,15 @@ pub fn unify_with_context(
     unify_internal(arena, v1_id, v2_id, ctx)
 }
 
+/// A bottom from unification: two values that cannot both hold.
+///
+/// Worth a helper rather than a kind argument at fifty-odd call sites, and
+/// worth marking at all because the relaxation loop treats a conflict and an
+/// unresolved reference differently - one is final, the other is "not yet".
+fn conflict<S: Into<String>>(arena: &mut ValueArena, msg: S) -> ValueId {
+    arena.bottom_of(BottomKind::Conflict, msg)
+}
+
 fn unify_internal(
     arena: &mut ValueArena,
     v1_id: ValueId,
@@ -162,35 +171,35 @@ fn unify_logic(
             if b1 == b2 {
                 arena.alloc(Value::Bool(*b1))
             } else {
-                arena.bottom(format!("conflicting values: {b1} and {b2}"))
+                conflict(arena, format!("conflicting values: {b1} and {b2}"))
             }
         }
         (Value::Int(i1), Value::Int(i2)) => {
             if i1 == i2 {
                 arena.alloc(Value::Int(i1.clone()))
             } else {
-                arena.bottom(format!("conflicting values: {i1} and {i2}"))
+                conflict(arena, format!("conflicting values: {i1} and {i2}"))
             }
         }
         (Value::Float(f1), Value::Float(f2)) => {
             if (f1 - f2).abs() < f64::EPSILON {
                 arena.alloc(Value::Float(*f1))
             } else {
-                arena.bottom(format!("conflicting values: {f1} and {f2}"))
+                conflict(arena, format!("conflicting values: {f1} and {f2}"))
             }
         }
         (Value::String(s1), Value::String(s2)) => {
             if s1 == s2 {
                 arena.alloc(Value::String(s1.clone()))
             } else {
-                arena.bottom(format!("conflicting values: \"{s1}\" and \"{s2}\""))
+                conflict(arena, format!("conflicting values: \"{s1}\" and \"{s2}\""))
             }
         }
         (Value::Bytes(b1), Value::Bytes(b2)) => {
             if b1 == b2 {
                 arena.alloc(Value::Bytes(b1.clone()))
             } else {
-                arena.bottom("conflicting bytes")
+                conflict(arena, "conflicting bytes")
             }
         }
 
@@ -219,7 +228,7 @@ fn unify_logic(
             } else if *t2 == TypeKind::Float && t1.is_float() {
                 v1_id
             } else {
-                arena.bottom(format!("conflicting types: {t1} and {t2}"))
+                conflict(arena, format!("conflicting types: {t1} and {t2}"))
             }
         }
 
@@ -243,7 +252,7 @@ fn unify_logic(
         ) => unify_lists(arena, e1, el1, e2, el2, ctx),
 
         // Mismatched types
-        _ => arena.bottom("conflicting incompatible types"),
+        _ => conflict(arena, "conflicting incompatible types"),
     }
 }
 
@@ -319,7 +328,7 @@ fn unify_type_and_concrete(
     if matches {
         concrete_id
     } else {
-        arena.bottom(format!("type mismatch: expected {t}"))
+        conflict(arena, format!("type mismatch: expected {t}"))
     }
 }
 
@@ -353,8 +362,10 @@ fn unify_bounds(
                     {
                         Some(b1)
                     } else {
-                        return arena
-                            .bottom(format!("conflicting bound base types: {b1} and {b2}"));
+                        return conflict(
+                            arena,
+                            format!("conflicting bound base types: {b1} and {b2}"),
+                        );
                     }
                 }
                 (Some(b), None) | (None, Some(b)) => Some(b),
@@ -380,7 +391,10 @@ fn unify_bounds(
                     {
                         Some(b)
                     } else {
-                        return arena.bottom(format!("conflicting bound base types: {b} and {t}"));
+                        return conflict(
+                            arena,
+                            format!("conflicting bound base types: {b} and {t}"),
+                        );
                     }
                 }
                 None => Some(t),
@@ -397,7 +411,7 @@ fn unify_bounds(
                 && bt != TypeKind::Int
                 && bt != TypeKind::Number
             {
-                return arena.bottom(format!("type mismatch: expected {bt}, found int"));
+                return conflict(arena, format!("type mismatch: expected {bt}, found int"));
             }
             for (op, target_id) in constraints {
                 match arena.get(target_id) {
@@ -411,9 +425,10 @@ fn unify_bounds(
                             _ => false,
                         };
                         if !ok {
-                            return arena.bottom(format!(
-                                "value {i_val} does not satisfy bound {op} {t_val}"
-                            ));
+                            return conflict(
+                                arena,
+                                format!("value {i_val} does not satisfy bound {op} {t_val}"),
+                            );
                         }
                     }
                     Some(Value::Float(t_val)) => {
@@ -427,13 +442,14 @@ fn unify_bounds(
                             _ => false,
                         };
                         if !ok {
-                            return arena.bottom(format!(
-                                "value {i_val} does not satisfy bound {op} {t_val}"
-                            ));
+                            return conflict(
+                                arena,
+                                format!("value {i_val} does not satisfy bound {op} {t_val}"),
+                            );
                         }
                     }
                     _ => {
-                        return arena.bottom("bound target type mismatch for int");
+                        return conflict(arena, "bound target type mismatch for int");
                     }
                 }
             }
@@ -445,7 +461,7 @@ fn unify_bounds(
                 && bt != TypeKind::Float
                 && bt != TypeKind::Number
             {
-                return arena.bottom(format!("type mismatch: expected {bt}, found float"));
+                return conflict(arena, format!("type mismatch: expected {bt}, found float"));
             }
             for (op, target_id) in constraints {
                 let target_f = match arena.get(target_id) {
@@ -464,11 +480,13 @@ fn unify_bounds(
                         _ => false,
                     };
                     if !ok {
-                        return arena
-                            .bottom(format!("value {f_val} does not satisfy bound {op} {t_val}"));
+                        return conflict(
+                            arena,
+                            format!("value {f_val} does not satisfy bound {op} {t_val}"),
+                        );
                     }
                 } else {
-                    return arena.bottom("bound target type mismatch for float");
+                    return conflict(arena, "bound target type mismatch for float");
                 }
             }
             other_id
@@ -478,41 +496,48 @@ fn unify_bounds(
             if let Some(bt) = base_type
                 && bt != TypeKind::String
             {
-                return arena.bottom(format!("type mismatch: expected {bt}, found string"));
+                return conflict(arena, format!("type mismatch: expected {bt}, found string"));
             }
             for (op, target_id) in constraints {
                 if let Some(Value::String(pattern)) = arena.get(target_id) {
                     match op {
                         BoundOp::NotEqual => {
                             if s_val == pattern {
-                                return arena.bottom(format!(
-                                    "string {s_val:?} does not satisfy bound {op} {pattern:?}"
-                                ));
+                                return conflict(
+                                    arena,
+                                    format!(
+                                        "string {s_val:?} does not satisfy bound {op} {pattern:?}"
+                                    ),
+                                );
                             }
                         }
                         BoundOp::RegexMatch => {
                             if let Ok(re) = Regex::new(pattern) {
                                 if !re.is_match(s_val) {
-                                    return arena.bottom(format!(
-                                        "string \"{s_val}\" does not match regex \"{pattern}\""
-                                    ));
+                                    return conflict(
+                                        arena,
+                                        format!(
+                                            "string \"{s_val}\" does not match regex \"{pattern}\""
+                                        ),
+                                    );
                                 }
                             } else {
-                                return arena.bottom(format!("invalid regex: \"{pattern}\""));
+                                return conflict(arena, format!("invalid regex: \"{pattern}\""));
                             }
                         }
                         BoundOp::RegexNotMatch => {
                             if let Ok(re) = Regex::new(pattern) {
                                 if re.is_match(s_val) {
-                                    return arena.bottom(format!(
-                                        "string \"{s_val}\" matches regex \"{pattern}\""
-                                    ));
+                                    return conflict(
+                                        arena,
+                                        format!("string \"{s_val}\" matches regex \"{pattern}\""),
+                                    );
                                 }
                             } else {
-                                return arena.bottom(format!("invalid regex: \"{pattern}\""));
+                                return conflict(arena, format!("invalid regex: \"{pattern}\""));
                             }
                         }
-                        _ => return arena.bottom("unsupported bound op on string"),
+                        _ => return conflict(arena, "unsupported bound op on string"),
                     }
                 }
             }
@@ -535,7 +560,7 @@ fn unify_bounds(
             arena.alloc(Value::Validators(list))
         }
 
-        _ => arena.bottom("cannot unify bound constraint with value"),
+        _ => conflict(arena, "cannot unify bound constraint with value"),
     }
 }
 
@@ -597,6 +622,23 @@ fn merge_conjuncts(e1: &FieldEntry, e2: &FieldEntry) -> Vec<Conjunct> {
     conjuncts
 }
 
+/// Whether a bottom in a field should collapse the struct that holds it.
+///
+/// A conflict should: `{a: 1} & {a: 2}` is bottom, not a struct with a bottom
+/// field, and every caller relies on that. A reference that has not resolved
+/// should not. It is the evaluator saying *not yet*, the relaxation loop exists
+/// because a later pass may say something else, and collapsing discards the very
+/// siblings that would let it resolve - `stages: {build: …, test: {needs:
+/// [stages.build]}}` loses `build` while `test` is still pending. Left where it
+/// belongs, a reference that never resolves is reported at its own path, `x.r`
+/// rather than `x`, which is how upstream reports it too.
+fn collapses_struct(arena: &ValueArena, val: ValueId) -> bool {
+    match arena.get(val) {
+        Some(Value::Bottom(reason)) => !reason.kind.may_resolve_later(),
+        _ => false,
+    }
+}
+
 fn unify_structs_inner(
     arena: &mut ValueArena,
     s1: &StructValue,
@@ -613,7 +655,7 @@ fn unify_structs_inner(
                 .any(|pc| field_matches_pattern(arena, pc.pattern_val, k));
 
             if !allowed_in_fields && !allowed_by_pattern {
-                return arena.bottom(format!("field '{k}' not allowed in closed struct"));
+                return conflict(arena, format!("field '{k}' not allowed in closed struct"));
             }
         }
     }
@@ -626,7 +668,7 @@ fn unify_structs_inner(
                 .any(|pc| field_matches_pattern(arena, pc.pattern_val, k));
 
             if !allowed_in_fields && !allowed_by_pattern {
-                return arena.bottom(format!("field '{k}' not allowed in closed struct"));
+                return conflict(arena, format!("field '{k}' not allowed in closed struct"));
             }
         }
     }
@@ -648,9 +690,7 @@ fn unify_structs_inner(
         let entry = match (s1.fields.get(&key), s2.fields.get(&key)) {
             (Some(e1), Some(e2)) => {
                 let unified_val = unify_internal(arena, e1.val, e2.val, ctx);
-                if matches!(arena.get(unified_val), Some(Value::Bottom(_)))
-                    && !(e1.optional && e2.optional)
-                {
+                if collapses_struct(arena, unified_val) && !(e1.optional && e2.optional) {
                     return unified_val;
                 }
                 FieldEntry::with_conjuncts(
@@ -669,7 +709,7 @@ fn unify_structs_inner(
         for pc in &merged.pattern_constraints {
             if field_matches_pattern(arena, pc.pattern_val, &key) {
                 cur_val = unify_internal(arena, cur_val, pc.target_val, ctx);
-                if matches!(arena.get(cur_val), Some(Value::Bottom(_))) && !entry.optional {
+                if collapses_struct(arena, cur_val) && !entry.optional {
                     return cur_val;
                 }
             }
@@ -745,25 +785,30 @@ fn unify_lists(
     let max_len = e1.len().max(e2.len());
 
     if el1.is_none() && el2.is_none() && e1.len() != e2.len() {
-        return arena.bottom(format!(
-            "conflicting list lengths: {} and {}",
-            e1.len(),
-            e2.len()
-        ));
+        return conflict(
+            arena,
+            format!("conflicting list lengths: {} and {}", e1.len(), e2.len()),
+        );
     }
     if el1.is_none() && e2.len() > e1.len() {
-        return arena.bottom(format!(
-            "list length {} exceeds closed list length {}",
-            e2.len(),
-            e1.len()
-        ));
+        return conflict(
+            arena,
+            format!(
+                "list length {} exceeds closed list length {}",
+                e2.len(),
+                e1.len()
+            ),
+        );
     }
     if el2.is_none() && e1.len() > e2.len() {
-        return arena.bottom(format!(
-            "list length {} exceeds closed list length {}",
-            e1.len(),
-            e2.len()
-        ));
+        return conflict(
+            arena,
+            format!(
+                "list length {} exceeds closed list length {}",
+                e1.len(),
+                e2.len()
+            ),
+        );
     }
 
     let mut unified_elements = Vec::with_capacity(max_len);
@@ -901,12 +946,15 @@ fn unify_disjunction_inner(
         return match valid_branches.len() {
             0 => {
                 if branch_errors.is_empty() {
-                    arena.bottom("no matching disjunction branch")
+                    conflict(arena, "no matching disjunction branch")
                 } else {
-                    arena.bottom(format!(
-                        "no matching disjunction branch: [{}]",
-                        branch_errors.join("; ")
-                    ))
+                    conflict(
+                        arena,
+                        format!(
+                            "no matching disjunction branch: [{}]",
+                            branch_errors.join("; ")
+                        ),
+                    )
                 }
             }
             1 => valid_branches.pop().unwrap().val,
@@ -941,12 +989,15 @@ fn unify_disjunction_inner(
     match valid_branches.len() {
         0 => {
             if branch_errors.is_empty() {
-                arena.bottom("no matching disjunction branch")
+                conflict(arena, "no matching disjunction branch")
             } else {
-                arena.bottom(format!(
-                    "no matching disjunction branch: [{}]",
-                    branch_errors.join("; ")
-                ))
+                conflict(
+                    arena,
+                    format!(
+                        "no matching disjunction branch: [{}]",
+                        branch_errors.join("; ")
+                    ),
+                )
             }
         }
         1 => valid_branches.pop().unwrap().val,
@@ -1038,10 +1089,13 @@ fn unify_validator(
                     if s.chars().count() >= min {
                         return candidate_id;
                     } else {
-                        return arena.bottom(format!(
-                            "string length {} is less than minimum runes {min}",
-                            s.chars().count()
-                        ));
+                        return conflict(
+                            arena,
+                            format!(
+                                "string length {} is less than minimum runes {min}",
+                                s.chars().count()
+                            ),
+                        );
                     }
                 }
             } else if name.starts_with("strings.MaxRunes(") {
@@ -1051,10 +1105,13 @@ fn unify_validator(
                     if s.chars().count() <= max {
                         return candidate_id;
                     } else {
-                        return arena.bottom(format!(
-                            "string length {} exceeds maximum runes {max}",
-                            s.chars().count()
-                        ));
+                        return conflict(
+                            arena,
+                            format!(
+                                "string length {} exceeds maximum runes {max}",
+                                s.chars().count()
+                            ),
+                        );
                     }
                 }
             } else if name == "time.Time"
@@ -1065,41 +1122,46 @@ fn unify_validator(
                 if re.is_match(s) {
                     return candidate_id;
                 } else {
-                    return arena
-                        .bottom(format!("string \"{s}\" is not a valid RFC3339 timestamp"));
+                    return conflict(
+                        arena,
+                        format!("string \"{s}\" is not a valid RFC3339 timestamp"),
+                    );
                 }
             } else if name == "time.Duration" {
                 if crate::stdlib::time::parse_duration_nanos(s).is_ok() {
                     return candidate_id;
                 } else {
-                    return arena.bottom(format!("string \"{s}\" is not a valid duration"));
+                    return conflict(arena, format!("string \"{s}\" is not a valid duration"));
                 }
             } else if name == "net.IPv4" {
                 if s.parse::<std::net::Ipv4Addr>().is_ok() {
                     return candidate_id;
                 } else {
-                    return arena.bottom(format!("string \"{s}\" is not a valid IPv4 address"));
+                    return conflict(arena, format!("string \"{s}\" is not a valid IPv4 address"));
                 }
             } else if name == "net.IPv6" {
                 if s.parse::<std::net::Ipv6Addr>().is_ok() {
                     return candidate_id;
                 } else {
-                    return arena.bottom(format!("string \"{s}\" is not a valid IPv6 address"));
+                    return conflict(arena, format!("string \"{s}\" is not a valid IPv6 address"));
                 }
             } else if name == "net.IP" {
                 if s.parse::<std::net::IpAddr>().is_ok() {
                     return candidate_id;
                 } else {
-                    return arena.bottom(format!("string \"{s}\" is not a valid IP address"));
+                    return conflict(arena, format!("string \"{s}\" is not a valid IP address"));
                 }
             } else if name == "uuid.Valid" {
                 if is_valid_uuid_str(s) {
                     return candidate_id;
                 } else {
-                    return arena.bottom(format!("string \"{s}\" is not a valid UUID"));
+                    return conflict(arena, format!("string \"{s}\" is not a valid UUID"));
                 }
             }
-            arena.bottom(format!("validator '{name}' failed on string \"{s}\""))
+            conflict(
+                arena,
+                format!("validator '{name}' failed on string \"{s}\""),
+            )
         }
         Value::Struct(ref s) => {
             if name.starts_with("struct.MinFields(") {
@@ -1109,10 +1171,13 @@ fn unify_validator(
                     if s.fields.len() >= min {
                         return candidate_id;
                     } else {
-                        return arena.bottom(format!(
-                            "struct has {} fields, expected at least {min}",
-                            s.fields.len()
-                        ));
+                        return conflict(
+                            arena,
+                            format!(
+                                "struct has {} fields, expected at least {min}",
+                                s.fields.len()
+                            ),
+                        );
                     }
                 }
             } else if name.starts_with("struct.MaxFields(")
@@ -1122,13 +1187,16 @@ fn unify_validator(
                 if s.fields.len() <= max {
                     return candidate_id;
                 } else {
-                    return arena.bottom(format!(
-                        "struct has {} fields, expected at most {max}",
-                        s.fields.len()
-                    ));
+                    return conflict(
+                        arena,
+                        format!(
+                            "struct has {} fields, expected at most {max}",
+                            s.fields.len()
+                        ),
+                    );
                 }
             }
-            arena.bottom(format!("validator '{name}' failed on struct"))
+            conflict(arena, format!("validator '{name}' failed on struct"))
         }
         Value::List { ref elements, .. } => {
             if name.starts_with("list.MinItems(") {
@@ -1138,10 +1206,13 @@ fn unify_validator(
                     if elements.len() >= min {
                         return candidate_id;
                     } else {
-                        return arena.bottom(format!(
-                            "list length {} is less than minimum items {min}",
-                            elements.len()
-                        ));
+                        return conflict(
+                            arena,
+                            format!(
+                                "list length {} is less than minimum items {min}",
+                                elements.len()
+                            ),
+                        );
                     }
                 }
             } else if name.starts_with("list.MaxItems(") {
@@ -1151,10 +1222,10 @@ fn unify_validator(
                     if elements.len() <= max {
                         return candidate_id;
                     } else {
-                        return arena.bottom(format!(
-                            "list length {} exceeds maximum items {max}",
-                            elements.len()
-                        ));
+                        return conflict(
+                            arena,
+                            format!("list length {} exceeds maximum items {max}", elements.len()),
+                        );
                     }
                 }
             } else if name == "list.UniqueItems()" {
@@ -1168,14 +1239,14 @@ fn unify_validator(
                         _ => format!("id:{elem:?}"),
                     };
                     if !seen.insert(repr) {
-                        return arena.bottom("list contains duplicate elements");
+                        return conflict(arena, "list contains duplicate elements");
                     }
                 }
                 return candidate_id;
             } else if name.starts_with("list.MatchN") {
                 return candidate_id;
             }
-            arena.bottom(format!("validator '{name}' failed on list"))
+            conflict(arena, format!("validator '{name}' failed on list"))
         }
         Value::Int(ref i) => {
             if name == "time.Duration" {
@@ -1188,12 +1259,18 @@ fn unify_validator(
                 if mod_val != 0 && num % mod_val == 0 {
                     return candidate_id;
                 } else {
-                    return arena.bottom(format!("number {num} is not a multiple of {mod_val}"));
+                    return conflict(
+                        arena,
+                        format!("number {num} is not a multiple of {mod_val}"),
+                    );
                 }
             }
-            arena.bottom(format!("validator '{name}' failed on integer {i}"))
+            conflict(arena, format!("validator '{name}' failed on integer {i}"))
         }
-        _ => arena.bottom(format!("validator '{name}' is not applicable to value")),
+        _ => conflict(
+            arena,
+            format!("validator '{name}' is not applicable to value"),
+        ),
     }
 }
 

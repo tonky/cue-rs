@@ -105,61 +105,58 @@ by the Unicode standard, one per invalid sequence, not one per byte.
 
 ## Optional struct and list fields are materialised
 
-Open, and wrong output on a public surface - found reviewing the 2026-09-22
-recursive-schema report, which it is not the cause of. An optional field whose
-constraint is a struct or a list is exported as `{}` or `[]` although nothing
-ever specified it:
-
-```cue
-#S: {a?: string, b?: {x?: int}, c?: [...string], d?: [...#S], e?: int}
-v: #S & {a: "hi"}
-```
-
-Upstream exports `{"a": "hi"}`. cue-rs exports `a`, plus `b: {}`, `c: []` and
-`d: []`; only the scalar `e?` is correctly absent. At `enve`/`enact` scale this
-is most of a pipeline's schema appearing in its own export - `ci: {}`,
-`jobs: {}`, `workers: {}` on an example that declares none of them. Worth
-suspecting the point where an optional field's constraint is turned into a
-value: a struct or list constraint apparently settles to an empty concrete
-value, where a scalar one stays incomplete and is dropped at export.
+Closed by phase 07 stage 2. Export skips every optional field, whatever its
+constraint holds, which is `cue export`'s rule - `a?: 1` exports `{}`. The
+eleven-line shape test it replaced is why `b?: {x?: int}` used to appear as `{}`
+and `c?: [...string]` as `[]` while the scalar `e?: int` was correctly dropped.
 
 ## A sibling reference inside the struct being defined does not resolve
 
-Open, upstream-valid, and it blocks the ordinary way a DAG is written:
+Closed by phase 07 stages 3, 4 and 6. A pending declaration binds the partial
+value its pass produced, an unresolved reference no longer collapses the struct
+that holds it, and a pass that refines a partial counts as progress - which is
+what lets a chain of them resolve a link at a time.
 
-```cue
-stages: {
-	build: {name: "build"}
-	test: {name: "test", prev: stages.build}
-}
-```
-
-Upstream exports both stages. cue-rs answers `_|_ (unresolved reference
-'stages')` - while `stages` is being evaluated, its own name does not resolve.
-No definition, list or recursion is involved; it fails the same way with the
-fields written as separate `stages: build:` paths, with the reference inside a
-list, through an import, and under a `#Pipeline &`. Referring to a sibling by a
-path rooted at the enclosing field is how a `depends_on`/`needs` graph is
-written, so this is what a user hits as soon as components reference each
-other. Likely the same `resolving_symbols` guard that turns a definition's
-self-reference into a `RecursiveRef`, but with no equivalent lazy node for a
-plain field.
+Two limits remain, both stated rather than hidden. **A chain longer than eight
+links does not resolve**, where upstream resolves any length: the allowance is
+`MAX_UNRESOLVED_DEPTH / 8`, and it cannot simply be raised, because a partial
+deeper than `is_unresolved_within` walks is judged *resolved* and written with a
+bottom buried inside it. Giving that walk a visited set instead of a depth budget
+is what would lift both. **A non-converging value is reported as an unresolved
+reference** at the link it is written on, where upstream says `structural cycle`;
+naming it would mean claiming a cycle whenever the allowance runs out, which is
+also what a nine-link chain looks like.
 
 ## A structural cycle is exported as a placeholder string
 
-Open, and it puts a bogus value in a user's JSON:
+Closed by phase 07 stage 2. A `RecursiveRef` reaching export is refused as a
+structural cycle naming its path. An optional recursive field never reaches it,
+because optional fields are dropped first - which is what upstream does with
+`needs?: [...#Stage]` too.
 
-```cue
-#Stage: {name: string, parent: #Stage}
-s: #Stage & {name: "a"}
-```
+## A bottom's path is not subsumed the way upstream's is
 
-Upstream refuses with `#Stage.parent: structural cycle`. cue-rs exports
-`{"s": {"name": "a", "parent": "<ref:#Stage>"}}` - an internal placeholder that
-has escaped into the output as a JSON string. Either verdict beats this one: a
-structural-cycle error, or an incomplete field dropped at export. The recursive
-schema shapes around it terminate correctly, so this is about the verdict, not
-about termination.
+Open, and presentation rather than verdict. `BottomReason` carries a `path` that
+nothing populates consistently, so cue-rs reports
+`cannot export bottom at 'a.x': _|_ (reference "nope" not found)` where upstream
+reports `a.x: reference "nope" not found`. Phase 07 made the *paths* agree, which
+is the part that was wrong; what is left is the envelope around them. Worth doing
+once, now that the kind is on the type.
+
+Beside it, one wording row still differs: `a: {b: c}, c: a.b` says `reference "c"
+not found` where upstream says `incomplete value _`, because `declares_field`
+sees only the innermost literal - an enclosing literal's environment is saved and
+restored around this one. A stack of environments, or capturing the enclosing
+`own_fields` into each `ThunkEnv`, would settle it.
+
+## Exported fields are sorted, not in declaration order
+
+Open, cosmetic, and visible in every diff a user reads. `StructValue` holds its
+fields in a `BTreeMap`, so `cue-rs eval` emits `{"jobs": …, "name": …}` where
+`cue export` emits `{"name": …, "jobs": …}` - upstream keeps the order the fields
+were written in. The values agree; only the order does not, which is why no test
+has caught it (`serde_json::Value` compares objects by key). Fixing it means an
+insertion-ordered map on `StructValue`, which touches every merge.
 
 ## A disjunction is never normalised
 

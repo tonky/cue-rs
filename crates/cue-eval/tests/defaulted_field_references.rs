@@ -388,7 +388,7 @@ fn an_import_that_cannot_be_loaded_leaves_the_importer_intact() {
         .expect_err("the unresolvable reference is still an error");
 
     assert!(
-        error.contains("unresolved reference 'nosuch'"),
+        error.contains(r#"reference "nosuch" not found"#),
         "unexpected error: {error}"
     );
 }

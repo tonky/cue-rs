@@ -256,6 +256,29 @@ Stages 3 and 4 land together: stage 3 alone leaves the pattern-constraint shape
 broken, and stage 4 alone has nothing to bind. Stage 5 is wording only, and is
 last so that a message change never hides a behaviour change.
 
+### Stage 6, added during the work
+
+Stages 3 and 4 fix self-reference one link deep. A `needs` DAG is a chain, and a
+chain needs one pass per link - but `eval_decls_scoped` gave up the moment a pass
+resolved nothing, and a struct written as one declaration never resolves anything
+until the whole chain does. A pass that resolved nothing and left a pending
+declaration bound to *more* than it was is progress, with its own allowance of
+`MAX_UNRESOLVED_DEPTH / 8` passes. The bound is tied to that walk rather than
+chosen: a partial deeper than it is judged resolved and written with a bottom
+buried inside it, which is how a two-field cycle came to export a 34-level path.
+
+### Two deviations from the design above
+
+- `declares_field` asks only the innermost literal, because an enclosing
+  literal's environment is saved and restored around this one. The
+  `a: {b: c}, c: a.b` row of the table therefore reports `reference "c" not
+  found` rather than `incomplete value` - same verdict, same path.
+- All three reference kinds are retried by the relaxation loop and none of them
+  collapses a struct, through `BottomKind::may_resolve_later()`. Keying stage 4
+  on `Unresolved` alone broke seven corpus cases: cue-rs decides the wording
+  where the bottom is built, and at that moment a name an enclosing literal has
+  not reached yet is indistinguishable from one that does not exist.
+
 ## Tests
 
 A new `crates/cue-eval/tests/self_reference.rs` for stage 2/3 and
@@ -272,6 +295,14 @@ A new `crates/cue-eval/tests/self_reference.rs` for stage 2/3 and
   still bottom, reported at the path that carries it, and each carrying the
   `BottomKind` and the wording the table in section 4 gives it.
 - a structural cycle refused; the optional recursion beside it exported.
+
+## Outcome
+
+Implemented in six stages; see
+[the worklog](worklog/2026-09-22-optional-cycles-and-self-reference.md). 126
+workspace tests green (up from 110), corpus unchanged at 526/547 with the same 21
+failures by name, Clippy and `fmt --check` clean, cost 1.08x time and 1.09x
+memory. Removing each part in turn fails 5, 1, 8, 2 and 7 tests respectively.
 
 ## Not in this phase
 

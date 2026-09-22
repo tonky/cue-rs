@@ -127,8 +127,51 @@ impl fmt::Display for BoundOp {
     }
 }
 
+/// Why a value is bottom, kept beside the message rather than recovered from it.
+///
+/// The evaluator has to tell one kind of failure from another - the relaxation
+/// loop retries an unresolved reference and gives up on a conflict - and until
+/// this existed it did so by reading English back out of `message`. A kind is
+/// decided where the bottom is built, which is the only place that knows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BottomKind {
+    /// Nothing in scope defines this name.
+    ReferenceNotFound,
+    /// The base resolves; it has no such field.
+    UndefinedField,
+    /// Not resolved *yet*. The relaxation loop may resolve it on a later pass,
+    /// and one that survives the final pass is a cycle.
+    Unresolved,
+    /// An infinite value: a recursive reference that reached export.
+    StructuralCycle,
+    /// Two values that cannot both hold.
+    Conflict,
+    /// A failure that is none of the above - a depth limit, a failed validator,
+    /// an operation on the wrong type. These differ in wording, not in what the
+    /// evaluator does with them.
+    Other,
+}
+
+impl BottomKind {
+    /// Whether another pass of the relaxation loop might still resolve this.
+    ///
+    /// All three reference failures qualify, including the two upstream reports
+    /// as final. cue-rs decides the wording where the bottom is built, and at
+    /// that moment a name the enclosing literal has not reached yet looks
+    /// exactly like a name that does not exist; only the pass that finds no new
+    /// information settles which it was. Retrying costs a pass, and not
+    /// retrying would break every forward reference.
+    pub fn may_resolve_later(self) -> bool {
+        matches!(
+            self,
+            BottomKind::Unresolved | BottomKind::ReferenceNotFound | BottomKind::UndefinedField
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BottomReason {
+    pub kind: BottomKind,
     pub message: String,
     pub path: Vec<String>,
 }
@@ -455,7 +498,12 @@ impl ValueArena {
     }
 
     pub fn bottom<S: Into<String>>(&mut self, msg: S) -> ValueId {
+        self.bottom_of(BottomKind::Other, msg)
+    }
+
+    pub fn bottom_of<S: Into<String>>(&mut self, kind: BottomKind, msg: S) -> ValueId {
         self.alloc(Value::Bottom(BottomReason {
+            kind,
             message: msg.into(),
             path: Vec::new(),
         }))

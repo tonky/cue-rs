@@ -13,7 +13,9 @@ pub use manifest::{DependencyInfo, ModuleManifest};
 pub use package::PackageLoader;
 pub use stdlib::{StdlibFn, StdlibValidator, is_known_package};
 pub use unify::unify;
-pub use value::{BottomReason, BoundOp, StructValue, TypeKind, Value, ValueArena, ValueId};
+pub use value::{
+    BottomKind, BottomReason, BoundOp, StructValue, TypeKind, Value, ValueArena, ValueId,
+};
 
 /// Convenience function to evaluate a CUE string and export as JSON.
 pub fn eval_to_json(source: &str) -> Result<serde_json::Value, EvalError> {
