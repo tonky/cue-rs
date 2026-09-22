@@ -88,7 +88,7 @@ impl ModuleManifest {
                 match f.label.name() {
                     Some("module") => {
                         if let cue_syntax::ast::Expr::String(s) = &f.value {
-                            manifest.module = s.clone();
+                            manifest.module = s.value.clone();
                         }
                     }
                     Some("language") => {
@@ -98,7 +98,7 @@ impl ModuleManifest {
                                     && inner.label.name() == Some("version")
                                     && let cue_syntax::ast::Expr::String(v) = &inner.value
                                 {
-                                    manifest.language_version = v.clone();
+                                    manifest.language_version = v.value.clone();
                                 }
                             }
                         }
@@ -118,14 +118,14 @@ impl ModuleManifest {
                                                     if let cue_syntax::ast::Expr::String(v) =
                                                         &df.value
                                                     {
-                                                        dep_info.version = v.clone();
+                                                        dep_info.version = v.value.clone();
                                                     }
                                                 }
                                                 Some("source") => {
                                                     if let cue_syntax::ast::Expr::String(s) =
                                                         &df.value
                                                     {
-                                                        dep_info.source = Some(s.clone());
+                                                        dep_info.source = Some(s.value.clone());
                                                     }
                                                 }
                                                 _ => {}

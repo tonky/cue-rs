@@ -41,7 +41,7 @@ impl PackageLoader {
                         if f.label.name() == Some("module")
                             && let cue_syntax::ast::Expr::String(s) = &f.value
                         {
-                            mod_name = s.clone();
+                            mod_name = s.value.clone();
                         }
                         if f.label.name() == Some("language")
                             && let cue_syntax::ast::Expr::Struct(st) = &f.value
@@ -51,7 +51,7 @@ impl PackageLoader {
                                     && inner_f.label.name() == Some("version")
                                     && let cue_syntax::ast::Expr::String(v) = &inner_f.value
                                 {
-                                    lang_ver = Some(v.clone());
+                                    lang_ver = Some(v.value.clone());
                                 }
                             }
                         }

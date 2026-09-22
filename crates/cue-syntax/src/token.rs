@@ -1,3 +1,4 @@
+use crate::ast::StringForm;
 use logos::Logos;
 use std::fmt;
 
@@ -159,76 +160,110 @@ pub enum Token {
     #[regex(r"[0-9][0-9_]*(\.[0-9][0-9_]*)?([eE][+-]?[0-9]+)?([KMGTP]i|[KMGTPk])?", |lex| lex.slice().to_string())]
     Number(String),
 
-    // String literals (single-line double quoted & raw)
-    #[regex(r##"#"([^"])*"#"##, |lex| {
-        let s = lex.slice();
-        s[2..s.len()-2].to_string()
-    })]
-    #[regex(r#"""#, lex_string_lit)]
-    StringLit(String),
+    // String literals. One rule per delimiter covers all four spellings — `"…"`,
+    // `"""…"""`, and the raw forms guarded by any number of `#` — because the opening
+    // delimiter is what tells them apart and the scanner reads the rest. The regexes this
+    // replaced could not express a raw string containing a quote, and threw away which
+    // spelling had been read.
+    #[regex(r##"#*""##, lex_string)]
+    StringLit(RawString),
 
-    // Multiline double quoted string: """ ... """ & #""" ... """#
-    #[regex(r##"#"""(?:[^"]|"[^"]|""[^"])*"""#"##, |lex| {
-        let s = lex.slice();
-        s[4..s.len()-4].to_string()
-    })]
-    #[regex(r#""""(?:[^"]|"[^"]|""[^"])*""""#, |lex| {
-        let s = lex.slice();
-        s[3..s.len()-3].to_string()
-    })]
-    MultiStringLit(String),
-
-    // Single quoted string (bytes & raw bytes)
-    #[regex(r##"#'([^'])*'#"##, |lex| {
-        let s = lex.slice();
-        s[2..s.len()-2].to_string()
-    })]
-    #[regex(r#"'([^'\\]|\\.)*'"#, |lex| {
-        let s = lex.slice();
-        s[1..s.len()-1].to_string()
-    })]
-    BytesLit(String),
+    #[regex(r##"#*'"##, lex_bytes)]
+    BytesLit(RawString),
 
     // Attribute: @tag(...) or @protobuf(1, int32)
     #[regex(r"@[a-zA-Z0-9_]+", lex_attribute)]
     Attribute(String),
 }
 
-fn lex_string_lit(lex: &mut logos::Lexer<Token>) -> Option<String> {
-    let remainder = lex.remainder();
-    let mut chars = remainder.char_indices().peekable();
-    let mut end = None;
-    let mut p_depth = 0;
+/// A string literal exactly as it was written: the text between the delimiters, still
+/// encoded, and the spelling it was written in. Decoding belongs to the parser; the lexer
+/// only has to find where the literal ends, which is the part that differs between forms.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RawString {
+    pub text: String,
+    pub form: StringForm,
+}
+
+fn lex_string(lex: &mut logos::Lexer<Token>) -> Option<RawString> {
+    lex_delimited(lex, '"')
+}
+
+fn lex_bytes(lex: &mut logos::Lexer<Token>) -> Option<RawString> {
+    lex_delimited(lex, '\'')
+}
+
+/// Scans one string or bytes literal, given that its opening delimiter — any number of
+/// `#` followed by one quote — has just been matched.
+///
+/// Two more quotes immediately after make it a block literal, whose closing delimiter is
+/// three quotes rather than one. In an unguarded literal `\` escapes the next character
+/// and `\(` opens an interpolation whose parentheses may nest and may themselves contain
+/// quotes, so the scan has to step over both. A guarded literal ends at the first literal
+/// closer: its escapes are spelled `\#`, so a bare `\` cannot hide one.
+fn lex_delimited(lex: &mut logos::Lexer<Token>, quote: char) -> Option<RawString> {
+    let hashes = lex.slice().len() - quote.len_utf8();
+    let rest = lex.remainder();
+
+    let pair: String = [quote, quote].iter().collect();
+    let block = rest.starts_with(&pair);
+    let opened = if block { pair.len() } else { 0 };
+    let body = &rest[opened..];
+
+    let guard = "#".repeat(hashes);
+    let closer = if block {
+        format!("{pair}{quote}{guard}")
+    } else {
+        format!("{quote}{guard}")
+    };
+
+    let end = if hashes > 0 {
+        body.find(&closer)?
+    } else {
+        find_closer(body, &closer)?
+    };
+
+    lex.bump(opened + end + closer.len());
+    let form = match (block, hashes) {
+        (false, 0) => StringForm::Quoted,
+        (true, 0) => StringForm::Block,
+        (false, hashes) => StringForm::Raw { hashes },
+        (true, hashes) => StringForm::RawBlock { hashes },
+    };
+    Some(RawString {
+        text: body[..end].to_string(),
+        form,
+    })
+}
+
+/// The byte offset of the closing delimiter in an interpreted literal, stepping over
+/// escapes and interpolations.
+fn find_closer(body: &str, closer: &str) -> Option<usize> {
+    let mut chars = body.char_indices().peekable();
+    let mut depth = 0usize;
 
     while let Some((i, c)) = chars.next() {
-        if p_depth > 0 {
-            if c == '(' {
-                p_depth += 1;
-            } else if c == ')' {
-                p_depth -= 1;
-            } else if c == '\\' {
-                chars.next();
+        if depth > 0 {
+            match c {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                '\\' => {
+                    chars.next();
+                }
+                _ => {}
             }
         } else if c == '\\' {
             if let Some(&(_, '(')) = chars.peek() {
                 chars.next();
-                p_depth = 1;
+                depth = 1;
             } else {
                 chars.next();
             }
-        } else if c == '"' {
-            end = Some(i + 1);
-            break;
+        } else if body[i..].starts_with(closer) {
+            return Some(i);
         }
     }
-
-    if let Some(len) = end {
-        lex.bump(len);
-        let s = lex.slice();
-        Some(s[1..s.len() - 1].to_string())
-    } else {
-        None
-    }
+    None
 }
 
 fn lex_attribute(lex: &mut logos::Lexer<Token>) -> Option<String> {
@@ -304,9 +339,8 @@ impl fmt::Display for Token {
             Token::HiddenIdent(s) => write!(f, "{}", s),
             Token::Ident(s) => write!(f, "{}", s),
             Token::Number(s) => write!(f, "{}", s),
-            Token::StringLit(s) => write!(f, "\"{}\"", s),
-            Token::MultiStringLit(s) => write!(f, "\"\"\"{}\"\"\"", s),
-            Token::BytesLit(s) => write!(f, "'{}'", s),
+            Token::StringLit(s) => write!(f, "\"{}\"", s.text),
+            Token::BytesLit(s) => write!(f, "'{}'", s.text),
             Token::Attribute(s) => write!(f, "{}", s),
         }
     }

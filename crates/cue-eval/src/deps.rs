@@ -91,7 +91,7 @@ fn walk_expr(expr: &Expr, names: &mut HashSet<String>) {
                 walk_expr(arg, names);
             }
         }
-        Expr::Interpolation { parts } => {
+        Expr::Interpolation { parts, .. } => {
             for part in parts {
                 match part {
                     InterpolationPart::Lit(_) => {}
@@ -135,7 +135,7 @@ fn walk_struct(lit: &StructLit, names: &mut HashSet<String>) {
                 walk_clauses(clauses, names);
                 walk_struct(struct_lit, names);
             }
-            Decl::Attribute(_) => {}
+            Decl::Attribute(_) | Decl::Comment(_) | Decl::BlankLine => {}
         }
     }
 }

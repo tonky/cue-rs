@@ -1135,8 +1135,8 @@ impl Evaluator {
             Expr::Null => Ok(self.arena.null()),
             Expr::Bool(b) => Ok(self.arena.bool(*b)),
             Expr::Number(n) => self.eval_number(n),
-            Expr::String(s) => Ok(self.arena.string(s.clone())),
-            Expr::Bytes(b) => Ok(self.arena.alloc(Value::Bytes(b.as_bytes().to_vec()))),
+            Expr::String(s) => Ok(self.arena.string(s.value.clone())),
+            Expr::Bytes(b) => Ok(self.arena.alloc(Value::Bytes(b.value.as_bytes().to_vec()))),
             Expr::Ident(id)
             | Expr::DefIdent(id)
             | Expr::HiddenIdent(id)
@@ -1396,7 +1396,7 @@ impl Evaluator {
                 }
             }
             Expr::Call { func, args } => self.eval_call(func, args),
-            Expr::Interpolation { parts } => {
+            Expr::Interpolation { parts, .. } => {
                 let mut result_str = String::new();
                 for part in parts {
                     match part {

@@ -59,7 +59,15 @@ mod tests {
         "#;
         let file = parse_file(src).unwrap();
         assert_eq!(file.package, Some("test".to_string()));
-        assert_eq!(file.decls.len(), 2);
+        let fields = file
+            .decls
+            .iter()
+            .filter(|d| matches!(d, Decl::Field(_)))
+            .count();
+        assert_eq!(fields, 2);
+        // The blank line between the two is a declaration of its own now, so that the
+        // formatter can put it back.
+        assert!(file.decls.contains(&Decl::BlankLine));
     }
 
     #[test]

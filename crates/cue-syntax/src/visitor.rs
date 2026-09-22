@@ -40,7 +40,7 @@ pub fn walk_decl<V: Visitor>(visitor: &mut V, decl: &Decl) {
             visitor.visit_expr(expr);
         }
         Decl::Ellipsis(Some(expr)) => visitor.visit_expr(expr),
-        Decl::Ellipsis(None) | Decl::Attribute(_) => {}
+        Decl::Ellipsis(None) | Decl::Attribute(_) | Decl::Comment(_) | Decl::BlankLine => {}
         Decl::Comprehension(comp) => {
             for clause in &comp.clauses {
                 visitor.visit_comprehension_clause(clause);
@@ -129,7 +129,7 @@ pub fn walk_expr<V: Visitor>(visitor: &mut V, expr: &Expr) {
                 visitor.visit_expr(a);
             }
         }
-        Expr::Interpolation { parts } => {
+        Expr::Interpolation { parts, .. } => {
             for p in parts {
                 if let InterpolationPart::Expr(e) = p {
                     visitor.visit_expr(e);
@@ -174,6 +174,7 @@ pub trait Folder: Sized {
 
 pub fn fold_source_file<F: Folder>(folder: &mut F, file: SourceFile) -> SourceFile {
     SourceFile {
+        header: file.header,
         package: file.package,
         imports: file.imports,
         decls: file
@@ -199,6 +200,9 @@ pub fn fold_decl<F: Folder>(folder: &mut F, decl: Decl) -> Decl {
         Decl::Ellipsis(Some(expr)) => Decl::Ellipsis(Some(folder.fold_expr(expr))),
         Decl::Ellipsis(None) => Decl::Ellipsis(None),
         Decl::Attribute(attr) => Decl::Attribute(attr),
+        // Trivia carries nothing to fold.
+        Decl::Comment(text) => Decl::Comment(text),
+        Decl::BlankLine => Decl::BlankLine,
         Decl::Comprehension(comp) => Decl::Comprehension(ComprehensionDecl {
             clauses: comp
                 .clauses
@@ -314,7 +318,8 @@ pub fn fold_expr<F: Folder>(folder: &mut F, expr: Expr) -> Expr {
             func: Box::new(folder.fold_expr(*func)),
             args: args.into_iter().map(|a| folder.fold_expr(a)).collect(),
         },
-        Expr::Interpolation { parts } => Expr::Interpolation {
+        Expr::Interpolation { parts, form } => Expr::Interpolation {
+            form,
             parts: parts
                 .into_iter()
                 .map(|p| match p {
@@ -359,7 +364,10 @@ mod tests {
     impl Folder for StringUpperFolder {
         fn fold_expr(&mut self, expr: Expr) -> Expr {
             match expr {
-                Expr::String(s) => Expr::String(s.to_uppercase()),
+                Expr::String(s) => Expr::String(StringLit {
+                    value: s.value.to_uppercase(),
+                    form: s.form,
+                }),
                 other => fold_expr(self, other),
             }
         }
@@ -390,7 +398,7 @@ mod tests {
         let transformed = folder.fold_source_file(file);
 
         if let Decl::Field(f) = &transformed.decls[0] {
-            assert_eq!(f.value, Expr::String("HELLO WORLD".to_string()));
+            assert_eq!(f.value, Expr::String(StringLit::quoted("HELLO WORLD")));
         } else {
             panic!("Expected field decl");
         }

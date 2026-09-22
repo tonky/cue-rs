@@ -89,3 +89,73 @@ User-owned: update both enve workspace dependency revisions and Cargo.lock after
 cue-rs publication, then rerun its policy regressions against the actual git pin.
 The user explicitly requested handling this downstream step themselves. Current
 local-path validation does not complete this release step.
+
+## A bytes literal cannot interpolate
+
+Open, and a stated limit rather than a surprise. Upstream accepts `'a\(1)b'` and
+gives the bytes `a1b`; `Expr::Interpolation` carries no delimiter, so cue-rs
+cannot represent an interpolation that yields bytes and phase 06 refuses it by
+name instead of producing the characters `a\(1)b` as HEAD did. This is the one
+corpus case phase 06 moved, `upstream_cue_testdata_interpolation_scalars.txtar`.
+The fix is a delimiter on `Expr::Interpolation` plus bytes-valued concatenation
+in `eval_interpolation`, which also wants the string-from-bytes rule that file
+pins: invalid UTF-8 interpolated into a *string* becomes replacement characters
+by the Unicode standard, one per invalid sequence, not one per byte.
+
+## Optional struct and list fields are materialised
+
+Open, and wrong output on a public surface - found reviewing the 2026-09-22
+recursive-schema report, which it is not the cause of. An optional field whose
+constraint is a struct or a list is exported as `{}` or `[]` although nothing
+ever specified it:
+
+```cue
+#S: {a?: string, b?: {x?: int}, c?: [...string], d?: [...#S], e?: int}
+v: #S & {a: "hi"}
+```
+
+Upstream exports `{"a": "hi"}`. cue-rs exports `a`, plus `b: {}`, `c: []` and
+`d: []`; only the scalar `e?` is correctly absent. At `enve`/`enact` scale this
+is most of a pipeline's schema appearing in its own export - `ci: {}`,
+`jobs: {}`, `workers: {}` on an example that declares none of them. Worth
+suspecting the point where an optional field's constraint is turned into a
+value: a struct or list constraint apparently settles to an empty concrete
+value, where a scalar one stays incomplete and is dropped at export.
+
+## A sibling reference inside the struct being defined does not resolve
+
+Open, upstream-valid, and it blocks the ordinary way a DAG is written:
+
+```cue
+stages: {
+	build: {name: "build"}
+	test: {name: "test", prev: stages.build}
+}
+```
+
+Upstream exports both stages. cue-rs answers `_|_ (unresolved reference
+'stages')` - while `stages` is being evaluated, its own name does not resolve.
+No definition, list or recursion is involved; it fails the same way with the
+fields written as separate `stages: build:` paths, with the reference inside a
+list, through an import, and under a `#Pipeline &`. Referring to a sibling by a
+path rooted at the enclosing field is how a `depends_on`/`needs` graph is
+written, so this is what a user hits as soon as components reference each
+other. Likely the same `resolving_symbols` guard that turns a definition's
+self-reference into a `RecursiveRef`, but with no equivalent lazy node for a
+plain field.
+
+## A structural cycle is exported as a placeholder string
+
+Open, and it puts a bogus value in a user's JSON:
+
+```cue
+#Stage: {name: string, parent: #Stage}
+s: #Stage & {name: "a"}
+```
+
+Upstream refuses with `#Stage.parent: structural cycle`. cue-rs exports
+`{"s": {"name": "a", "parent": "<ref:#Stage>"}}` - an internal placeholder that
+has escaped into the output as a JSON string. Either verdict beats this one: a
+structural-cycle error, or an incomplete field dropped at export. The recursive
+schema shapes around it terminate correctly, so this is about the verdict, not
+about termination.
