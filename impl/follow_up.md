@@ -69,11 +69,12 @@ decided this deliberately.
 
 ## rustfmt drift
 
-Open, needs a decision. `crates/cue-eval/src/lib.rs`, `crates/cue-eval/src/stdlib/encoding.rs`
-and `crates/cue-wasm/src/lib.rs` carry rustfmt drift that predates these phases,
-so `just ci` fails at `fmt-check` on a clean checkout. Either a formatting-only
-commit of its own, or drop `fmt-check` from `ci`. Phases 03 and 04 deliberately
-leave the drift alone so the diff stays reviewable.
+Closed, as the formatting-only commit this asked for. `crates/cue-eval/src/lib.rs`,
+`crates/cue-wasm/src/lib.rs` and `crates/cue-eval/src/stdlib/encoding.rs` carried
+drift from the `serde_yaml_ng` swap in 2aa698d, so `just ci` failed at
+`fmt-check` on a clean checkout from then until 69aa4c3. Phases 03-06 left it
+alone deliberately, to keep their diffs reviewable; it was `cargo fmt --all` and
+nothing else.
 
 ## A package imported twice is loaded twice
 

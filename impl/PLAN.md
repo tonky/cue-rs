@@ -53,3 +53,16 @@
    HEAD produced - the harness never compared that file's values, so its pass
    was vacuous. Bytes interpolation is the one stated gap, in follow_up.md.
    Written up from the diff rather than planned ahead; the worklog says so.
+
+7. [Optional fields, self-reference and a cycle's verdict](07-optional-cycles-and-self-reference.md):
+   stop exporting optional fields, let a field read the field that encloses it,
+   and refuse a structural cycle instead of exporting a placeholder string.
+   Three upstream divergences found reviewing the 2026-09-22 recursive-schema
+   report, all on plain CUE.
+   Five stages: a `BottomKind` on `BottomReason` first, so the three existing
+   string matches and the new one move onto a type; then the export verdicts,
+   the self-reference, and the messages upstream gives each kind of bottom.
+   Status: designed, confirmed, validated by spike, implementation next. The
+   spike takes all recorded shapes to byte-for-byte agreement with `cue export`
+   v0.16.1, keeps 105 workspace tests green and leaves the corpus at 526/547
+   with the same 21 failures.
