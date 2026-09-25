@@ -26,7 +26,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
 │   └── cue-cli/                # CLI binary (`eval`, `vet`, `fmt`, `import`, `mod`, `test-txtar`, `sync-upstream`)
 ├── tests/
-│   └── testdata/               # 547 upstream conformance .txtar suites (527 pass; 499 with --strict-errors)
+│   └── testdata/               # 547 upstream conformance .txtar suites (527 pass; 498 with --strict-errors)
 └── examples/                   # Sample CUE schemas and data files
 ```
 

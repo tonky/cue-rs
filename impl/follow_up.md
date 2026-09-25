@@ -233,3 +233,27 @@ but it is not how upstream reasons about it.
 `a.b.bogus: field not allowed`. The unifier does not know the path it is
 working at. Threading one through would help every conflict message, not only
 closedness.
+
+## A pending disjunction branch is dropped when another branch survives
+
+`settle_disjunction` keeps a disjunction pending when no branch survived and
+one of them failed on a reference that is not resolved yet. When another
+branch did survive, the pending one is still dropped for good, so a later pass
+cannot bring it back. `(int | [...]) & x` with `x` declared further down picks
+nothing wrong today, because the list branch is the only one that could match,
+but a disjunction with two viable branches, one of them pending, resolves to
+the other. Upstream keeps the branch until the reference is known.
+
+## disjselfcycle: reducedNested exports instead of failing
+
+`upstream_cue_testdata_eval_disjselfcycle.txtar` records one error:
+`issue4119.reducedNested` must fail with `x.y.0.f: undefined field: f`, and
+cue-rs exports `x: y: []`. The case passed `--strict-errors` by accident until
+2026-09-25: `issue4119.full` failed with a structural cycle upstream does not
+report, and the harness took that for the recorded error. Keeping a pending
+disjunction pending made `full` evaluate, which exposed both divergences:
+- `reducedNested` still exports `y: []`, the default, where upstream reports
+  the incomplete left disjunct;
+- `full` exports `art.images.ko` without `accounts`, where upstream expects
+  `accounts: groups: [{gid: 65532}]`. The case uses `self`, which plain
+  `cue` v0.16.1 rejects without `@experiment(aliasv2)`.

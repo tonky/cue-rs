@@ -938,7 +938,7 @@ fn unify_disjunction_inner(
                 let cp = arena.checkpoint();
                 let u = unify_internal(arena, b1.val, b2.val, ctx);
                 if let Some(Value::Bottom(b)) = arena.get(u) {
-                    branch_errors.push(b.to_string());
+                    branch_errors.push(b.clone());
                     arena.rollback(cp);
                     continue;
                 }
@@ -952,25 +952,7 @@ fn unify_disjunction_inner(
                 );
             }
         }
-        return match valid_branches.len() {
-            0 => {
-                if branch_errors.is_empty() {
-                    conflict(arena, "no matching disjunction branch")
-                } else {
-                    conflict(
-                        arena,
-                        format!(
-                            "no matching disjunction branch: [{}]",
-                            branch_errors.join("; ")
-                        ),
-                    )
-                }
-            }
-            1 => valid_branches.pop().unwrap().val,
-            _ => arena.alloc(Value::Disjunction {
-                branches: valid_branches,
-            }),
-        };
+        return settle_disjunction(arena, valid_branches, &branch_errors);
     }
 
     let mut valid_branches = Vec::new();
@@ -981,7 +963,7 @@ fn unify_disjunction_inner(
         let u = unify_internal(arena, branch.val, other_id, ctx);
         if let Some(Value::Bottom(b)) = arena.get(u) {
             // This branch conflicted, rollback allocations made during the branch
-            branch_errors.push(b.to_string());
+            branch_errors.push(b.clone());
             arena.rollback(cp);
             continue;
         }
@@ -995,19 +977,35 @@ fn unify_disjunction_inner(
         );
     }
 
+    settle_disjunction(arena, valid_branches, &branch_errors)
+}
+
+/// The value of a disjunction once every branch has been tried.
+///
+/// A branch that failed only because a reference has not resolved yet has not
+/// failed: the relaxation loop evaluates it again once the name is known. So
+/// when no branch survived and one of them is still pending, the result is
+/// pending too. `(int | [...]) & [a.b]` with `a` declared after it, or in
+/// another file of the package, used to fail for good on the first pass.
+fn settle_disjunction(
+    arena: &mut ValueArena,
+    mut valid_branches: Vec<DisjunctionBranch>,
+    branch_errors: &[BottomReason],
+) -> ValueId {
     match valid_branches.len() {
         0 => {
-            if branch_errors.is_empty() {
-                conflict(arena, "no matching disjunction branch")
+            let kind = if branch_errors.iter().any(|e| e.kind.may_resolve_later()) {
+                BottomKind::Unresolved
             } else {
-                conflict(
-                    arena,
-                    format!(
-                        "no matching disjunction branch: [{}]",
-                        branch_errors.join("; ")
-                    ),
-                )
-            }
+                BottomKind::Conflict
+            };
+            let message = if branch_errors.is_empty() {
+                "no matching disjunction branch".to_string()
+            } else {
+                let errors: Vec<String> = branch_errors.iter().map(ToString::to_string).collect();
+                format!("no matching disjunction branch: [{}]", errors.join("; "))
+            };
+            arena.bottom_of(kind, message)
         }
         1 => valid_branches.pop().unwrap().val,
         _ => arena.alloc(Value::Disjunction {
