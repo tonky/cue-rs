@@ -1251,7 +1251,15 @@ impl Evaluator {
             }
             ComprehensionClause::For { key, value, source } => {
                 let src_id = self.eval_expr(source)?;
+                // A source that is not resolved yet has nothing to yield *yet*;
+                // yielding nothing would settle the comprehension as empty.
                 let src_val = match self.arena.get(src_id) {
+                    Some(Value::Bottom(r)) if r.kind.may_resolve_later() => {
+                        return Err(EvalError::Unresolved(r.to_string()));
+                    }
+                    Some(Value::RecursiveRef { name, .. }) => {
+                        return Err(EvalError::Unresolved(format!("{name} not evaluated yet")));
+                    }
                     Some(v) => v.clone(),
                     None => return Ok(()),
                 };
@@ -1328,7 +1336,15 @@ impl Evaluator {
             }
             ComprehensionClause::For { key, value, source } => {
                 let src_id = self.eval_expr(source)?;
+                // A source that is not resolved yet has nothing to yield *yet*;
+                // yielding nothing would settle the comprehension as empty.
                 let src_val = match self.arena.get(src_id) {
+                    Some(Value::Bottom(r)) if r.kind.may_resolve_later() => {
+                        return Err(EvalError::Unresolved(r.to_string()));
+                    }
+                    Some(Value::RecursiveRef { name, .. }) => {
+                        return Err(EvalError::Unresolved(format!("{name} not evaluated yet")));
+                    }
                     Some(v) => v.clone(),
                     None => return Ok(()),
                 };
@@ -1812,7 +1828,7 @@ impl Evaluator {
             evaluated_args.push(resolved_arg);
         }
 
-        // Top-level builtins: len(x), close(x)
+        // Top-level builtins: len(x), or(list), close(x)
         if let Expr::Ident(name) = func_expr {
             match name.as_str() {
                 "len" => {
@@ -1834,6 +1850,36 @@ impl Evaluator {
                         }
                     }
                     return Ok(self.arena.bottom("len requires 1 argument"));
+                }
+                "or" => {
+                    if let Some(&arg0) = evaluated_args.first()
+                        && let Some(Value::Bottom(_)) = self.arena.get(arg0)
+                    {
+                        return Ok(arg0);
+                    }
+                    let Some(Value::List { elements, .. }) = evaluated_args
+                        .first()
+                        .and_then(|&a| self.arena.get(a))
+                        .cloned()
+                    else {
+                        return Ok(self.arena.bottom("or requires 1 list argument"));
+                    };
+                    // Upstream reports this as incomplete, not as a conflict: the
+                    // list is usually built by a comprehension over fields that a
+                    // later conjunct has yet to add.
+                    if elements.is_empty() {
+                        return Ok(self
+                            .arena
+                            .bottom_of(BottomKind::Unresolved, "empty list in call to or"));
+                    }
+                    let branches = elements
+                        .into_iter()
+                        .map(|val| ValueBranch {
+                            default: false,
+                            val,
+                        })
+                        .collect();
+                    return Ok(self.arena.alloc(Value::Disjunction { branches }));
                 }
                 "close" => {
                     if let Some(&arg0) = evaluated_args.first()
