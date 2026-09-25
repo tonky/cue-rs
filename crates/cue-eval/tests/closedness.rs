@@ -362,3 +362,20 @@ fn a_broken_import_is_reported_as_the_import() {
     assert!(error.contains("import \"example.com/m/lib\""), "{error}");
     assert!(!error.contains("not found"), "{error}");
 }
+
+/// A name a loaded package lacks is that field's error, as upstream reports it
+/// (`undefined field: #Missing`), not a missing package alias. enve names a
+/// retired definition from this message.
+#[test]
+fn a_missing_package_member_names_the_member() {
+    let module = module(&[
+        ("lib/lib.cue", "package lib\n\n#A: {x?: int}\n"),
+        (
+            "app.cue",
+            "package app\n\nimport \"example.com/m/lib\"\n\nv: lib.#Missing & {x: 1}\n",
+        ),
+    ]);
+    let (evaluator, root) = PackageLoader::load_file(module.path().join("app.cue")).unwrap();
+    let error = evaluator.to_json(root).unwrap_err();
+    assert!(error.contains("undefined field: #Missing"), "{error}");
+}

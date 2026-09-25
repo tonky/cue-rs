@@ -1516,8 +1516,16 @@ impl Evaluator {
                     let imports = self.imports.clone();
                     if let Some(pkg_struct_id) = imports.package_of(pkg_name)
                         && let Some(Value::Struct(s)) = self.arena.get(pkg_struct_id)
-                        && let Some(f) = s.fields.get(field).or_else(|| s.definitions.get(field))
                     {
+                        // A loaded package is complete: a name it lacks is the
+                        // field's error, not the alias's.
+                        let Some(f) = s.fields.get(field).or_else(|| s.definitions.get(field))
+                        else {
+                            return Ok(self.arena.bottom_of(
+                                BottomKind::UndefinedField,
+                                format!("undefined field: {field}"),
+                            ));
+                        };
                         let val = f.val;
                         return Ok(self.read_definition(field, val));
                     }

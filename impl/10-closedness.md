@@ -65,6 +65,11 @@ in `tests/closedness.rs`.
 4. **Import errors.** A package that resolves but fails to load now fails the
    load as `import "<path>": <error>`. It used to fail later as
    `reference <alias> not found`.
+5. **A package member that does not exist** (`lib.#Missing`) reports
+   `undefined field: #Missing`, as upstream does. It used to report
+   `reference "lib" not found`. This showed up after enve stopped hiding
+   loader errors behind its prelude fallback: enve's retired-definition hint
+   keys on upstream's message.
 
 ## Results
 
