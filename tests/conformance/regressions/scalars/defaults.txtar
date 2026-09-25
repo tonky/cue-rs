@@ -1,0 +1,18 @@
+-- in.cue --
+n: *1 | int
+add: n + 2
+reverse: 2 + n
+negative: -n
+positive: +n
+truth: *true | bool
+negated: !truth
+conjunction: truth && true
+disjunction: truth || false
+equal: n == 1
+ordered: n < 2
+#Base: {input: *1 | int, derived: input + 1}
+result: #Base & {input: 3}
+
+#Schema: {input: int, output: input + 1}
+resolved: #Schema & {input: 5}
+reverseResolved: {input: 7} & #Schema

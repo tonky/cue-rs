@@ -11,8 +11,30 @@
 //! reference is itself read; hidden fields and definitions, which closedness
 //! never constrains.
 
-use crate::value::{DisjunctionBranch, PatternConstraint, Value, ValueArena, ValueId};
+use crate::value::{
+    Conjunct, DisjunctionBranch, MetadataSource, PatternConstraint, Value, ValueArena, ValueId,
+};
 use std::collections::HashMap;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Closure {
+    Recursive,
+    Outer,
+    Contents,
+}
+
+impl Closure {
+    pub(crate) fn apply(self, arena: &mut ValueArena, value: ValueId) -> ValueId {
+        match self {
+            Self::Recursive => ClosedCopies::default().close(arena, value),
+            Self::Outer => reclose(arena, value),
+            Self::Contents => {
+                let closed = ClosedCopies::default().close(arena, value);
+                open_for_embedding(arena, closed).0
+            }
+        }
+    }
+}
 
 /// Closed copies already made, keyed by the value they close.
 ///
@@ -51,6 +73,49 @@ fn close_deep(
     // A cyclic graph reaches a node again before its copy exists; answering
     // with the node itself ends the walk there.
     in_progress.insert(id, id);
+    if let Some(mut metadata) = arena.metadata(id).cloned() {
+        if arena.has_embedded_recipe(id) {
+            if matches!(
+                metadata.source,
+                MetadataSource::Closed {
+                    closure: Closure::Recursive,
+                    ..
+                }
+            ) {
+                return id;
+            }
+            let conjuncts = match metadata.source {
+                MetadataSource::Embedded(conjuncts) => conjuncts,
+                _ => vec![Conjunct::Value(id)],
+            };
+            let payload = crate::metadata::payload(arena, id);
+            let closed = close_deep(arena, payload, in_progress);
+            metadata.view = Some(close_deep(
+                arena,
+                metadata.view.unwrap_or(metadata.fields),
+                in_progress,
+            ));
+            metadata.source = MetadataSource::Closed {
+                conjuncts,
+                closure: Closure::Recursive,
+            };
+            let value = arena.get(closed).expect("closed payload exists").clone();
+            let result = arena.alloc_with_metadata(value, metadata);
+            in_progress.insert(id, result);
+            return result;
+        }
+        let payload = crate::metadata::payload(arena, id);
+        let closed = close_deep(arena, payload, in_progress);
+        let fields = close_deep(arena, metadata.fields, in_progress);
+        if closed == payload && fields == metadata.fields {
+            return id;
+        }
+        metadata.fields = fields;
+        let value = arena.get(closed).expect("closed payload exists").clone();
+        let result = arena.alloc_with_metadata(value, metadata);
+        in_progress.insert(id, result);
+        return result;
+    }
     let closed = match arena.get(id).cloned() {
         Some(Value::Struct(mut s)) => {
             let mut changed = s.is_closed != !s.is_open;
@@ -117,6 +182,47 @@ fn close_deep(
 /// are allowed: `#B: {#A, y: int}` declares `y`. So the literal meets an open
 /// copy and is closed afterwards with [`reclose`].
 pub fn open_for_embedding(arena: &mut ValueArena, id: ValueId) -> (ValueId, bool) {
+    if let Some(mut metadata) = arena.metadata(id).cloned() {
+        if arena.has_embedded_recipe(id) {
+            let was_closed = match &mut metadata.source {
+                MetadataSource::Closed { closure, .. } => {
+                    let was_closed = *closure != Closure::Contents;
+                    *closure = Closure::Contents;
+                    was_closed
+                }
+                _ => false,
+            };
+            let payload = crate::metadata::payload(arena, id);
+            let (opened, closed) = open_for_embedding(arena, payload);
+            let (view, view_closed) =
+                open_for_embedding(arena, metadata.view.unwrap_or(metadata.fields));
+            metadata.view = Some(view);
+            if !was_closed && !closed && !view_closed {
+                return (id, false);
+            }
+            let value = arena.get(opened).expect("opened payload exists").clone();
+            return (
+                arena.alloc_with_metadata(value, metadata),
+                was_closed || closed || view_closed,
+            );
+        }
+        let (fields, closed) = open_for_embedding(arena, metadata.fields);
+        let (payload, branch_closed) = if metadata.is_choice_view() {
+            let payload = crate::metadata::payload(arena, id);
+            open_for_embedding(arena, payload)
+        } else {
+            (id, false)
+        };
+        if fields == metadata.fields && !branch_closed {
+            return (id, closed);
+        }
+        metadata.fields = fields;
+        let value = arena.get(payload).expect("metadata owner exists").clone();
+        return (
+            arena.alloc_with_metadata(value, metadata),
+            closed || branch_closed,
+        );
+    }
     match arena.get(id).cloned() {
         Some(Value::Struct(mut s)) if s.is_closed => {
             s.is_closed = false;
@@ -151,6 +257,45 @@ pub fn open_for_embedding(arena: &mut ValueArena, id: ValueId) -> (ValueId, bool
 /// Close the outermost struct of a merged embedding again, or every struct
 /// branch when the merge left a disjunction.
 pub fn reclose(arena: &mut ValueArena, id: ValueId) -> ValueId {
+    if let Some(mut metadata) = arena.metadata(id).cloned() {
+        if arena.has_embedded_recipe(id) {
+            if matches!(
+                metadata.source,
+                MetadataSource::Closed {
+                    closure: Closure::Recursive | Closure::Outer,
+                    ..
+                }
+            ) {
+                return id;
+            }
+            let conjuncts = match metadata.source {
+                MetadataSource::Embedded(conjuncts) => conjuncts,
+                _ => vec![Conjunct::Value(id)],
+            };
+            let payload = crate::metadata::payload(arena, id);
+            let closed = reclose(arena, payload);
+            metadata.view = Some(reclose(arena, metadata.view.unwrap_or(metadata.fields)));
+            metadata.source = MetadataSource::Closed {
+                conjuncts,
+                closure: Closure::Outer,
+            };
+            let value = arena.get(closed).expect("closed payload exists").clone();
+            return arena.alloc_with_metadata(value, metadata);
+        }
+        let fields = reclose(arena, metadata.fields);
+        let payload = if metadata.is_choice_view() {
+            let payload = crate::metadata::payload(arena, id);
+            reclose(arena, payload)
+        } else {
+            id
+        };
+        if fields == metadata.fields && payload == id {
+            return id;
+        }
+        metadata.fields = fields;
+        let value = arena.get(payload).expect("metadata owner exists").clone();
+        return arena.alloc_with_metadata(value, metadata);
+    }
     match arena.get(id).cloned() {
         Some(Value::Struct(mut s)) if !s.is_closed && !s.is_open => {
             s.is_closed = true;

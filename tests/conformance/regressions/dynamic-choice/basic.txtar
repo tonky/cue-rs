@@ -1,0 +1,6 @@
+-- in.cue --
+#Dynamic: {*(#x+1) | {f:#x}, #x:*1|int}
+a: #Dynamic & {_, #x:5}
+av: a+0 @test(eq, 6)
+b: #Dynamic & {f:3, #x:3}
+bf: b.f @test(eq, 3)

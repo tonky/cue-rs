@@ -1269,7 +1269,14 @@ impl<'a> Parser<'a> {
             Token::StringLit(s) => Self::parse_string_lit(s, span),
             // Bytes hold octets, not text; cue-rs does not interpolate them, and
             // `Decoder::escape` says so rather than dropping the `\(` silently.
-            Token::BytesLit(b) => Ok(Expr::Bytes(decode_lit(b, span, '\'')?)),
+            Token::BytesLit(raw) => {
+                let decoder = Decoder::new(&raw, span, '\'');
+                let text = decoder.layout_stripped(&raw)?;
+                Ok(Expr::Bytes(BytesLit {
+                    value: decoder.unescape_bytes(&text, 0)?,
+                    form: raw.form,
+                }))
+            }
             Token::Ident(id) => Ok(Expr::Ident(id)),
             Token::DefIdent(id) => Ok(Expr::DefIdent(id)),
             Token::HiddenIdent(id) => Ok(Expr::HiddenIdent(id)),
@@ -1436,28 +1443,39 @@ impl Decoder {
     /// `base` is where `s` begins within the literal's text, so a fragment taken from
     /// between two interpolations still reports the right position.
     fn unescape(&self, s: &str, base: usize) -> Result<String, ParseError> {
+        // Text escapes produce Unicode scalars; byte-only escapes are rejected
+        // by escape() for a double-quoted literal.
+        Ok(String::from_utf8(self.unescape_bytes(s, base)?).expect("text escapes preserve UTF-8"))
+    }
+
+    fn unescape_bytes(&self, s: &str, base: usize) -> Result<Vec<u8>, ParseError> {
         let guard = "#".repeat(self.hashes);
-        let mut out = String::with_capacity(s.len());
+        let mut out = Vec::with_capacity(s.len());
         let mut rest = s;
         let mut consumed = 0usize;
 
         while let Some(found) = rest.find('\\') {
-            out.push_str(&rest[..found]);
+            out.extend_from_slice(&rest.as_bytes()[..found]);
             let after = &rest[found + 1..];
             let Some(body) = after.strip_prefix(guard.as_str()) else {
                 // A backslash not carrying the guard is text, and does not consume what
                 // follows it.
-                out.push('\\');
+                out.push(b'\\');
                 consumed += found + 1;
                 rest = after;
                 continue;
             };
             let (decoded, width) = self.escape(body, base + consumed + found)?;
-            out.push(decoded);
+            if self.quote == '\'' && matches!(body.as_bytes().first(), Some(b'x' | b'0'..=b'7')) {
+                out.push(decoded as u8);
+            } else {
+                let mut bytes = [0; 4];
+                out.extend_from_slice(decoded.encode_utf8(&mut bytes).as_bytes());
+            }
             consumed += found + 1 + guard.len() + width;
             rest = &body[width..];
         }
-        out.push_str(rest);
+        out.extend_from_slice(rest.as_bytes());
         Ok(out)
     }
 

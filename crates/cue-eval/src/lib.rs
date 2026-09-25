@@ -1,9 +1,17 @@
+mod binary;
 pub mod closedness;
+mod declaration;
 pub mod deps;
 pub mod eval;
+pub mod export;
+mod expression;
 pub mod importer;
 pub mod manifest;
+mod metadata;
+mod number;
+mod operators;
 pub mod package;
+pub mod scope;
 pub mod stdlib;
 pub mod unify;
 pub mod value;

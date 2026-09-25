@@ -1,41 +1,15 @@
 use crate::value::{StructValue, Value, ValueArena, ValueId};
 use num_traits::ToPrimitive;
 
-const B64_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+use crate::binary::base64_encode;
 const B64_URL_CHARS: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 const B32_ALPHABET: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const B32_HEX_CHARS: &[u8; 32] = b"0123456789ABCDEFGHIJKLMNOPQRSTUV";
 
+/// Convert a concrete CUE value using the evaluator's export policy.
 pub fn value_to_json(arena: &ValueArena, val_id: ValueId) -> Result<serde_json::Value, String> {
-    match arena.get(val_id) {
-        Some(Value::Null) => Ok(serde_json::Value::Null),
-        Some(Value::Bool(b)) => Ok(serde_json::Value::Bool(*b)),
-        Some(Value::Int(i)) => {
-            if let Some(n) = i.to_i64() {
-                Ok(serde_json::json!(n))
-            } else {
-                Ok(serde_json::Value::String(i.to_string()))
-            }
-        }
-        Some(Value::Float(f)) => Ok(serde_json::json!(f)),
-        Some(Value::String(s)) => Ok(serde_json::Value::String(s.clone())),
-        Some(Value::List { elements, .. }) => {
-            let mut arr = Vec::new();
-            for &elem in elements {
-                arr.push(value_to_json(arena, elem)?);
-            }
-            Ok(serde_json::Value::Array(arr))
-        }
-        Some(Value::Struct(s)) => {
-            let mut map = serde_json::Map::new();
-            for (k, entry) in &s.fields {
-                map.insert(k.clone(), value_to_json(arena, entry.val)?);
-            }
-            Ok(serde_json::Value::Object(map))
-        }
-        _ => Err("cannot marshal non-concrete value".to_string()),
-    }
+    crate::export::to_json(arena, val_id)
 }
 
 pub fn json_to_value(arena: &mut ValueArena, j: serde_json::Value) -> ValueId {
@@ -43,9 +17,9 @@ pub fn json_to_value(arena: &mut ValueArena, j: serde_json::Value) -> ValueId {
         serde_json::Value::Null => arena.null(),
         serde_json::Value::Bool(b) => arena.bool(b),
         serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
+            if let Ok(i) = n.to_string().parse::<num_bigint::BigInt>() {
                 arena.int(i)
-            } else if let Some(f) = n.as_f64() {
+            } else if let Some(f) = n.as_f64().filter(|f| f.is_finite()) {
                 arena.float(f)
             } else {
                 arena.bottom("invalid json number")
@@ -150,7 +124,7 @@ pub fn call_encoding(
         ("yaml" | "encoding/yaml", "Marshal") => {
             if let Some(&arg0) = args.first() {
                 let j = value_to_json(arena, arg0)?;
-                let s = serde_yaml_ng::to_string(&j).map_err(|e| e.to_string())?;
+                let s = crate::export::json_to_yaml(&j)?;
                 return Ok(arena.string(s));
             }
             Err("yaml.Marshal requires 1 argument".to_string())
@@ -411,34 +385,6 @@ pub fn call_encoding(
         }
         _ => Err(format!("unknown encoding function: {pkg}.{func_name}")),
     }
-}
-
-fn base64_encode(input: &[u8]) -> String {
-    let mut out = String::new();
-    let mut i = 0;
-    while i < input.len() {
-        let b0 = input[i];
-        let b1 = if i + 1 < input.len() { input[i + 1] } else { 0 };
-        let b2 = if i + 2 < input.len() { input[i + 2] } else { 0 };
-
-        out.push(B64_CHARS[(b0 >> 2) as usize] as char);
-        out.push(B64_CHARS[(((b0 & 3) << 4) | (b1 >> 4)) as usize] as char);
-
-        if i + 1 < input.len() {
-            out.push(B64_CHARS[(((b1 & 15) << 2) | (b2 >> 6)) as usize] as char);
-        } else {
-            out.push('=');
-        }
-
-        if i + 2 < input.len() {
-            out.push(B64_CHARS[(b2 & 63) as usize] as char);
-        } else {
-            out.push('=');
-        }
-
-        i += 3;
-    }
-    out
 }
 
 fn base64_decode(input: &str) -> Result<Vec<u8>, String> {

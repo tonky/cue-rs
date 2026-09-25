@@ -1,0 +1,18 @@
+-- in.cue --
+empty: {}
+number: {2}
+text: {"hello"}
+bytes: {'hi'}
+list: {[1, 2]}
+null: {null}
+boolean: {true}
+nested: {{{3}}}
+meet: {int
+ 4}
+reverse: {4
+ int}
+default: {*1 | int}
+letValue: {let x = 3
+ x}
+forward: {x
+ let x = 4}

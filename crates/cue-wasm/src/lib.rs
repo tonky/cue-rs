@@ -7,7 +7,7 @@ pub fn eval_cue(source: &str, format: Option<String>) -> Result<String, String> 
 
     let fmt = format.as_deref().unwrap_or("json").to_lowercase();
     match fmt.as_str() {
-        "yaml" | "yml" => serde_yaml_ng::to_string(&json_val)
+        "yaml" | "yml" => cue_eval::export::json_to_yaml(&json_val)
             .map_err(|e| format!("YAML serialization error: {e}")),
         _ => serde_json::to_string_pretty(&json_val)
             .map_err(|e| format!("JSON serialization error: {e}")),
@@ -42,6 +42,12 @@ mod tests {
         let source = "a: 1, b: 2, c: a + b";
         let res = eval_cue(source, None).unwrap();
         assert!(res.contains("\"c\": 3"));
+    }
+
+    #[test]
+    fn yaml_preserves_numeric_scalars_and_binary_data() {
+        let output = eval_cue("a: 18446744073709551617\nb: '\\xff'", Some("yaml".into())).unwrap();
+        assert_eq!(output, "a: 18446744073709551617\nb: /w==\n");
     }
 
     #[test]

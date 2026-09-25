@@ -1,0 +1,8 @@
+-- in.cue --
+#D: {*(#x+1) | {f:#x}, #x:*1|int, f:int}
+a: #D & {#x:3}
+av: a.f @test(eq,3)
+base: #D.f
+#E: {*(#x+1) | {f:#x}, #x:*1|int, {}}
+b: #E & {#x:4}
+bv: b.f @test(eq,4)

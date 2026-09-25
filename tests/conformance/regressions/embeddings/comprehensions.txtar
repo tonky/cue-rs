@@ -1,0 +1,17 @@
+-- in.cue --
+empty: {
+    for x in [1] {
+        *close({}) | {[_]: null}
+    }
+}
+object: {
+    y: *1 | {a: 2}
+    for x in [1] {y}
+}
+scalar: {if true {3}}
+falseBranch: {if false {3}}
+list: {for x in [1] {[x, x+1]}}
+forwardLet: {
+    for x in [1] {later}
+    let later = 7
+}

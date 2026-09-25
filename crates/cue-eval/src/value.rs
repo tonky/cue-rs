@@ -1,7 +1,12 @@
+#[cfg(feature = "memory-profile")]
+mod profile;
+
+use crate::scope::ScopeFrame;
 use cue_syntax::ast::Expr;
 use num_bigint::BigInt;
 use serde::{Deserialize, Serialize};
 use slotmap::{SlotMap, new_key_type};
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
@@ -291,7 +296,7 @@ pub struct ThunkEnv {
     /// The scope stack as it stood where the literal was written. Deriving a
     /// field again runs its expression here, under one frame holding the merged
     /// values of the names this literal declares.
-    pub scopes: Vec<HashMap<String, ValueId>>,
+    pub scopes: Vec<ScopeFrame>,
     /// This literal's `let` and alias declarations, in source order. They are
     /// scope bindings rather than fields, so a thunk cannot read them back from
     /// a struct and derives them again beside the field that reads one.
@@ -307,7 +312,7 @@ pub struct ThunkEnv {
 
 impl ThunkEnv {
     pub fn new(
-        scopes: Vec<HashMap<String, ValueId>>,
+        scopes: Vec<ScopeFrame>,
         lets: Vec<(String, Rc<Expr>)>,
         own_fields: HashSet<String>,
         imports: Rc<Imports>,
@@ -370,7 +375,8 @@ pub struct FieldEntry {
     /// Unification of the conjuncts, cached so readers and export are unchanged.
     pub val: ValueId,
     pub optional: bool,
-    pub conjuncts: Vec<Conjunct>,
+    /// Immutable recipe sequence shared by copies of this field.
+    pub conjuncts: Rc<[Conjunct]>,
 }
 
 impl FieldEntry {
@@ -381,16 +387,25 @@ impl FieldEntry {
         Self {
             val,
             optional,
-            conjuncts: vec![Conjunct::Value(val)],
+            conjuncts: Rc::from([Conjunct::Value(val)]),
         }
     }
 
-    pub fn with_conjuncts(val: ValueId, optional: bool, conjuncts: Vec<Conjunct>) -> Self {
+    pub fn with_conjuncts(
+        val: ValueId,
+        optional: bool,
+        conjuncts: impl Into<Rc<[Conjunct]>>,
+    ) -> Self {
         Self {
             val,
             optional,
-            conjuncts,
+            conjuncts: conjuncts.into(),
         }
+    }
+
+    /// Extend only this field, preserving recipes held by earlier snapshots.
+    pub(crate) fn extend_conjuncts(&mut self, added: impl IntoIterator<Item = Conjunct>) {
+        self.conjuncts = self.conjuncts.iter().cloned().chain(added).collect();
     }
 
     pub fn has_thunk(&self) -> bool {
@@ -470,29 +485,150 @@ pub struct ArenaCheckpoint {
 #[derive(Debug, Default, Clone)]
 pub struct ValueArena {
     nodes: SlotMap<ValueId, Value>,
+    /// Sparse because most nodes need only their payload. Metadata has the
+    /// same lifetime as its owning node, including speculative rollback.
+    metadata: HashMap<ValueId, ValueMetadata>,
     trail: Vec<ValueId>,
+    /// Weak IDs: rollback may remove them, and public graph mutation may
+    /// replace their payload. Validate each hit before sharing it again.
+    booleans: [Option<ValueId>; 2],
+    /// Only live, unmodified string nodes. Mutation and rollback remove keys
+    /// so failed speculative work cannot retain text through this index.
+    strings: HashMap<String, ValueId>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ValueMetadata {
+    /// Always a struct node allocated in this arena.
+    pub fields: ValueId,
+    /// Fields of the materialized result, when branch-local declarations make
+    /// its selector view differ from the recipe's input declarations.
+    pub view: Option<ValueId>,
+    pub source: MetadataSource,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum MetadataSource {
+    Embedded(Vec<Conjunct>),
+    /// An expression and its original declarations close together, before
+    /// constraints supplied by a later unification are applied.
+    Closed {
+        conjuncts: Vec<Conjunct>,
+        closure: crate::closedness::Closure,
+    },
+    /// The alternatives already contain the common fields. This record only
+    /// makes those fields selectable without choosing an alternative.
+    ChoiceFields,
+}
+
+impl ValueMetadata {
+    pub(crate) fn is_choice_view(&self) -> bool {
+        matches!(self.source, MetadataSource::ChoiceFields)
+    }
+
+    pub(crate) fn conjuncts(&self) -> Option<&[Conjunct]> {
+        match &self.source {
+            MetadataSource::Embedded(conjuncts) | MetadataSource::Closed { conjuncts, .. } => {
+                Some(conjuncts)
+            }
+            MetadataSource::ChoiceFields => None,
+        }
+    }
 }
 
 impl ValueArena {
     pub fn new() -> Self {
         Self {
             nodes: SlotMap::with_key(),
+            metadata: HashMap::new(),
             trail: Vec::new(),
+            booleans: [None; 2],
+            strings: HashMap::new(),
         }
     }
 
+    /// Allocate a fresh node, even when an equal value already exists.
     pub fn alloc(&mut self, val: Value) -> ValueId {
         let id = self.nodes.insert(val);
         self.trail.push(id);
         id
     }
 
+    /// Semantic payload. Use [`Self::fields`] to inspect retained scalar fields.
     pub fn get(&self, id: ValueId) -> Option<&Value> {
         self.nodes.get(id)
     }
 
+    /// Mutate a graph node, affecting every reference to it. Use [`Self::alloc`]
+    /// for a fresh node when independent mutation is needed.
     pub fn get_mut(&mut self, id: ValueId) -> Option<&mut Value> {
+        if let Some(Value::String(value)) = self.nodes.get(id)
+            && self.strings.get(value) == Some(&id)
+        {
+            self.strings.remove(value);
+        }
         self.nodes.get_mut(id)
+    }
+
+    /// Fields retained by a value, including definitions on a scalar or list.
+    pub fn fields(&self, id: ValueId) -> Option<&StructValue> {
+        if let Some(Value::Struct(fields)) = self.get(id) {
+            return Some(fields);
+        }
+        let fields = self
+            .metadata
+            .get(&id)
+            .map_or(id, |metadata| metadata.view.unwrap_or(metadata.fields));
+        match self.get(fields) {
+            Some(Value::Struct(fields)) => Some(fields),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn metadata(&self, id: ValueId) -> Option<&ValueMetadata> {
+        self.metadata.get(&id)
+    }
+
+    pub(crate) fn embedded_metadata(&self, id: ValueId) -> Option<&ValueMetadata> {
+        self.metadata(id)
+            .filter(|metadata| metadata.conjuncts().is_some())
+    }
+
+    pub(crate) fn has_embedded_recipe(&self, id: ValueId) -> bool {
+        self.metadata(id).is_some_and(|metadata| {
+            matches!(metadata.source, MetadataSource::Closed { .. })
+                || metadata
+                    .conjuncts()
+                    .into_iter()
+                    .flatten()
+                    .any(|conjunct| match conjunct {
+                        Conjunct::Thunk(_) => true,
+                        Conjunct::Value(id) => self
+                            .metadata(*id)
+                            .is_some_and(|m| matches!(m.source, MetadataSource::Closed { .. })),
+                    })
+        })
+    }
+
+    pub(crate) fn alloc_with_metadata(&mut self, value: Value, metadata: ValueMetadata) -> ValueId {
+        debug_assert!(matches!(self.get(metadata.fields), Some(Value::Struct(_))));
+        debug_assert!(
+            metadata
+                .view
+                .is_none_or(|view| matches!(self.get(view), Some(Value::Struct(_))))
+        );
+        debug_assert!(metadata.conjuncts().is_some() || matches!(value, Value::Disjunction { .. }));
+        let id = self.alloc(value);
+        self.metadata.insert(id, metadata);
+        id
+    }
+
+    /// Copy a payload transformation without losing the owning value's fields.
+    pub(crate) fn alloc_like(&mut self, source: ValueId, value: Value) -> ValueId {
+        match self.metadata(source).cloned() {
+            Some(metadata) => self.alloc_with_metadata(value, metadata),
+            None => self.alloc(value),
+        }
     }
 
     pub fn checkpoint(&self) -> ArenaCheckpoint {
@@ -504,7 +640,12 @@ impl ValueArena {
     pub fn rollback(&mut self, checkpoint: ArenaCheckpoint) {
         while self.trail.len() > checkpoint.trail_len {
             if let Some(id) = self.trail.pop() {
-                self.nodes.remove(id);
+                if let Some(Value::String(value)) = self.nodes.remove(id)
+                    && self.strings.get(&value) == Some(&id)
+                {
+                    self.strings.remove(&value);
+                }
+                self.metadata.remove(&id);
             }
         }
     }
@@ -529,8 +670,18 @@ impl ValueArena {
         self.alloc(Value::Null)
     }
 
+    /// Return a shared, unannotated boolean. Metadata owners always use fresh
+    /// allocations so fields and lexical recipes cannot attach to this cache.
     pub fn bool(&mut self, b: bool) -> ValueId {
-        self.alloc(Value::Bool(b))
+        let index = usize::from(b);
+        if let Some(id) = self.booleans[index]
+            && matches!(self.get(id), Some(Value::Bool(value)) if *value == b)
+        {
+            return id;
+        }
+        let id = self.alloc(Value::Bool(b));
+        self.booleans[index] = Some(id);
+        id
     }
 
     pub fn int<I: Into<BigInt>>(&mut self, i: I) -> ValueId {
@@ -541,8 +692,17 @@ impl ValueArena {
         self.alloc(Value::Float(f))
     }
 
-    pub fn string<S: Into<String>>(&mut self, s: S) -> ValueId {
-        self.alloc(Value::String(s.into()))
+    /// Return a shared, unannotated string with exactly these contents. Use
+    /// [`Self::alloc`] when independent graph mutation is needed.
+    pub fn string<'a>(&mut self, s: impl Into<Cow<'a, str>>) -> ValueId {
+        let value = s.into();
+        if let Some(&id) = self.strings.get(value.as_ref()) {
+            return id;
+        }
+        let value = value.into_owned();
+        let id = self.alloc(Value::String(value.clone()));
+        self.strings.insert(value, id);
+        id
     }
 
     pub fn type_kind(&mut self, k: TypeKind) -> ValueId {

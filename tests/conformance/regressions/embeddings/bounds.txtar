@@ -1,0 +1,15 @@
+-- in.cue --
+object: {!=null
+ x: 1}
+reverse: {x: 1
+ !=null}
+list: {!=null
+ [1, 2]}
+number: {!=null
+ 2}
+boolean: {!=null
+ true}
+text: {!=null
+ "text"}
+bytes: {!=null
+ 'hi'}

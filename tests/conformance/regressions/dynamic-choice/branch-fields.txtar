@@ -1,0 +1,9 @@
+-- in.cue --
+#D: {*{#x+1,#tag:"scalar"} | {f:#x,#tag:"struct"}, #x:*1|int}
+s: (#D & {_,#x:3}) & 4
+sv: s.#tag @test(eq,"scalar")
+t: #D & {f:3,#x:3}
+tv: t.#tag @test(eq,"struct")
+open: {*(#x+1) | {f:#x},#x:*1|int}
+a: (open & {_,#x:3}) & {f:3}
+av: a.f @test(eq,3)

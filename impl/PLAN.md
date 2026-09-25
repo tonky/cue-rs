@@ -1,5 +1,60 @@
 # Implementation plan
 
+For the current checkpoint, prioritized next steps, ownership constraints and
+reproduction commands, start with [CONTINUATION.md](CONTINUATION.md).
+
+## Active roadmap: conformance, memory and architecture
+
+The user requested upstream compatibility fixes, lower RAM use and an
+architectural refactor, and explicitly permits beneficial Rust API breaks.
+The user approved phases 12-15 with "go". Phase 12 has established the initial assertion baseline. Enve is
+the direct Rust consumer; enact currently consumes enve's CLI.
+
+Start with trustworthy comparisons, then fix semantic families while
+tracking performance. Introduce architectural boundaries alongside those
+changes; complete ownership optimization and caller migration afterwards.
+The 43 legacy strict-corpus failures are signals to investigate, not an
+established count of semantic bugs. Existing passes also need verification.
+
+12. [Conformance oracle](12-conformance-oracle.md): establish fixture
+    provenance, operation-specific upstream comparisons and assertion-level
+    coverage. Unsupported checks cannot pass; strict acceptance exits nonzero
+    for failures or incomplete verification. Status: implemented; 28/547 cases
+    fully verified with remaining mismatches and unsupported checks recorded.
+13. [Upstream compatibility](13-upstream-compatibility.md): fix confirmed
+    compilation, evaluation, unification, builtin and diagnostic defects.
+    Resolve all original signals and newly exposed portable semantic failures.
+    Concrete export family implemented: exact integers, byte octets/base64,
+    consistent encoder defaults/optionality and YAML numeric serialization.
+    Scalar operands/integer arithmetic now select defaults, preserve incomplete
+    dependencies, avoid integer-literal overflow and implement integer division
+    variants. Scalar roots, plain embeddings and comprehension constraints now
+    retain their value kind. Scalar/list values now preserve metadata and embedded
+    recipes through selection, imports and specialization. Fixed mixed choices now
+    combine common fields with each branch before closing, with a separate selector
+    view. Dynamic choices retain grouped recipes and closing boundaries across
+    specialization, including branch-local fields and explicit struct constraints. Current gate: 749 passed,
+    749 mismatches, 3,383 unsupported checks; phase remains in progress.
+14. [Evaluation memory](14-evaluation-memory.md): profile allocation owners,
+    share compiled expressions and lexical environments, then reclaim work
+    at proven lifetime boundaries. Proposed Odoo peak-RSS targets: refs
+    300 MiB, literal 200 MiB, original normal rejection within 512 MiB.
+    Shared frames, constant value conjuncts and shared recipe syntax implemented.
+    Direct dependencies are now cached with separate lexical let closures.
+    Scalar constructor sharing and immutable field recipe slices now reduce
+    medians to refs 135 MiB, literal 86 MiB, original 693 MiB (54%, 49%, 29%
+    lower than the preceding family). The two valid variants meet their targets.
+    Original still exceeds 512 MiB; execution-root inventory and reclamation
+    remain open. Profiling is available behind `memory-profile`.
+15. [Evaluator architecture](15-evaluator-architecture.md): separate program,
+    session, value ownership, unification and observation; use typed states
+    and diagnostics, migrate callers and remove superseded paths.
+
+All implementation and validation continue under process-tree memory caps.
+API permission does not authorize publication or downstream revision changes.
+
+## Completed phases
+
 1. [String inequality bounds](01-string-not-equal.md): implement exact string
    inequality and verify evaluator, package export, and upstream compatibility.
    Status: complete; tests, upstream comparison, Clippy and independent review passed.

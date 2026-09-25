@@ -1,0 +1,15 @@
+-- in.cue --
+top: {_} & 3 @test(eq, 3)
+kind: {int} & 4 @test(eq, 4)
+nonNull: {!=null} & 5 @test(eq, 5)
+empty: {{}} @test(eq, {})
+wrongKind: {int} & "text" @test(err, code=eval)
+wrongEmpty: {{}} & 3 @test(err, code=eval)
+wrongNull: {!=null} & null @test(err, code=eval)
+range: {!=null & >0} & 6 @test(eq, 6)
+wrongRange: {!=null & >0} & -1 @test(err, code=eval)
+base: {int & !=null} & "text" @test(err, code=eval)
+#Base: {input: *1 | int, output: {input + 1}}
+instance: #Base & {input: 5}
+result: instance.output @test(eq, 6)
+reverse: ({input: 8} & #Base).output @test(eq, 9)

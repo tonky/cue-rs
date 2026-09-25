@@ -1,0 +1,9 @@
+-- in.cue --
+quotient: 2 / 3 * 6
+mixedEquality: 2.0 == 2
+divNegative: div(-7, 3)
+modNegative: mod(-7, 3)
+quoNegative: quo(-7, 3)
+remNegative: rem(-7, 3)
+largeHex: 0x10000000000000001
+largeSI: 10000000000000000K

@@ -1,0 +1,21 @@
+-- in.cue --
+#Mixed: {*1 | {f:int} | {g:string}, #x:3, common?:bool}
+x: #Mixed.#x @test(eq, 3)
+a: #Mixed & {f:3,common:true}
+af: a.f @test(eq, 3)
+b: {g:"ok",common:false} & #Mixed
+bg: b.g @test(eq, "ok")
+bad: #Mixed & {f:3,g:"bad"} @test(err, code=eval)
+extra: #Mixed & {f:3,z:4} @test(err, code=eval)
+c: #Mixed & 1
+cx: c.#x @test(eq, 3)
+cv: c+0 @test(eq, 1)
+#Nested: {*1 | {f:{n:int}}, #x:3}
+nested: #Nested & {f:{n:3}}
+n: nested.f.n @test(eq, 3)
+badNested: #Nested & {f:{n:3,z:1}} @test(err, code=eval)
+#Open: {*1 | {f:int,...}, #x:3}
+opened: #Open & {f:3,z:4}
+z: opened.z @test(eq, 4)
+#Top: {_ | {f:int}, #x:3}
+badTop: #Top & {z:3} @test(err, code=eval)

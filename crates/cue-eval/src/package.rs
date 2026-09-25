@@ -1,5 +1,5 @@
 use crate::eval::{EvalError, Evaluator};
-use crate::value::{StructValue, Value, ValueId};
+use crate::value::{Value, ValueId};
 use cue_syntax::ast::Decl;
 use std::path::{Path, PathBuf};
 
@@ -138,12 +138,10 @@ impl PackageLoader {
             &mut evaluator,
         )?;
 
-        let mut root_struct = StructValue::new(false);
-        evaluator.eval_root_decls(&parsed_file.decls, &mut root_struct)?;
+        let root_id = evaluator.eval_root_decls(&parsed_file.decls)?;
         let parent_dir = file_path.parent().unwrap_or_else(|| Path::new("."));
-        Self::annotate_origin(&mut evaluator, &mut root_struct, parent_dir);
+        Self::annotate_origin(&mut evaluator, root_id, parent_dir);
 
-        let root_id = evaluator.arena.alloc(Value::Struct(root_struct));
         Ok((evaluator, root_id))
     }
 
@@ -229,12 +227,11 @@ impl PackageLoader {
         Self::resolve_imports_for_files(&parsed_files, &mod_roots, evaluator)?;
 
         let all_decls: Vec<Decl> = parsed_files.into_iter().flat_map(|f| f.decls).collect();
-        let mut package_struct = StructValue::new(false);
-        evaluator.eval_root_decls(&all_decls, &mut package_struct)?;
+        let root_id = evaluator.eval_root_decls(&all_decls)?;
         let canonical_dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
-        Self::annotate_origin(evaluator, &mut package_struct, &canonical_dir);
+        Self::annotate_origin(evaluator, root_id, &canonical_dir);
 
-        Ok(evaluator.arena.alloc(Value::Struct(package_struct)))
+        Ok(root_id)
     }
 
     fn resolve_imports_for_files(
@@ -368,8 +365,11 @@ impl PackageLoader {
         Ok(files)
     }
 
-    fn annotate_origin(evaluator: &mut Evaluator, root: &mut StructValue, origin_dir: &Path) {
+    fn annotate_origin(evaluator: &mut Evaluator, root_id: ValueId, origin_dir: &Path) {
         let Some(annotation) = evaluator.origin.clone() else {
+            return;
+        };
+        let Some(Value::Struct(mut root)) = evaluator.arena.get(root_id).cloned() else {
             return;
         };
         let origin = evaluator
@@ -378,6 +378,9 @@ impl PackageLoader {
         let mut done = std::collections::HashMap::new();
         for entry in root.fields.values_mut() {
             entry.val = annotate(evaluator, entry.val, &annotation, origin, &mut done);
+        }
+        if let Some(value) = evaluator.arena.get_mut(root_id) {
+            *value = Value::Struct(root);
         }
     }
 }
@@ -413,7 +416,7 @@ fn annotate(
                 changed = true;
             }
             if changed {
-                evaluator.arena.alloc(Value::Struct(s))
+                evaluator.arena.alloc_like(id, Value::Struct(s))
             } else {
                 id
             }
@@ -429,9 +432,12 @@ fn annotate(
             if annotated == branches {
                 id
             } else {
-                evaluator.arena.alloc(Value::Disjunction {
-                    branches: annotated,
-                })
+                evaluator.arena.alloc_like(
+                    id,
+                    Value::Disjunction {
+                        branches: annotated,
+                    },
+                )
             }
         }
         Some(Value::List { elements, ellipsis }) => {
@@ -442,10 +448,13 @@ fn annotate(
             if annotated == elements {
                 id
             } else {
-                evaluator.arena.alloc(Value::List {
-                    elements: annotated,
-                    ellipsis,
-                })
+                evaluator.arena.alloc_like(
+                    id,
+                    Value::List {
+                        elements: annotated,
+                        ellipsis,
+                    },
+                )
             }
         }
         _ => id,

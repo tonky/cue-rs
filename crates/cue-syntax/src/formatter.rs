@@ -465,7 +465,7 @@ fn format_expr(expr_node: &Expr, out: &mut String, indent: usize) {
         Expr::Bool(b) => out.push_str(&b.to_string()),
         Expr::Number(n) => out.push_str(n),
         Expr::String(s) => format_string_lit(s, '"', out, indent),
-        Expr::Bytes(b) => format_string_lit(b, '\'', out, indent),
+        Expr::Bytes(b) => format_bytes_lit(b, out, indent),
         Expr::Ident(id) | Expr::DefIdent(id) | Expr::HiddenIdent(id) | Expr::HiddenDefIdent(id) => {
             out.push_str(id)
         }
@@ -685,6 +685,33 @@ fn format_string_lit(lit: &StringLit, quote: char, out: &mut String, indent: usi
     let mut body = String::new();
     escape_into(form, &lit.value, quote, &mut body);
     wrap_literal(form, quote, &body, out, indent);
+}
+
+fn format_bytes_lit(lit: &BytesLit, out: &mut String, indent: usize) {
+    if let Ok(value) = std::str::from_utf8(&lit.value) {
+        format_string_lit(
+            &StringLit {
+                value: value.into(),
+                form: lit.form,
+            },
+            '\'',
+            out,
+            indent,
+        );
+        return;
+    }
+    // Invalid UTF-8 cannot appear literally in CUE source. A quoted spelling
+    // with byte escapes preserves every octet, regardless of the original form.
+    out.push('\'');
+    for &byte in &lit.value {
+        match byte {
+            b'\'' => out.push_str("\\'"),
+            b'\\' => out.push_str("\\\\"),
+            b' '..=b'~' => out.push(char::from(byte)),
+            _ => out.push_str(&format!("\\x{byte:02x}")),
+        }
+    }
+    out.push('\'');
 }
 
 /// The form to write this value in: the one it was read in, unless that form cannot hold

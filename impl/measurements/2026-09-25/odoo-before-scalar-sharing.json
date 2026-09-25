@@ -1,0 +1,84 @@
+{
+  "binary": "/home/tonky/.cargo/target/release/cue-rs",
+  "binary_sha256": "abcd2658ad5b787d629fd1e69887aa00f6eb86dca9ec29c79b7300f623225663",
+  "repro": "/home/tonky/projects/cue-rs-odoo-repro",
+  "cue_sources_sha256": "f8ac1f8c81e1dcb5f423e1ab608656d228311949432ae4bdb2cb02877836568b",
+  "reference_checked": true,
+  "cases": {
+    "literal": {
+      "samples": [
+        {
+          "seconds": 0.38,
+          "rss_kib": 171964,
+          "exit_code": 0,
+          "json_sha256": "dd0c13b7a25cd1a826f872f279f1801aac7190204fc3896a94242ad5a555cf02"
+        },
+        {
+          "seconds": 0.38,
+          "rss_kib": 171824,
+          "exit_code": 0,
+          "json_sha256": "dd0c13b7a25cd1a826f872f279f1801aac7190204fc3896a94242ad5a555cf02"
+        },
+        {
+          "seconds": 0.38,
+          "rss_kib": 171804,
+          "exit_code": 0,
+          "json_sha256": "dd0c13b7a25cd1a826f872f279f1801aac7190204fc3896a94242ad5a555cf02"
+        }
+      ],
+      "median_seconds": 0.38,
+      "median_rss_kib": 171824,
+      "max_rss_kib": 171964
+    },
+    "refs": {
+      "samples": [
+        {
+          "seconds": 0.68,
+          "rss_kib": 301952,
+          "exit_code": 0,
+          "json_sha256": "dd0c13b7a25cd1a826f872f279f1801aac7190204fc3896a94242ad5a555cf02"
+        },
+        {
+          "seconds": 0.69,
+          "rss_kib": 301620,
+          "exit_code": 0,
+          "json_sha256": "dd0c13b7a25cd1a826f872f279f1801aac7190204fc3896a94242ad5a555cf02"
+        },
+        {
+          "seconds": 0.69,
+          "rss_kib": 302188,
+          "exit_code": 0,
+          "json_sha256": "dd0c13b7a25cd1a826f872f279f1801aac7190204fc3896a94242ad5a555cf02"
+        }
+      ],
+      "median_seconds": 0.69,
+      "median_rss_kib": 301952,
+      "max_rss_kib": 302188
+    },
+    "original": {
+      "samples": [
+        {
+          "seconds": 2.51,
+          "rss_kib": 1003900,
+          "exit_code": 1,
+          "diagnostic": "Error: CUE export failed: cannot export bottom at 'pipeline.components.account.name': _|_ (cycle with field: name: incomplete value)"
+        },
+        {
+          "seconds": 2.5,
+          "rss_kib": 1003856,
+          "exit_code": 1,
+          "diagnostic": "Error: CUE export failed: cannot export bottom at 'pipeline.components.account.name': _|_ (cycle with field: name: incomplete value)"
+        },
+        {
+          "seconds": 2.51,
+          "rss_kib": 1004056,
+          "exit_code": 1,
+          "diagnostic": "Error: CUE export failed: cannot export bottom at 'pipeline.components.account.name': _|_ (cycle with field: name: incomplete value)"
+        }
+      ],
+      "median_seconds": 2.51,
+      "median_rss_kib": 1003900,
+      "max_rss_kib": 1004056
+    }
+  }
+}

@@ -1,0 +1,9 @@
+-- in.cue --
+#Schema
+#Schema: close({a: 1})
+extra: 2
+nested: {
+    c: 3
+    #Inner
+    #Inner: close({b: 4})
+}

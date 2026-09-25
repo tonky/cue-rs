@@ -1,0 +1,12 @@
+-- in.cue --
+bad: {1
+ 2} @test(err, code=eval)
+object: {1
+ x: 2} @test(err, code=eval)
+reverse: {x: 2
+ 1} @test(err, code=eval)
+empty: {{}
+ 2} @test(err, code=eval)
+null: {!=null
+ null} @test(err, code=eval)
+good: {3}

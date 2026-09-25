@@ -1,0 +1,24 @@
+Concrete export and builtin encoding must share the same value policy.
+-- in.cue --
+import "encoding/json"
+import "encoding/yaml"
+import "encoding/hex"
+positive: 18446744073709551617
+negative: -18446744073709551617
+huge: 12345678901234567890123456789012345678901234567890
+encoded: json.Marshal(positive)
+decoded: json.Unmarshal("18446744073709551617")
+bytes: '\x00\xff'
+bytes: '\000\377'
+byteLength: len(bytes)
+hexadecimal: hex.Encode(bytes)
+encodedBytes: json.Marshal(bytes)
+unicode: '\u00ff'
+literal: 'ÿ'
+raw: #'\#xff'#
+defaults: {a: *5 | int, absent?: 42, nested: {present: "yes", absent?: int}}
+encodedDefaults: json.Marshal(defaults)
+yamlText: yaml.Marshal({a: 2, text: "ok"})
+yamlBig: yaml.Marshal({a: positive})
+openList: [1, ...int]
+encodedList: json.Marshal(openList)

@@ -20,9 +20,19 @@ use cue_syntax::ast::{
 /// Names an expression could resolve in its enclosing scopes, with the names a
 /// `let` of the same literal reaches folded in.
 pub fn recipe_deps(expr: &Expr, lets: &[(String, Rc<Expr>)]) -> HashSet<String> {
+    expand_lets(direct_deps(expr), lets)
+}
+
+pub(crate) fn direct_deps(expr: &Expr) -> HashSet<String> {
     let mut names = HashSet::new();
     walk_expr(expr, &mut names);
+    names
+}
 
+pub(crate) fn expand_lets(
+    mut names: HashSet<String>,
+    lets: &[(String, Rc<Expr>)],
+) -> HashSet<String> {
     // A recipe that reads a binding also reads whatever the binding reads, and a
     // binding may read another, so the closure runs until it stops growing.
     // Each pass adds at least one name or ends the loop.

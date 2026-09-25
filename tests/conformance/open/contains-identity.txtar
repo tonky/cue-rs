@@ -1,0 +1,6 @@
+# Exact string sharing makes the first check pass, but Contains must compare
+# values independently of arena allocation identity. Integers remain a witness.
+-- in.cue --
+import "list"
+strings: list.Contains(["same"], "same") @test(eq, true)
+integers: list.Contains([7], 7) @test(eq, true)

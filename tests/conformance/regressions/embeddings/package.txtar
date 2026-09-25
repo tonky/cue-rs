@@ -1,0 +1,7 @@
+-- a.cue --
+package example
+int
+-- b.cue --
+package example
+let value = 4
+value

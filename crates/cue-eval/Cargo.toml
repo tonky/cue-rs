@@ -14,7 +14,7 @@ cue-syntax = { workspace = true }
 slotmap = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
 serde_yaml_ng = { workspace = true }
 regex = { workspace = true }
 num-bigint = { workspace = true }
@@ -23,3 +23,10 @@ num-traits = { workspace = true }
 [dev-dependencies]
 cue-test-harness = { workspace = true }
 tempfile = { workspace = true }
+
+[features]
+memory-profile = []
+
+[[example]]
+name = "memory_profile"
+required-features = ["memory-profile"]

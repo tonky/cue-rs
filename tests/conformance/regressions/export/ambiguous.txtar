@@ -1,0 +1,6 @@
+A builtin cannot pick an arbitrary member of an ambiguous default set.
+-- in.cue --
+import "encoding/json"
+plain: json.Marshal("a" | "b") @test(err)
+marked: json.Marshal(*"a" | *"b") @test(err)
+length: len(*"a" | *"bb") @test(err)

@@ -1,0 +1,19 @@
+-- in.cue --
+#D: {*(#x+1) | {f:#x}, #x:*1|int}
+#E: {#D, added?:bool}
+a: #E & {f:3,#x:3,added:true}
+af: a.f @test(eq,3)
+bad: #E & {f:3,#x:3,z:true} @test(err,code=eval)
+#Nested: {*(#x+1) | {f:{n:#x}}, #x:*1|int}
+#N: {#Nested, added?:bool}
+badNested: #N & {f:{n:3,z:1},#x:3} @test(err,code=eval)
+#Both: #D & {_,#x:3}
+b: #Both & {f:3}
+bf: b.f @test(eq,3)
+c: #Both+0 @test(eq,4)
+#Prod: {environment:"production",replicas:5}
+#Dev: {environment:"development",replicas:1}
+#Env: #Prod | #Dev
+app: {#Env,name:"billing",environment:"development"}
+appName: app.name @test(eq,"billing")
+appReplicas: app.replicas @test(eq,1)

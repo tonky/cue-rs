@@ -1,0 +1,12 @@
+-- in.cue --
+import "strings"
+import "list"
+a: {3, #unit: "kg"}
+unit: a.#unit
+sum: a+2
+b: {[1,2], #unit: 3}
+index: b[1]
+concat: list.Concat([b,b])
+s: {"foo", #part: "bar"}
+join: strings.Join([s,s.#part], "--")
+h: {_x: "foo", [_x]}

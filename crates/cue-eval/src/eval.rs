@@ -1,4 +1,7 @@
 use crate::closedness::{ClosedCopies, open_for_embedding, reclose};
+use crate::declaration::DeclarationValue;
+use crate::expression::ExpressionStore;
+use crate::scope::ScopeFrame;
 use crate::unify::unify;
 use crate::unify::{Equivalence, compare_values, push_branch};
 use crate::value::{
@@ -6,11 +9,9 @@ use crate::value::{
     StructValue, Thunk, ThunkEnv, TypeKind, Value, ValueArena, ValueId,
 };
 use cue_syntax::ast::*;
-use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
-use std::str::FromStr;
 use thiserror::Error;
 
 /// How deep the unresolved-reference walk descends. The value graph it walks
@@ -86,7 +87,8 @@ const SECTIONS: [Section; 3] = [Section::Field, Section::Definition, Section::Hi
 
 pub struct Evaluator {
     pub arena: ValueArena,
-    scopes: Vec<HashMap<String, ValueId>>,
+    scopes: Vec<ScopeFrame>,
+    expressions: ExpressionStore,
     resolving_symbols: HashSet<String>,
     /// Environment of the struct literal being evaluated, which its fields
     /// capture as the scope their recipes run in.
@@ -146,7 +148,8 @@ impl Evaluator {
     pub fn with_arena(arena: ValueArena) -> Self {
         let mut evaluator = Self {
             arena,
-            scopes: vec![HashMap::new()],
+            scopes: vec![ScopeFrame::default()],
+            expressions: ExpressionStore::default(),
             resolving_symbols: HashSet::new(),
             current_env: None,
             current_field: None,
@@ -210,7 +213,7 @@ impl Evaluator {
     }
 
     pub fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
+        self.scopes.push(ScopeFrame::default());
     }
 
     pub fn pop_scope(&mut self) {
@@ -221,7 +224,7 @@ impl Evaluator {
 
     pub fn insert_binding(&mut self, name: &str, val: ValueId) {
         if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name.to_string(), val);
+            scope.insert(name, val);
         }
     }
 
@@ -259,35 +262,46 @@ impl Evaluator {
                 .insert(pkg_name, imp.path.clone());
         }
 
-        let mut root_struct = StructValue::new(false);
-        self.eval_root_decls(&file.decls, &mut root_struct)?;
-        Ok(self.arena.alloc(Value::Struct(root_struct)))
+        self.eval_root_decls(&file.decls)
     }
 
     /// Evaluate the top level of a file or package. It is never closed: a
     /// definition embedded there constrains nothing beside it.
-    pub fn eval_root_decls(
-        &mut self,
-        decls: &[Decl],
-        target_struct: &mut StructValue,
-    ) -> Result<(), EvalError> {
+    pub fn eval_root_decls(&mut self, decls: &[Decl]) -> Result<ValueId, EvalError> {
         let enclosing = std::mem::replace(&mut self.at_file_root, true);
-        let result = self.eval_decls_into_struct(decls, target_struct);
+        let result = self
+            .eval_decls(decls)
+            .and_then(|value| self.finish_decls(value));
         self.at_file_root = enclosing;
         result
     }
 
-    pub fn eval_decls_into_struct(
+    fn eval_decls(&mut self, decls: &[Decl]) -> Result<DeclarationValue, EvalError> {
+        let mut target = DeclarationValue::default();
+        self.eval_decls_into(decls, &mut target)?;
+        Ok(target)
+    }
+
+    fn finish_decls(&mut self, value: DeclarationValue) -> Result<ValueId, EvalError> {
+        let value = value.finish(&mut self.arena);
+        if self.arena.metadata(value).is_some() {
+            self.rederive(value)
+        } else {
+            Ok(value)
+        }
+    }
+
+    fn eval_decls_into(
         &mut self,
         decls: &[Decl],
-        target_struct: &mut StructValue,
+        target: &mut DeclarationValue,
     ) -> Result<(), EvalError> {
         // The literal being evaluated owns `current_env` while it runs, and the
         // one it is written inside takes it back afterwards.
         let enclosing = self.current_env.take();
         let saved_depth = self.struct_scope_depth;
         self.struct_scope_depth = self.scopes.len().saturating_sub(1);
-        let result = self.eval_decls_scoped(decls, target_struct);
+        let result = self.eval_decls_scoped(decls, target);
         self.struct_scope_depth = saved_depth;
         self.current_env = enclosing;
         result
@@ -296,7 +310,7 @@ impl Evaluator {
     fn eval_decls_scoped(
         &mut self,
         decls: &[Decl],
-        target_struct: &mut StructValue,
+        target: &mut DeclarationValue,
     ) -> Result<(), EvalError> {
         // A reference must see every declaration of a static field, including
         // declarations appearing after the reference in source order.
@@ -305,7 +319,7 @@ impl Evaluator {
         // struct was written in the same lexical scope.
         let env = Rc::new(ThunkEnv::new(
             self.scopes.clone(),
-            Self::collect_let_declarations(&decls),
+            self.collect_let_declarations(&decls),
             Self::collect_field_names(&decls),
             self.imports.clone(),
         ));
@@ -343,7 +357,7 @@ impl Evaluator {
                     })
                 )
             })
-            .then(|| (target_struct.clone(), self.scopes.clone()));
+            .then(|| (target.clone(), self.scopes.clone()));
         // Pass 1: Pre-register definition placeholders for recursive and forward references
         for decl in &decls {
             if let Decl::Field(f) = decl
@@ -379,7 +393,7 @@ impl Evaluator {
             let mut made_progress = false;
 
             for &decl in &pending_decls {
-                let resolved = self.eval_single_decl(decl, target_struct, &env, false)?;
+                let resolved = self.eval_single_decl(decl, target, &env, false)?;
                 if resolved {
                     made_progress = true;
                 } else {
@@ -407,7 +421,7 @@ impl Evaluator {
                 }
                 // Saturated / cannot resolve further; final evaluation accepts bottom errors
                 for &decl in &next_pending {
-                    self.eval_single_decl(decl, target_struct, &env, true)?;
+                    self.eval_single_decl(decl, target, &env, true)?;
                 }
                 break;
             }
@@ -436,29 +450,29 @@ impl Evaluator {
                     }
                 }
             }
-            *target_struct = base_struct;
+            *target = base_struct;
             self.scopes = base_scopes;
-            return self.eval_decls_into_struct(&named_decls, target_struct);
+            return self.eval_decls_into(&named_decls, target);
         }
 
         // A comprehension, an embedding or a pattern constraint can change a field
         // after another field has already read it. Those are the paths whose
         // readers need deriving again; an ordinary literal is derived again by
         // the merge that changed it.
-        let needs_rederive = !target_struct.pattern_constraints.is_empty()
+        let needs_rederive = !target.structure.pattern_constraints.is_empty()
             || decls
                 .iter()
                 .any(|d| matches!(d, Decl::Comprehension(_) | Decl::Embedding(_)));
 
         // Apply pattern constraints to matching fields
-        let pattern_constraints = target_struct.pattern_constraints.clone();
+        let pattern_constraints = target.structure.pattern_constraints.clone();
         for pc in pattern_constraints {
-            let field_names: Vec<String> = target_struct.fields.keys().cloned().collect();
+            let field_names: Vec<String> = target.structure.fields.keys().cloned().collect();
             for field_name in field_names {
-                let name_id = self.arena.string(field_name.clone());
+                let name_id = self.arena.string(field_name.as_str());
                 let match_res = crate::unify::unify(&mut self.arena, pc.pattern_val, name_id);
                 if !matches!(self.arena.get(match_res), Some(Value::Bottom(_)))
-                    && let Some(entry) = target_struct.fields.get_mut(&field_name)
+                    && let Some(entry) = target.structure.fields.get_mut(&field_name)
                 {
                     let new_val = crate::unify::unify(&mut self.arena, entry.val, pc.target_val);
                     entry.val = new_val;
@@ -468,7 +482,7 @@ impl Evaluator {
 
         if needs_rederive {
             let mut visiting = HashSet::new();
-            self.rederive_struct(target_struct, &mut visiting)?;
+            self.rederive_struct(&mut target.structure, &mut visiting)?;
         }
 
         Ok(())
@@ -528,12 +542,12 @@ impl Evaluator {
     /// `let` and alias declarations of one literal, in declaration order. They are
     /// scope bindings rather than fields, so a thunk cannot read them back from
     /// the struct it is forced against and has to derive them again.
-    fn collect_let_declarations(decls: &[Decl]) -> Vec<(String, Rc<Expr>)> {
+    fn collect_let_declarations(&mut self, decls: &[Decl]) -> Vec<(String, Rc<Expr>)> {
         decls
             .iter()
             .filter_map(|decl| match decl {
                 Decl::Let { ident, expr } | Decl::Alias { ident, expr } => {
-                    Some((ident.clone(), Rc::new(expr.clone())))
+                    Some((ident.clone(), self.expressions.intern(expr)))
                 }
                 _ => None,
             })
@@ -601,6 +615,13 @@ impl Evaluator {
         let Some(depth) = depth.checked_sub(1) else {
             return false;
         };
+        if self
+            .arena
+            .metadata(val_id)
+            .is_some_and(|metadata| self.is_unresolved_within(metadata.fields, depth))
+        {
+            return true;
+        }
         let any = |ids: &mut dyn Iterator<Item = ValueId>| -> bool {
             for id in ids {
                 if self.is_unresolved_within(id, depth) {
@@ -635,7 +656,7 @@ impl Evaluator {
     fn eval_single_decl(
         &mut self,
         decl: &Decl,
-        target_struct: &mut StructValue,
+        target: &mut DeclarationValue,
         env: &Rc<ThunkEnv>,
         final_pass: bool,
     ) -> Result<bool, EvalError> {
@@ -643,7 +664,7 @@ impl Evaluator {
         // around it that still retries may yet bind what they read.
         let enclosing = self.deferring;
         self.deferring = enclosing || !final_pass;
-        let result = self.eval_decl_pass(decl, target_struct, env, final_pass);
+        let result = self.eval_decl_pass(decl, target, env, final_pass);
         self.deferring = enclosing;
         result
     }
@@ -651,7 +672,7 @@ impl Evaluator {
     fn eval_decl_pass(
         &mut self,
         decl: &Decl,
-        target_struct: &mut StructValue,
+        target: &mut DeclarationValue,
         env: &Rc<ThunkEnv>,
         final_pass: bool,
     ) -> Result<bool, EvalError> {
@@ -660,7 +681,9 @@ impl Evaluator {
                 Label::Pattern(pattern_expr) => {
                     let pattern_val = self.eval_expr(pattern_expr)?;
                     let target_val = self.eval_expr(&f.value)?;
-                    target_struct.add_pattern_constraint(pattern_val, target_val);
+                    target
+                        .structure
+                        .add_pattern_constraint(pattern_val, target_val);
                     Ok(!self.is_unresolved(target_val))
                 }
                 Label::Dynamic(dyn_expr) => {
@@ -676,7 +699,7 @@ impl Evaluator {
                             return Ok(false);
                         }
                         let val_id = self.unify_decl_field(
-                            &mut target_struct.fields,
+                            &mut target.structure.fields,
                             &name,
                             val_id,
                             f.optional,
@@ -732,7 +755,7 @@ impl Evaluator {
                             && !f.label.is_hidden()
                             && !placeholder
                         {
-                            let partial = match target_struct.fields.get(name) {
+                            let partial = match target.structure.fields.get(name) {
                                 Some(entry) => unify(&mut self.arena, entry.val, val_id),
                                 None => val_id,
                             };
@@ -742,11 +765,11 @@ impl Evaluator {
                     }
                     if let Some(name) = f.label.name() {
                         let fields = if f.label.is_definition() {
-                            &mut target_struct.definitions
+                            &mut target.structure.definitions
                         } else if f.label.is_hidden() {
-                            &mut target_struct.hidden
+                            &mut target.structure.hidden
                         } else {
-                            &mut target_struct.fields
+                            &mut target.structure.fields
                         };
                         let val_id =
                             self.unify_decl_field(fields, name, val_id, f.optional, conjunct)?;
@@ -778,56 +801,97 @@ impl Evaluator {
             Decl::Embedding(expr) => {
                 let enclosing = self.reading_root_embedding;
                 self.reading_root_embedding |= self.at_file_root;
-                let embedded_id = self.eval_expr(expr);
+                let embedded = self.eval_expr(expr);
                 self.reading_root_embedding = enclosing;
-                let embedded_id = embedded_id?;
-                let is_unresolved = self.is_unresolved(embedded_id);
+                let embedded_id = embedded?;
+                let is_unresolved =
+                    self.is_placeholder(embedded_id) || self.is_unresolved(embedded_id);
                 if is_unresolved && !final_pass {
                     return Ok(false);
                 }
-                let current_id = self.arena.alloc(Value::Struct(target_struct.clone()));
-                let (embedded_id, was_closed) = open_for_embedding(&mut self.arena, embedded_id);
-                let unified_id = unify(&mut self.arena, current_id, embedded_id);
-                let unified_id = if was_closed && !self.at_file_root {
-                    reclose(&mut self.arena, unified_id)
+                // A literal that reached its final pass may still be inside an
+                // outer retry loop. An unbound definition is pending input,
+                // not a recursive value that can replace this literal's fields.
+                let embedded_id = if self.is_placeholder(embedded_id) {
+                    self.arena.bottom_of(
+                        BottomKind::Unresolved,
+                        "embedded definition not evaluated yet",
+                    )
                 } else {
-                    unified_id
+                    embedded_id
                 };
-                if let Some(Value::Struct(s)) = self.arena.get(unified_id) {
-                    // An embedding may change a field another field has already
-                    // read; the pass at the end of the literal derives those
-                    // readers again.
-                    *target_struct = s.clone();
-                    self.bind_struct_fields(target_struct);
-                } else if let Some(Value::Bottom(reason)) = self.arena.get(unified_id) {
-                    // An embedding whose reference has not resolved yet is the
-                    // enclosing literal's business, not a failure: it carries the
-                    // bottom to its own retry loop.
-                    let message = reason.to_string();
-                    return Err(if reason.kind.may_resolve_later() {
-                        EvalError::Unresolved(message)
+                let (embedded_id, was_closed) = open_for_embedding(&mut self.arena, embedded_id);
+                if matches!(self.arena.get(embedded_id), Some(Value::Struct(_)))
+                    && !self.arena.has_embedded_recipe(embedded_id)
+                {
+                    target.has_struct_embedding = true;
+                    let current_id = self.arena.alloc(Value::Struct(target.structure.clone()));
+                    let unified_id = unify(&mut self.arena, current_id, embedded_id);
+                    let unified_id = if was_closed && !self.at_file_root {
+                        reclose(&mut self.arena, unified_id)
                     } else {
-                        EvalError::Evaluation(message)
-                    });
+                        unified_id
+                    };
+                    if let Some(Value::Struct(s)) = self.arena.get(unified_id) {
+                        target.structure = s.clone();
+                        self.bind_struct_fields(&target.structure);
+                    } else {
+                        target.constrain(&mut self.arena, unified_id);
+                    }
+                } else {
+                    if let Some(metadata) = self.arena.metadata(embedded_id).cloned() {
+                        let current = self.arena.alloc(Value::Struct(target.structure.clone()));
+                        let fields = unify(&mut self.arena, current, metadata.fields);
+                        if let Some(Value::Struct(fields)) = self.arena.get(fields) {
+                            target.structure = fields.clone();
+                            self.bind_struct_fields(&target.structure);
+                            let payload = crate::metadata::payload(&mut self.arena, embedded_id);
+                            let conjuncts = if matches!(
+                                metadata.source,
+                                crate::value::MetadataSource::Closed { .. }
+                            ) {
+                                vec![Conjunct::Value(embedded_id)]
+                            } else {
+                                metadata
+                                    .conjuncts()
+                                    .map(<[_]>::to_vec)
+                                    .unwrap_or_else(|| vec![Conjunct::Value(payload)])
+                            };
+                            target.constrain_with(&mut self.arena, payload, conjuncts);
+                        } else {
+                            target.constrain(&mut self.arena, fields);
+                        }
+                    } else {
+                        let conjunct = self.field_conjunct(expr, env, embedded_id);
+                        target.constrain_with(&mut self.arena, embedded_id, vec![conjunct]);
+                    }
+                    target.close_on_finish |= was_closed && !self.at_file_root;
                 }
                 Ok(!is_unresolved)
             }
             Decl::Ellipsis(_) => {
-                target_struct.is_open = true;
+                target.structure.is_open = true;
                 Ok(true)
             }
             Decl::Comprehension(comp) => {
                 // A comprehension that waits on a reference yields nothing yet:
                 // the fields it generated before it stopped are dropped with it.
-                let mut scratch = target_struct.clone();
+                let mut scratch = target.clone();
                 match self.eval_comprehension(comp, &mut scratch) {
                     Err(EvalError::Unresolved(_)) if !final_pass => return Ok(false),
                     other => other?,
                 }
-                *target_struct = scratch;
+                if !final_pass
+                    && scratch
+                        .constraint()
+                        .is_some_and(|value| self.is_unresolved(value))
+                {
+                    return Ok(false);
+                }
+                *target = scratch;
                 // Loop-local bindings have been popped; subsequent references
                 // must resolve to the final generated field values.
-                self.bind_struct_fields(target_struct);
+                self.bind_struct_fields(&target.structure);
                 Ok(true)
             }
             _ => Ok(true),
@@ -890,7 +954,7 @@ impl Evaluator {
             .and_modify(|entry| {
                 entry.val = unify(&mut self.arena, entry.val, val);
                 entry.optional &= optional;
-                entry.conjuncts.push(conjunct.clone());
+                entry.extend_conjuncts([conjunct.clone()]);
             })
             .or_insert_with(|| FieldEntry::with_conjuncts(val, optional, vec![conjunct]));
         Ok(entry.val)
@@ -905,15 +969,19 @@ impl Evaluator {
         env: &Rc<ThunkEnv>,
     ) -> Result<(ValueId, Conjunct), EvalError> {
         let val = self.eval_expr(expr)?;
-        let deps = Rc::new(crate::deps::recipe_deps(expr, &env.lets));
-        Ok((
-            val,
-            Conjunct::Thunk(Thunk {
-                expr: Rc::new(expr.clone()),
-                env: env.clone(),
-                deps,
-            }),
-        ))
+        Ok((val, self.field_conjunct(expr, env, val)))
+    }
+
+    fn field_conjunct(&mut self, expr: &Expr, env: &Rc<ThunkEnv>, val: ValueId) -> Conjunct {
+        let Some(source) = self.expressions.prepare_recipe(expr, &env.lets) else {
+            // No binding can change this expression's value after a merge.
+            return Conjunct::Value(val);
+        };
+        Conjunct::Thunk(Thunk {
+            expr: source.expr,
+            env: env.clone(),
+            deps: source.deps,
+        })
     }
 
     /// Derive again the fields of a struct the evaluator has just merged.
@@ -939,6 +1007,31 @@ impl Evaluator {
         id: ValueId,
         visiting: &mut HashSet<ValueId>,
     ) -> Result<ValueId, EvalError> {
+        if let Some(Value::Disjunction { branches }) = self.arena.get(id)
+            && !self.arena.has_embedded_recipe(id)
+            && (self
+                .arena
+                .metadata(id)
+                .is_some_and(|metadata| metadata.is_choice_view())
+                || branches
+                    .iter()
+                    .any(|branch| self.arena.metadata(branch.val).is_some()))
+        {
+            if !visiting.insert(id) {
+                return Ok(id);
+            }
+            let result = self.rederive_metadata_choices(id, branches.clone(), visiting);
+            visiting.remove(&id);
+            return result;
+        }
+        if let Some(metadata) = self.arena.embedded_metadata(id).cloned() {
+            if !visiting.insert(id) {
+                return Ok(id);
+            }
+            let result = self.rederive_metadata(id, metadata, visiting);
+            visiting.remove(&id);
+            return result;
+        }
         let Some(Value::Struct(s)) = self.arena.get(id) else {
             return Ok(id);
         };
@@ -955,6 +1048,182 @@ impl Evaluator {
         } else {
             id
         })
+    }
+
+    fn rederive_metadata_choices(
+        &mut self,
+        id: ValueId,
+        branches: Vec<ValueBranch>,
+        visiting: &mut HashSet<ValueId>,
+    ) -> Result<ValueId, EvalError> {
+        let mut kept = Vec::new();
+        let mut errors = Vec::new();
+        let mut changed = false;
+        for branch in branches {
+            let value = self.rederive_value(branch.val, visiting)?;
+            changed |= value != branch.val;
+            if let Some(Value::Bottom(reason)) = self.arena.get(value)
+                && !reason.kind.may_resolve_later()
+                && reason.kind != BottomKind::Incomplete
+            {
+                errors.push(reason.clone());
+                changed = true;
+                continue;
+            }
+            push_branch(
+                &self.arena,
+                &mut kept,
+                ValueBranch {
+                    val: value,
+                    ..branch
+                },
+            );
+        }
+        let mut view = self
+            .arena
+            .metadata(id)
+            .filter(|metadata| metadata.is_choice_view())
+            .cloned();
+        if let Some(metadata) = &mut view {
+            let fields = self.rederive_value(metadata.fields, visiting)?;
+            changed |= fields != metadata.fields;
+            metadata.fields = fields;
+            if !matches!(self.arena.get(fields), Some(Value::Struct(_))) {
+                return Ok(fields);
+            }
+        }
+        Ok(if changed {
+            let result = crate::unify::settle_disjunction(&mut self.arena, kept, &errors);
+            if let Some(metadata) = view
+                && let Some(value @ Value::Disjunction { .. }) = self.arena.get(result).cloned()
+            {
+                self.arena.alloc_with_metadata(value, metadata)
+            } else {
+                result
+            }
+        } else {
+            id
+        })
+    }
+
+    fn rederive_metadata(
+        &mut self,
+        id: ValueId,
+        metadata: crate::value::ValueMetadata,
+        visiting: &mut HashSet<ValueId>,
+    ) -> Result<ValueId, EvalError> {
+        let fields = self.rederive_value(metadata.fields, visiting)?;
+        let Some(Value::Struct(body)) = self.arena.get(fields).cloned() else {
+            return Ok(fields);
+        };
+        let Some(value) = self.derive_metadata_payload(&metadata, fields, &body, visiting)? else {
+            return Ok(id);
+        };
+        let view = self
+            .arena
+            .metadata(value)
+            .map(|m| m.view.unwrap_or(m.fields));
+        let same_view = view.is_none_or(|view| {
+            compare_values(&self.arena, metadata.view.unwrap_or(metadata.fields), view)
+                == Equivalence::Equal
+        });
+        if fields == metadata.fields
+            && same_view
+            && crate::unify::same_payload(&self.arena, id, value)
+        {
+            return Ok(id);
+        }
+        let value = self
+            .arena
+            .get(value)
+            .expect("derived payload exists")
+            .clone();
+        Ok(self.arena.alloc_with_metadata(
+            value,
+            crate::value::ValueMetadata {
+                fields,
+                view,
+                ..metadata
+            },
+        ))
+    }
+
+    fn derive_metadata_payload(
+        &mut self,
+        metadata: &crate::value::ValueMetadata,
+        fields: ValueId,
+        body: &StructValue,
+        visiting: &mut HashSet<ValueId>,
+    ) -> Result<Option<ValueId>, EvalError> {
+        let mut value = None;
+        for conjunct in metadata
+            .conjuncts()
+            .expect("embedded metadata has conjuncts")
+        {
+            let next = match conjunct {
+                Conjunct::Value(id) => {
+                    if let Some(group) = self.arena.metadata(*id).cloned()
+                        && matches!(group.source, crate::value::MetadataSource::Closed { .. })
+                    {
+                        match self.derive_closed_group(*id, &group, body, visiting)? {
+                            Some(value) => value,
+                            None => return Ok(None),
+                        }
+                    } else {
+                        *id
+                    }
+                }
+                Conjunct::Thunk(thunk) => match self.derive_thunk(thunk, body)? {
+                    // This thunk came from an embedding declaration. Reapply
+                    // the same outer opening used on its first evaluation;
+                    // the receiving literal closes after adding its fields.
+                    Some(value) => open_for_embedding(&mut self.arena, value).0,
+                    None => return Ok(None),
+                },
+            };
+            value = Some(match value {
+                Some(previous) => unify(&mut self.arena, previous, next),
+                None => next,
+            });
+        }
+        let Some(value) = value else { return Ok(None) };
+        let value = crate::metadata::materialize(
+            &mut self.arena,
+            value,
+            fields,
+            &mut crate::unify::UnifyContext::new(),
+        );
+        Ok(Some(match metadata.source {
+            crate::value::MetadataSource::Closed { closure, .. } => {
+                closure.apply(&mut self.arena, value)
+            }
+            _ => value,
+        }))
+    }
+
+    fn derive_closed_group(
+        &mut self,
+        id: ValueId,
+        group: &crate::value::ValueMetadata,
+        body: &StructValue,
+        visiting: &mut HashSet<ValueId>,
+    ) -> Result<Option<ValueId>, EvalError> {
+        if visiting.len() >= crate::unify::MAX_TOTAL_DEPTH || !visiting.insert(id) {
+            return Ok(Some(
+                self.arena
+                    .bottom("cycle error: embedded recipe recursion limit exceeded"),
+            ));
+        }
+        let result = (|| {
+            let inputs = crate::metadata::project_inputs(&mut self.arena, group.fields, body);
+            let inputs = self.rederive_value(inputs, visiting)?;
+            let Some(Value::Struct(inputs_body)) = self.arena.get(inputs).cloned() else {
+                return Ok(Some(inputs));
+            };
+            self.derive_metadata_payload(group, inputs, &inputs_body, visiting)
+        })();
+        visiting.remove(&id);
+        result
     }
 
     fn rederive_struct(
@@ -1189,7 +1458,7 @@ impl Evaluator {
         name: &str,
     ) -> Result<Option<ValueId>, EvalError> {
         let mut val: Option<ValueId> = None;
-        for conjunct in &entry.conjuncts {
+        for conjunct in entry.conjuncts.iter() {
             let conjunct_val = match conjunct {
                 Conjunct::Value(val) => *val,
                 Conjunct::Thunk(thunk) => match self.derive_thunk(thunk, s)? {
@@ -1278,29 +1547,29 @@ impl Evaluator {
     fn eval_comprehension(
         &mut self,
         comp: &ComprehensionDecl,
-        target_struct: &mut StructValue,
+        target: &mut DeclarationValue,
     ) -> Result<(), EvalError> {
         if comp.clauses.is_empty() {
             return Ok(());
         }
 
-        self.eval_comprehension_clause(0, comp, target_struct)
+        self.eval_comprehension_clause(0, comp, target)
     }
 
     fn eval_comprehension_clause(
         &mut self,
         clause_idx: usize,
         comp: &ComprehensionDecl,
-        target_struct: &mut StructValue,
+        target: &mut DeclarationValue,
     ) -> Result<(), EvalError> {
         if clause_idx >= comp.clauses.len() {
-            // Reached the body. It is a struct of its own, merged into the
-            // target: evaluated in place, every iteration would clone and
+            // Reached the body. Its declarations are evaluated separately,
+            // then merged into the target: evaluated in place, every iteration would clone and
             // re-derive everything the iterations before it generated, which is
             // quadratic in the size of the source.
-            let mut generated = StructValue::new(false);
-            self.eval_nested_decls(&comp.struct_lit.decls, &mut generated)?;
-            self.merge_generated(target_struct, generated);
+            let generated = self.eval_nested_decls(&comp.struct_lit.decls)?;
+            target.merge_constraints(&mut self.arena, &generated, self.at_file_root);
+            self.merge_generated(&mut target.structure, generated.structure);
             return Ok(());
         }
 
@@ -1309,7 +1578,7 @@ impl Evaluator {
                 let cond_val = self.eval_expr(condition)?;
                 match self.arena.get(cond_val) {
                     Some(Value::Bool(true)) => {
-                        self.eval_comprehension_clause(clause_idx + 1, comp, target_struct)?;
+                        self.eval_comprehension_clause(clause_idx + 1, comp, target)?;
                     }
                     Some(Value::Bottom(r)) if r.kind.may_resolve_later() && self.deferring => {
                         return Err(EvalError::Unresolved(r.to_string()));
@@ -1321,7 +1590,7 @@ impl Evaluator {
                 let val_id = self.eval_expr(expr)?;
                 self.push_scope();
                 self.insert_binding(ident, val_id);
-                let result = self.eval_comprehension_clause(clause_idx + 1, comp, target_struct);
+                let result = self.eval_comprehension_clause(clause_idx + 1, comp, target);
                 self.pop_scope();
                 result?;
             }
@@ -1350,7 +1619,7 @@ impl Evaluator {
                                 self.insert_binding(k_name, k_id);
                             }
                             let result =
-                                self.eval_comprehension_clause(clause_idx + 1, comp, target_struct);
+                                self.eval_comprehension_clause(clause_idx + 1, comp, target);
                             self.pop_scope();
                             result?;
                         }
@@ -1360,11 +1629,11 @@ impl Evaluator {
                             self.push_scope();
                             self.insert_binding(value, entry.val);
                             if let Some(k_name) = key {
-                                let k_id = self.arena.string(k.clone());
+                                let k_id = self.arena.string(k.as_str());
                                 self.insert_binding(k_name, k_id);
                             }
                             let result =
-                                self.eval_comprehension_clause(clause_idx + 1, comp, target_struct);
+                                self.eval_comprehension_clause(clause_idx + 1, comp, target);
                             self.pop_scope();
                             result?;
                         }
@@ -1400,7 +1669,7 @@ impl Evaluator {
                         let existing = slot.get_mut();
                         existing.val = unify(&mut self.arena, existing.val, entry.val);
                         existing.optional &= entry.optional;
-                        existing.conjuncts.extend(entry.conjuncts);
+                        existing.extend_conjuncts(entry.conjuncts.iter().cloned());
                     }
                     std::collections::btree_map::Entry::Vacant(slot) => {
                         slot.insert(entry);
@@ -1483,7 +1752,7 @@ impl Evaluator {
                             self.push_scope();
                             self.insert_binding(value, entry.val);
                             if let Some(k_name) = key {
-                                let k_id = self.arena.string(k.clone());
+                                let k_id = self.arena.string(k.as_str());
                                 self.insert_binding(k_name, k_id);
                             }
                             let result =
@@ -1514,15 +1783,11 @@ impl Evaluator {
 
     /// A literal owns a frame distinct from comprehension variables and from
     /// the field whose value contains it. Restore that context even on error.
-    fn eval_nested_decls(
-        &mut self,
-        decls: &[Decl],
-        target: &mut StructValue,
-    ) -> Result<(), EvalError> {
+    fn eval_nested_decls(&mut self, decls: &[Decl]) -> Result<DeclarationValue, EvalError> {
         self.push_scope();
         let enclosing = std::mem::replace(&mut self.at_file_root, false);
         let saved_field = self.current_field.take();
-        let result = self.eval_decls_into_struct(decls, target);
+        let result = self.eval_decls(decls);
         self.current_field = saved_field;
         self.at_file_root = enclosing;
         self.pop_scope();
@@ -1547,8 +1812,8 @@ impl Evaluator {
             Expr::Null => Ok(self.arena.null()),
             Expr::Bool(b) => Ok(self.arena.bool(*b)),
             Expr::Number(n) => self.eval_number(n),
-            Expr::String(s) => Ok(self.arena.string(s.value.clone())),
-            Expr::Bytes(b) => Ok(self.arena.alloc(Value::Bytes(b.value.as_bytes().to_vec()))),
+            Expr::String(s) => Ok(self.arena.string(s.value.as_str())),
+            Expr::Bytes(b) => Ok(self.arena.alloc(Value::Bytes(b.value.clone()))),
             Expr::Ident(id)
             | Expr::DefIdent(id)
             | Expr::HiddenIdent(id)
@@ -1628,21 +1893,14 @@ impl Evaluator {
                     ))
                 }
             }
-            Expr::Struct(s) => {
-                let mut struct_val = StructValue::new(false);
-                let result = self.eval_nested_decls(&s.decls, &mut struct_val);
-                if let Err(error) = result {
-                    // Carry an incomplete nested struct to the enclosing retry
-                    // loop, which may resolve its dynamic labels in a later pass.
-                    return match error {
-                        EvalError::Unresolved(message) => {
-                            Ok(self.arena.bottom_of(BottomKind::Unresolved, message))
-                        }
-                        error => Err(error),
-                    };
+            Expr::Struct(s) => match self.eval_nested_decls(&s.decls) {
+                Ok(value) => self.finish_decls(value),
+                // Carry an incomplete nested value to the enclosing retry loop.
+                Err(EvalError::Unresolved(message)) => {
+                    Ok(self.arena.bottom_of(BottomKind::Unresolved, message))
                 }
-                Ok(self.arena.alloc(Value::Struct(struct_val)))
-            }
+                Err(error) => Err(error),
+            },
             Expr::List(l) => {
                 let mut elements = Vec::new();
                 for elem in &l.elements {
@@ -1710,22 +1968,20 @@ impl Evaluator {
                         ];
                         Ok(self.arena.alloc(Value::Disjunction { branches }))
                     }
-                    _ => Ok(self.eval_binary_arithmetic(*op, left_id, right_id)),
+                    _ => Ok(crate::operators::binary(
+                        &mut self.arena,
+                        *op,
+                        left_id,
+                        right_id,
+                    )),
                 }
             }
             Expr::Unary { op, expr } => {
                 let target_id = self.eval_expr(expr)?;
                 match op {
-                    UnaryOp::Neg => match self.arena.get(target_id) {
-                        Some(Value::Int(i)) => Ok(self.arena.int(-i)),
-                        Some(Value::Float(f)) => Ok(self.arena.float(-f)),
-                        _ => Ok(self.arena.bottom("cannot negate non-numeric value")),
-                    },
-                    UnaryOp::Pos => Ok(target_id),
-                    UnaryOp::Not => match self.arena.get(target_id) {
-                        Some(Value::Bool(b)) => Ok(self.arena.bool(!b)),
-                        _ => Ok(self.arena.bottom("cannot apply '!' to non-boolean value")),
-                    },
+                    UnaryOp::Neg | UnaryOp::Pos | UnaryOp::Not => {
+                        Ok(crate::operators::unary(&mut self.arena, *op, target_id))
+                    }
                     UnaryOp::Less => Ok(self.arena.alloc(Value::Bounds {
                         base_type: None,
                         constraints: vec![(BoundOp::Less, target_id)],
@@ -1777,8 +2033,8 @@ impl Evaluator {
             Expr::Selector { expr, field } => {
                 if let Expr::Ident(pkg_name) = expr.as_ref() {
                     let imports = self.imports.clone();
-                    if let Some(pkg_struct_id) = imports.package_of(pkg_name)
-                        && let Some(Value::Struct(s)) = self.arena.get(pkg_struct_id)
+                    if let Some(package) = imports.package_of(pkg_name)
+                        && let Some(s) = self.arena.fields(package)
                     {
                         // A loaded package is complete: a name it lacks is the
                         // field's error, not the alias's.
@@ -1802,7 +2058,9 @@ impl Evaluator {
                     }
                 }
                 let val_id = self.eval_expr(expr)?;
-                if let Some(Value::Bottom(_)) = self.arena.get(val_id) {
+                if self.arena.fields(val_id).is_none()
+                    && let Some(Value::Bottom(_)) = self.arena.get(val_id)
+                {
                     return Ok(val_id);
                 }
                 // A definition read before its declaration was evaluated has no
@@ -1811,8 +2069,13 @@ impl Evaluator {
                     let message = format!("{name} not evaluated yet");
                     return Ok(self.arena.bottom_of(BottomKind::Unresolved, message));
                 }
-                if let Some(Value::Struct(s)) = self.arena.get(val_id) {
-                    if let Some(f) = s.fields.get(field).or_else(|| s.definitions.get(field)) {
+                if let Some(s) = self.arena.fields(val_id) {
+                    if let Some(f) = s
+                        .fields
+                        .get(field)
+                        .or_else(|| s.definitions.get(field))
+                        .or_else(|| s.hidden.get(field))
+                    {
                         let val = f.val;
                         Ok(self.read_definition(field, val))
                     } else {
@@ -1844,13 +2107,18 @@ impl Evaluator {
                             if let Some(&elem) = elements.get(idx) {
                                 Ok(elem)
                             } else {
-                                Ok(self.arena.bottom(format!(
-                                    "list index {idx} out of bounds (len: {})",
-                                    elements.len()
-                                )))
+                                Ok(self.arena.bottom_of(
+                                    BottomKind::Conflict,
+                                    format!(
+                                        "list index {idx} out of bounds (len: {})",
+                                        elements.len()
+                                    ),
+                                ))
                             }
                         } else {
-                            Ok(self.arena.bottom("invalid list index"))
+                            Ok(self
+                                .arena
+                                .bottom_of(BottomKind::Conflict, "invalid list index"))
                         }
                     }
                     (Some(Value::Struct(s)), Some(Value::String(key))) => {
@@ -1915,19 +2183,8 @@ impl Evaluator {
                     match part {
                         InterpolationPart::Lit(s) => result_str.push_str(s),
                         InterpolationPart::Expr(e) => {
-                            let mut val_id = self.eval_expr(e)?;
-                            while let Some(Value::Disjunction { branches }) = self.arena.get(val_id)
-                            {
-                                let defaults: Vec<_> =
-                                    branches.iter().filter(|b| b.default).collect();
-                                if defaults.len() == 1 {
-                                    val_id = defaults[0].val;
-                                } else if defaults.is_empty() && branches.len() == 1 {
-                                    val_id = branches[0].val;
-                                } else {
-                                    break;
-                                }
-                            }
+                            let val_id = self.eval_expr(e)?;
+                            let val_id = crate::operators::operand(&mut self.arena, val_id);
                             match self.arena.get(val_id) {
                                 Some(Value::String(s)) => result_str.push_str(s),
                                 Some(Value::Int(i)) => result_str.push_str(&i.to_string()),
@@ -2017,22 +2274,20 @@ impl Evaluator {
         let mut evaluated_args = Vec::new();
         for a in arg_exprs {
             let arg_id = self.eval_expr(a)?;
-            let resolved_arg = if let Some(Value::Disjunction { branches }) = self.arena.get(arg_id)
-            {
-                branches
-                    .iter()
-                    .find(|b| b.default)
-                    .map(|b| b.val)
-                    .unwrap_or(arg_id)
-            } else {
-                arg_id
-            };
+            let resolved_arg = crate::operators::operand(&mut self.arena, arg_id);
             evaluated_args.push(resolved_arg);
         }
 
         // Top-level builtins: len(x), or(list), close(x)
         if let Expr::Ident(name) = func_expr {
             match name.as_str() {
+                "div" | "mod" | "quo" | "rem" => {
+                    return Ok(crate::operators::integer_division(
+                        &mut self.arena,
+                        name,
+                        &evaluated_args,
+                    ));
+                }
                 "len" => {
                     if let Some(&arg0) = evaluated_args.first() {
                         match self.arena.get(arg0) {
@@ -2120,361 +2375,24 @@ impl Evaluator {
         Ok(self.arena.bottom("unsupported function call"))
     }
 
-    fn eval_number(&mut self, n_str: &str) -> Result<ValueId, EvalError> {
-        let cleaned = n_str.replace('_', "");
-
-        // Hex, binary, octal
-        if (cleaned.starts_with("0x") || cleaned.starts_with("0X"))
-            && let Ok(i) = i64::from_str_radix(&cleaned[2..], 16)
-        {
-            return Ok(self.arena.int(i));
-        } else if (cleaned.starts_with("0b") || cleaned.starts_with("0B"))
-            && let Ok(i) = i64::from_str_radix(&cleaned[2..], 2)
-        {
-            return Ok(self.arena.int(i));
-        } else if (cleaned.starts_with("0o") || cleaned.starts_with("0O"))
-            && let Ok(i) = i64::from_str_radix(&cleaned[2..], 8)
-        {
-            return Ok(self.arena.int(i));
-        }
-
-        // SI multipliers
-        let multiplier: Option<i64> = if cleaned.ends_with("Ki") {
-            Some(1024)
-        } else if cleaned.ends_with("Mi") {
-            Some(1024 * 1024)
-        } else if cleaned.ends_with("Gi") {
-            Some(1024 * 1024 * 1024)
-        } else if cleaned.ends_with("Ti") {
-            Some(1024 * 1024 * 1024 * 1024)
-        } else if cleaned.ends_with("Pi") {
-            Some(1024 * 1024 * 1024 * 1024 * 1024)
-        } else if cleaned.ends_with('k') || cleaned.ends_with('K') {
-            Some(1000)
-        } else if cleaned.ends_with('M') {
-            Some(1_000_000)
-        } else if cleaned.ends_with('G') {
-            Some(1_000_000_000)
-        } else if cleaned.ends_with('T') {
-            Some(1_000_000_000_000)
-        } else if cleaned.ends_with('P') {
-            Some(1_000_000_000_000_000)
-        } else {
-            None
-        };
-
-        if let Some(mult) = multiplier {
-            let num_part = if cleaned.ends_with("Ki")
-                || cleaned.ends_with("Mi")
-                || cleaned.ends_with("Gi")
-                || cleaned.ends_with("Ti")
-                || cleaned.ends_with("Pi")
-            {
-                &cleaned[..cleaned.len() - 2]
-            } else {
-                &cleaned[..cleaned.len() - 1]
-            };
-            if let Ok(base) = num_part.parse::<i64>() {
-                return Ok(self.arena.int(base * mult));
-            }
-        }
-
-        if (cleaned.contains('.') || cleaned.contains('e') || cleaned.contains('E'))
-            && let Ok(f) = cleaned.parse::<f64>()
-        {
-            return Ok(self.arena.float(f));
-        }
-        if let Ok(i) = BigInt::from_str(&cleaned) {
-            return Ok(self.arena.int(i));
-        }
-        Ok(self.arena.bottom(format!("invalid number '{n_str}'")))
+    fn eval_number(&mut self, text: &str) -> Result<ValueId, EvalError> {
+        Ok(match crate::number::literal(text) {
+            Ok(value) => self.arena.alloc(value),
+            Err(message) => self.arena.bottom(message),
+        })
     }
 
-    fn eval_binary_arithmetic(&mut self, op: BinaryOp, left: ValueId, right: ValueId) -> ValueId {
-        let l_val = match self.arena.get(left) {
-            Some(Value::Bottom(_)) => return left,
-            Some(v) => v.clone(),
-            None => return self.arena.bottom("invalid left operand"),
-        };
-        let r_val = match self.arena.get(right) {
-            Some(Value::Bottom(_)) => return right,
-            Some(v) => v.clone(),
-            None => return self.arena.bottom("invalid right operand"),
-        };
-
-        match (op, l_val, r_val) {
-            // Arithmetic
-            (BinaryOp::Add, Value::Int(a), Value::Int(b)) => self.arena.int(a + b),
-            (BinaryOp::Sub, Value::Int(a), Value::Int(b)) => self.arena.int(a - b),
-            (BinaryOp::Mul, Value::Int(a), Value::Int(b)) => self.arena.int(a * b),
-            (BinaryOp::Div, Value::Int(a), Value::Int(b)) => {
-                if b != 0.into() {
-                    self.arena.int(a / b)
-                } else {
-                    self.arena.bottom("division by zero")
-                }
-            }
-            (BinaryOp::Add, Value::Float(a), Value::Float(b)) => self.arena.float(a + b),
-            (BinaryOp::Sub, Value::Float(a), Value::Float(b)) => self.arena.float(a - b),
-            (BinaryOp::Mul, Value::Float(a), Value::Float(b)) => self.arena.float(a * b),
-            (BinaryOp::Div, Value::Float(a), Value::Float(b)) => self.arena.float(a / b),
-
-            // Mixed Int & Float
-            (BinaryOp::Add, Value::Int(a), Value::Float(b)) => {
-                self.arena.float(a.to_f64().unwrap_or(0.0) + b)
-            }
-            (BinaryOp::Add, Value::Float(a), Value::Int(b)) => {
-                self.arena.float(a + b.to_f64().unwrap_or(0.0))
-            }
-            (BinaryOp::Sub, Value::Int(a), Value::Float(b)) => {
-                self.arena.float(a.to_f64().unwrap_or(0.0) - b)
-            }
-            (BinaryOp::Sub, Value::Float(a), Value::Int(b)) => {
-                self.arena.float(a - b.to_f64().unwrap_or(0.0))
-            }
-            (BinaryOp::Mul, Value::Int(a), Value::Float(b)) => {
-                self.arena.float(a.to_f64().unwrap_or(0.0) * b)
-            }
-            (BinaryOp::Mul, Value::Float(a), Value::Int(b)) => {
-                self.arena.float(a * b.to_f64().unwrap_or(0.0))
-            }
-            (BinaryOp::Div, Value::Int(a), Value::Float(b)) => {
-                self.arena.float(a.to_f64().unwrap_or(0.0) / b)
-            }
-            (BinaryOp::Div, Value::Float(a), Value::Int(b)) => {
-                self.arena.float(a / b.to_f64().unwrap_or(1.0))
-            }
-
-            (BinaryOp::Add, Value::String(a), Value::String(b)) => {
-                self.arena.string(format!("{a}{b}"))
-            }
-            (BinaryOp::Mul, Value::String(a), Value::Int(b)) => {
-                if let Some(count) = b.to_usize() {
-                    self.arena.string(a.repeat(count))
-                } else {
-                    self.arena.bottom("invalid string repetition factor")
-                }
-            }
-            (BinaryOp::Mul, Value::Int(a), Value::String(b)) => {
-                if let Some(count) = a.to_usize() {
-                    self.arena.string(b.repeat(count))
-                } else {
-                    self.arena.bottom("invalid string repetition factor")
-                }
-            }
-
-            // List Concatenation and Repetition
-            (
-                BinaryOp::Add,
-                Value::List {
-                    elements: mut e1,
-                    ellipsis: _,
-                },
-                Value::List {
-                    elements: e2,
-                    ellipsis,
-                },
-            ) => {
-                e1.extend(e2);
-                self.arena.alloc(Value::List {
-                    elements: e1,
-                    ellipsis,
-                })
-            }
-            (
-                BinaryOp::Mul,
-                Value::List {
-                    elements: e1,
-                    ellipsis,
-                },
-                Value::Int(b),
-            ) => {
-                if let Some(count) = b.to_usize() {
-                    let mut repeated = Vec::new();
-                    for _ in 0..count {
-                        repeated.extend(e1.clone());
-                    }
-                    self.arena.alloc(Value::List {
-                        elements: repeated,
-                        ellipsis,
-                    })
-                } else {
-                    self.arena.bottom("invalid list repetition factor")
-                }
-            }
-
-            // Comparisons
-            (BinaryOp::Equal, Value::Int(a), Value::Int(b)) => self.arena.bool(a == b),
-            (BinaryOp::NotEqual, Value::Int(a), Value::Int(b)) => self.arena.bool(a != b),
-            (BinaryOp::Less, Value::Int(a), Value::Int(b)) => self.arena.bool(a < b),
-            (BinaryOp::LessEqual, Value::Int(a), Value::Int(b)) => self.arena.bool(a <= b),
-            (BinaryOp::Greater, Value::Int(a), Value::Int(b)) => self.arena.bool(a > b),
-            (BinaryOp::GreaterEqual, Value::Int(a), Value::Int(b)) => self.arena.bool(a >= b),
-
-            (BinaryOp::Equal, Value::Float(a), Value::Float(b)) => {
-                self.arena.bool((a - b).abs() < f64::EPSILON)
-            }
-            (BinaryOp::NotEqual, Value::Float(a), Value::Float(b)) => {
-                self.arena.bool((a - b).abs() >= f64::EPSILON)
-            }
-            (BinaryOp::Less, Value::Float(a), Value::Float(b)) => self.arena.bool(a < b),
-            (BinaryOp::LessEqual, Value::Float(a), Value::Float(b)) => self.arena.bool(a <= b),
-            (BinaryOp::Greater, Value::Float(a), Value::Float(b)) => self.arena.bool(a > b),
-            (BinaryOp::GreaterEqual, Value::Float(a), Value::Float(b)) => self.arena.bool(a >= b),
-
-            (BinaryOp::Equal, Value::String(a), Value::String(b)) => self.arena.bool(a == b),
-            (BinaryOp::NotEqual, Value::String(a), Value::String(b)) => self.arena.bool(a != b),
-            (BinaryOp::Equal, Value::Bool(a), Value::Bool(b)) => self.arena.bool(a == b),
-            (BinaryOp::NotEqual, Value::Bool(a), Value::Bool(b)) => self.arena.bool(a != b),
-            (BinaryOp::LogicalAnd, Value::Bool(a), Value::Bool(b)) => self.arena.bool(a && b),
-            (BinaryOp::LogicalOr, Value::Bool(a), Value::Bool(b)) => self.arena.bool(a || b),
-
-            _ => self.arena.bottom("unsupported binary operation"),
-        }
-    }
-
-    /// Export evaluated value to JSON if concrete.
+    /// Export an evaluated value to JSON, selecting defaults and omitting optional fields.
     pub fn to_json(&self, val_id: ValueId) -> Result<serde_json::Value, String> {
-        self.to_json_at_path(val_id, "$")
+        crate::export::to_json(&self.arena, val_id)
     }
 
-    /// Export evaluated value to JSON with path tracking for precise error diagnostics.
+    /// Export with a caller-supplied diagnostic path.
     pub fn to_json_at_path(
         &self,
         val_id: ValueId,
         path: &str,
     ) -> Result<serde_json::Value, String> {
-        match self.arena.get(val_id) {
-            Some(Value::Null) => Ok(serde_json::Value::Null),
-            Some(Value::Bool(b)) => Ok(serde_json::Value::Bool(*b)),
-            Some(Value::Int(i)) => {
-                if let Some(n) = i.to_i64() {
-                    Ok(serde_json::json!(n))
-                } else {
-                    Ok(serde_json::Value::String(i.to_string()))
-                }
-            }
-            Some(Value::Float(f)) => Ok(serde_json::json!(f)),
-            Some(Value::String(s)) => Ok(serde_json::Value::String(s.clone())),
-            Some(Value::List { elements, .. }) => {
-                let mut arr = Vec::new();
-                for (idx, &elem) in elements.iter().enumerate() {
-                    let elem_path = format!("{}[{}]", path, idx);
-                    arr.push(self.to_json_at_path(elem, &elem_path)?);
-                }
-                Ok(serde_json::Value::Array(arr))
-            }
-            Some(Value::Struct(s)) => {
-                let mut map = serde_json::Map::new();
-                for (k, entry) in &s.fields {
-                    // An optional field is a constraint on a field that may
-                    // appear, not a field: `cue export` emits none of them
-                    // whatever they hold, down to `a?: 1` exporting `{}`. This
-                    // used to ask instead whether the constraint looked
-                    // concrete, which let `b?: {x?: int}` through as `{}` and
-                    // `c?: [...string]` as `[]`.
-                    if entry.optional {
-                        continue;
-                    }
-                    let field_path = if path == "$" {
-                        k.clone()
-                    } else {
-                        format!("{}.{}", path, k)
-                    };
-                    map.insert(k.clone(), self.to_json_at_path(entry.val, &field_path)?);
-                }
-                Ok(serde_json::Value::Object(map))
-            }
-            Some(Value::Disjunction { branches }) => {
-                let defaults: Vec<_> = branches.iter().filter(|b| b.default).collect();
-                if defaults.len() > 1 {
-                    if path == "$" {
-                        Err("cannot export disjunction with ambiguous defaults to JSON".to_string())
-                    } else {
-                        Err(format!(
-                            "cannot export disjunction with ambiguous defaults at '{path}' to JSON"
-                        ))
-                    }
-                } else if let Some(default_branch) = defaults.first() {
-                    self.to_json_at_path(default_branch.val, path)
-                } else if let [branch] = branches.as_slice() {
-                    self.to_json_at_path(branch.val, path)
-                } else if path == "$" {
-                    Err("cannot export non-concrete disjunction to JSON".to_string())
-                } else {
-                    Err(format!(
-                        "cannot export non-concrete disjunction at '{path}' to JSON"
-                    ))
-                }
-            }
-            Some(Value::Bottom(b)) => {
-                if path == "$" {
-                    Err(format!("cannot export bottom: {b}"))
-                } else {
-                    Err(format!("cannot export bottom at '{path}': {b}"))
-                }
-            }
-            Some(Value::Top) => {
-                if path == "$" {
-                    Err("cannot export non-concrete top value to JSON".to_string())
-                } else {
-                    Err(format!(
-                        "cannot export non-concrete top value at '{path}' to JSON"
-                    ))
-                }
-            }
-            Some(Value::Type(t)) => {
-                if path == "$" {
-                    Err(format!("cannot export type {t} to JSON"))
-                } else {
-                    Err(format!("cannot export type {t} at '{path}' to JSON"))
-                }
-            }
-            Some(Value::Bounds { .. }) => {
-                if path == "$" {
-                    Err("cannot export bound constraint to JSON".to_string())
-                } else {
-                    Err(format!(
-                        "cannot export bound constraint at '{path}' to JSON"
-                    ))
-                }
-            }
-            Some(Value::BuiltinValidator { .. }) => {
-                if path == "$" {
-                    Err("cannot export validator constraint to JSON".to_string())
-                } else {
-                    Err(format!(
-                        "cannot export validator constraint at '{path}' to JSON"
-                    ))
-                }
-            }
-            Some(Value::Validators(_)) => {
-                if path == "$" {
-                    Err("cannot export validator constraints to JSON".to_string())
-                } else {
-                    Err(format!(
-                        "cannot export validator constraints at '{path}' to JSON"
-                    ))
-                }
-            }
-            // A required field still holding the lazy node that stops a
-            // recursive definition expanding is precisely a structural cycle:
-            // the value is infinite. It used to be exported as the internal
-            // placeholder string. An *optional* recursive field never reaches
-            // here, because the struct arm above drops it first - which is what
-            // upstream does with `needs?: [...#Stage]` too.
-            Some(Value::RecursiveRef { name, .. }) => {
-                let name = name.clone();
-                if path == "$" {
-                    Err(format!("structural cycle: '{name}'"))
-                } else {
-                    Err(format!("structural cycle at '{path}': '{name}'"))
-                }
-            }
-            Some(Value::Bytes(b)) => Ok(serde_json::Value::String(
-                String::from_utf8_lossy(b).to_string(),
-            )),
-            None => Err("invalid value id".to_string()),
-        }
+        crate::export::to_json_at_path(&self.arena, val_id, path)
     }
 }

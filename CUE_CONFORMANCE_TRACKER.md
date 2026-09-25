@@ -2,13 +2,19 @@
 
 This document provides a comprehensive inventory of the official CUE language specification, the size and structure of the upstream test suite (`cue-lang/cue`), a detailed feature gap analysis, and the roadmap toward full conformance.
 
-Measured on 2026-09-25: cue-rs passes **504 of 547 local fixtures** with
-`--strict-errors`; **43 fail** (18 missing expected errors, 6 wrong error
-categories, 19 other parse/evaluation/export failures). The corpus contains
-429 upstream-prefixed imports and 118 other fixtures; all 43 failures are in
-the imported subset (386/429 pass). The harness does not
-compare every expected value. The historical feature inventory below describes
-implementation coverage; its percentage labels are not conformance guarantees.
+Measured on 2026-09-25: the legacy strict runner reports **520/547**, including
+27 failure signals. Its counts did not check all expected values. The corrected
+runner pins the revision matching all 429 imports, checks observations separately
+and records unsupported operations explicitly. It currently reports 749 passed
+checks, 749 mismatching observations across 173 archives, 3,383 unsupported
+checks, one reference-annotation disagreement and 603 non-portable checks.
+These are observations, not independent bug counts. Only 28 archives have all
+applicable checks verified so far; the other 519 are not all semantic failures.
+
+See [the conformance baseline](tests/conformance/README.md) and
+[the original 43 signals](tests/conformance/legacy-signals.md). The historical
+feature inventory below describes implementation coverage; its percentage
+labels are not conformance guarantees.
 
 ---
 

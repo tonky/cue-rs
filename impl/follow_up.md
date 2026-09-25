@@ -1,17 +1,26 @@
 # Follow-up
 
-## Corpus harness does not establish full conformance
+The approved [phases 12-15](PLAN.md) own the conformance, memory and evaluator
+architecture work below. Phase 12 has established the initial assertion baseline;
+beneficial public API breaks are already authorized.
+[CONTINUATION.md](CONTINUATION.md) summarizes the current state and next steps;
+family-specific measurements below retain their historical context.
 
-Open. Phase 11 measures 43 failures out of 547 local fixtures (429 upstream
-imports and 118 others; all failures are in the imported subset):
-18 accepted inputs where an error is expected, 6 wrong error categories,
-19 other parse/evaluation/export failures. The 504 passes are only passes
-of our current harness: it does not compare every expected value and many
-error fixtures accept any error. The directory runner also prints failures
-without returning a failing process status. A proper conformance runner
-needs expected-value comparisons, precise error expectations and a nonzero
-status for failed cases. The README badge and tracker now state the measured
-strict-harness count and its limits rather than claiming all fixtures pass.
+## Conformance coverage and compatibility debt
+
+Phase 12 fixes runner policy and reporting. The legacy 504/547 result and all
+43 failure names are retained for comparison; failures now return nonzero.
+The new assertion matrix, pinned oracle and manifest are documented in
+[tests/conformance](../tests/conformance/README.md). All 429 imports match
+upstream revision 635e4bb441b29b0b8a3d754188b8edefe4012d1d byte-for-byte.
+
+Open in phase 13: 3,383 unsupported checks (abstract/hidden/optional/pattern
+observations, detailed diagnostics, goldens and configuration), 749 mismatching
+observations across 173 archives, and one reference-annotation disagreement.
+The 749 passing checks establish only what was actually compared. Twenty-eight
+archives have all applicable checks verified; a failed package load can account
+for many mismatches. The old 43 signals were not a complete defect inventory.
+The migration baseline must never be presented as conformance acceptance.
 
 ## Odoo allocation cost after the cycle fix
 
@@ -24,6 +33,11 @@ upstream JSON. Arena retention, scope snapshots and struct cloning remain
 profiling targets; this phase does not add collection or redesign retry
 passes. Use CUE_SAFE_MEMORY=3G with just safe for the original, and keep the
 default 2 GiB limit for smaller investigations.
+The phase-14 counting-allocator probe measured 560 MB of retained heap after
+loading refs and 1.92 GB after loading original. Both return to the probe's
+baseline after dropping the evaluator and output. This points to request-
+owned retention and allocation churn, not storage leaking beyond its owner;
+precise allocation attribution remains to be done.
 
 ## Deferred generated-field evaluation
 
@@ -65,14 +79,15 @@ re-derives its readers: `svcs: [...#Svc]` with `svcs: [{port: 9090}]` exports th
 default URL beside the overridden port. HEAD is wrong here too. The fix is to
 descend into `Value::List` and `Value::Disjunction` with the same copy-on-write.
 
-## vet does not re-derive, and its verdict is inverted
+## Validation re-derivation and nested verdicts
 
-Open, and a correctness hole on a public surface. `lib.rs::validate_json` - which
-is `cue-rs vet` and `cue-wasm`'s `validate_json` - calls the free `unify` and
-never goes through the evaluator, so data that is correct against a defaulted
-schema is rejected and data that carries the stale default is accepted. Wants an
-`Evaluator::unify_and_rederive` that every `unify` caller outside `unify.rs`
-routes through.
+The original missing-re-derivation finding is stale as of d16afa0:
+`lib.rs::validate_json` already calls `Evaluator::unify_and_rederive`, and
+security-bounds tests cover overridden defaults. Do not treat that old
+finding as an unfixed bug. Phase 13 still needs an operation-specific audit
+of validation verdicts for nested conflicts, definitions, incomplete values
+and pending dependencies; fixing the call route alone does not establish
+all of those semantics.
 
 ## A forward let is dropped rather than relaxed
 
@@ -282,3 +297,124 @@ disjunction pending made `full` evaluate, which exposed both divergences:
 - `full` exports `art.images.ko` without `accounts`, where upstream expects
   `accounts: groups: [{gid: 65532}]`. The case uses `self`, which plain
   `cue` v0.16.1 rejects without `@experiment(aliasv2)`.
+
+## Concrete export family: remaining numeric and caller work
+
+Phase 13 now shares export policy, preserves BigInt JSON numbers, preserves
+byte octets and emits base64 for bytes. General decimal arithmetic still uses
+f64, so decimal JSON decode can round; encoded float spelling also differs from
+upstream. Nonfinite results error instead of becoming null. Exact YAML values
+outside i128/u128 or round-trippable f64 use JSON flow syntax, not upstream's
+block formatting. Address these in the numeric/encoding compatibility family.
+
+Before enve adopts this tree, its `export_formatted` YAML branch must call
+`cue_eval::export::json_to_yaml(&val)` instead of generic serde_yaml serialization
+of serde_json::Value. The latter exposes the private arbitrary-precision Number
+protocol. Workspace CLI/wasm are migrated and tested. The downstream checkout
+has unrelated active edits and has been left unchanged, including revision pins.
+
+
+## Shared evaluation inputs: remaining memory work
+
+Shared scope frames, constant value conjuncts and session-owned exact syntax
+sharing roughly halve Odoo RSS. Three capped release runs give median RSS
+182068 KiB literal, 316712 KiB refs, 1084112 KiB original. Only literal meets
+the approved target. Next: attribute retained allocations over all arena slots,
+record every root and execution-frame lifetime, then choose reclamation points.
+Whole-tree recipe sharing does not lower subtrees or cache dependency analysis;
+those remain candidates. Never reuse a recipe based only on semantic value
+comparison: lexical provenance still matters. The new benchmark recipe records
+reproducible samples but references require explicit saved upstream JSON.
+
+Default operand selection and later re-derivation in arithmetic are now covered
+by the scalar family. The previously failing `input: *1 | int; derived: input + 1`
+case is fixed, including later overrides and incomplete schemas constrained later.
+
+## Scalar/dependency-cache family: next work
+
+Direct dependency sets are now shared, with local let closures kept separate.
+Refs (294 MiB) and literal (168 MiB) meet their targets; original still takes
+about 980 MiB versus 512 MiB. Allocation attribution and explicit live execution
+roots remain necessary before reclaiming intermediate arena values.
+
+Integer/radix/SI overflow, division variants and scalar default operations are
+fixed. Exact decimal storage/arithmetic still needs replacing f64. Some direct
+builtin type literals are compile-invalid upstream but treated as incomplete
+constraints here; distinguish these at a compilation boundary. Mixed-kind closedness,
+per-file imports, closedness provenance, pending disjunctions and diagnostics
+remain in phase 13. Higher-order builtin values need modeling: list.Sort currently
+ignores its comparator argument, and list.Ascending is not represented as a value.
+Do not globally propagate argument errors before fixing that interface.
+
+## Plain embeddings: remaining value-model work
+
+File/package scalar roots and plain nested embeddings now return their actual
+value kind. Multiple embeddings, non-null constraints and scalar/disjunction
+comprehension bodies are supported. A separate declaration accumulator preserves
+empty-struct versus top and keeps embedding conflicts local.
+
+Resolved by the scalar metadata family below: scalars with definitions,
+hidden/optional fields and patterns now retain vertex metadata and embedded recipes. Examples: `{3, #unit: "kg"}`
+must permit `.#unit`; `{#a+#b, #a:int, #b:int}` must re-derive after its definitions
+are constrained. Do not simply drop those declarations during scalar export.
+The subsequent scalar metadata family implements these examples; mixed-kind
+choice closedness is addressed in the follow-ups below; general admission
+provenance remains open.
+
+## Scalar metadata and recipes (2026-09-25)
+
+Implemented the plain-embedding follow-up: sparse arena-owned fields and recipes
+on scalar/list values, scalar selectors and package selectors, lexical recipe
+specialization, invalid definition/hidden-field rejection, absent optional fields,
+metadata-aware equality and rollback. Basic `{3, #unit:"kg"}` and
+`{#a+#b, #a:int, #b:int}` cases now work, including later constraints and defaults.
+
+The binding-free mixed-choice boundary is now fixed: common fields are merged
+into each alternative before closing. The original repro moved to
+`tests/conformance/regressions/metadata/mixed-choice.txtar`; neighboring cases
+cover optional/pattern fields, nested closing, open branches, embedding, operand
+order, private branch fields and selectors after narrowing. A typed choice-field
+view supports selectors without becoming another closed constraint.
+
+The dependency-bearing follow-up is now fixed. The repro moved to
+`tests/conformance/regressions/dynamic-choice/basic.txtar`; all 34 observations
+in six reduced fixtures pass. Whole embedded expressions retain their closing
+boundaries as recipe groups. They recompute under merged inputs, close using
+only their own declarations, then meet outside constraints. Separate input and
+selector views retain branch-local fields without freezing them as inputs.
+Nested closing, changed labels, explicit struct constraints and embedding are
+covered. This does not replace the general struct admission model or scheduler.
+
+Remaining priorities: attribute retained arena allocations in original Odoo
+(now about 693 MiB after scalar/recipe sharing, versus the 512 MiB target), inventory execution roots before
+reclamation, and continue the 749 mismatches/3383 unsupported observations.
+`builtins_matchn` nestedOK.b/c now remain available for observation instead of
+being missing, but are abstract and still unverified. General conjunct admission,
+exact decimals, pending evaluation, builtin contracts and diagnostics remain in
+the approved phase-13 roadmap. Downstream adoption/pin changes remain separate.
+
+
+## Scalar/recipe sharing follow-up (2026-09-25)
+
+Implemented exact boolean/string constructor sharing and immutable field recipe
+slices. Original Odoo's requested live heap drops 41%, peak RSS 29%; valid literal
+and refs peaks drop 49% and 54%. Original remains above 512 MiB. All cached strings
+are removed on owner rollback/mutation; repeated abandoned branches do not retain
+text keys. Entirely unique-string workloads pay an extra owned index key; profile
+that tradeoff before extending interning. Sparse metadata always has fresh owners.
+
+The corpus exposed an existing `list.Contains` bug: it tests ValueId identity.
+String sharing now makes three observations in `comprehensions_nestembed` and
+`comprehensions_issue3996` match upstream, but this does not fix the builtin's
+contract. `tests/conformance/open/contains-identity.txtar` is reference-backed:
+Contains([7], 7) still returns false, while the string version now returns true.
+Replace identity with concrete value equality in the builtin family, accounting
+for optional fields, defaults, numeric equality and invalid/incomplete operands.
+Do not equate the fixpoint comparator's recipe/closedness checks with CUE Equals.
+List equality in the reduced issue3996 fixture also remains unsupported.
+
+Profiled list duplicates (370,319 nodes, 72,418 distinct child-ID sequences) do
+not justify another cache yet: after deduplication they would still leave the
+arena in its current capacity band, and the key vectors add ownership overhead.
+Focus next on retained struct/field storage and root-safe reclamation, including
+saved evaluator frames and externally held ValueIds before collecting any node.

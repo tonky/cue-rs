@@ -46,7 +46,7 @@ impl StringForm {
     }
 }
 
-/// A string or bytes literal: what it means, and how it was written.
+/// A Unicode string literal: what it means, and how it was written.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StringLit {
     /// The decoded value — escapes resolved, block indentation stripped. This is what
@@ -75,7 +75,14 @@ impl AsRef<str> for StringLit {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// A bytes literal can contain arbitrary octets, including invalid UTF-8.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct BytesLit {
+    pub value: Vec<u8>,
+    pub form: StringForm,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SourceFile {
     /// Comments and blank lines above `package` — a licence header, typically. They
     /// cannot live in `decls`, which comes after the imports, so they have their own
@@ -87,13 +94,13 @@ pub struct SourceFile {
     pub decls: Vec<Decl>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ImportDecl {
     pub path: String,
     pub alias: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Decl {
     Field(FieldDecl),
     Alias {
@@ -121,7 +128,7 @@ pub enum Decl {
     BlankLine,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FieldDecl {
     pub label: Label,
     pub optional: bool,
@@ -129,13 +136,13 @@ pub struct FieldDecl {
     pub attrs: Vec<Attribute>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Attribute {
     pub name: String,
     pub body: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Label {
     Ident(String),
     DefIdent(String),
@@ -167,13 +174,13 @@ impl Label {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ComprehensionDecl {
     pub clauses: Vec<ComprehensionClause>,
     pub struct_lit: StructLit,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ComprehensionClause {
     For {
         key: Option<String>,
@@ -217,14 +224,14 @@ pub enum ListForm {
     Inline,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StructLit {
     pub decls: Vec<Decl>,
     #[serde(default)]
     pub form: StructForm,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ListLit {
     pub elements: Vec<Expr>,
     /// The type the elements past the written ones take: the `int` of `[...int]`.
@@ -241,7 +248,7 @@ pub struct ListLit {
     pub form: ListForm,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DisjunctionBranch {
     pub default: bool,
     pub expr: Expr,
@@ -254,7 +261,7 @@ pub struct DisjunctionBranch {
     pub on_new_line: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Expr {
     Bottom,
     Top,
@@ -262,7 +269,7 @@ pub enum Expr {
     Bool(bool),
     Number(String),
     String(StringLit),
-    Bytes(StringLit),
+    Bytes(BytesLit),
     Ident(String),
     DefIdent(String),
     HiddenIdent(String),
@@ -307,19 +314,19 @@ pub enum Expr {
     ListComp(ListComprehension),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ListComprehension {
     pub clauses: Vec<ComprehensionClause>,
     pub expr: Box<Expr>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum InterpolationPart {
     Lit(String),
     Expr(Box<Expr>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum UnaryOp {
     Pos,
     Neg,
@@ -335,7 +342,7 @@ pub enum UnaryOp {
     RegexNotMatch,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BinaryOp {
     Unify,         // &
     Disjoin,       // |

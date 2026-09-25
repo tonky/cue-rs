@@ -1,0 +1,20 @@
+-- in.cue --
+#D: {*1 | 2 | {f:int}, #x:int}
+a: #D & {_,#x:3}
+ax: a.#x @test(eq, 3)
+av: a+0 @test(eq, 1)
+b: {_,#x:4} & #D
+bx: b.#x @test(eq, 4)
+c: #D & (1|2)
+cx: (c & {_,#x:5}).#x @test(eq, 5)
+#Extended: {#D, extra?:bool}
+e: #Extended & {f:3,extra:true}
+ef: e.f @test(eq, 3)
+bad: #Extended & {f:3,no:4} @test(err, code=eval)
+inner: {*{1,#local:"a"} | {2,#local:"b"}, #common:3}
+local: (inner&2).#local @test(eq, "b")
+common: inner.#common @test(eq, 3)
+#Pattern: {*1 | {f:int}, [=~"^x"]:int, #meta:3}
+p: #Pattern & {f:3,xOne:4}
+pv: p.xOne @test(eq, 4)
+badP: #Pattern & {f:3,xOne:"bad"} @test(err, code=eval)

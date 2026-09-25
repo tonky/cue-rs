@@ -1,0 +1,11 @@
+-- in.cue --
+#Dynamic: {*(#x+1) | {f:#x}, #x:*1|int}
+a: #Dynamic & {_, #x:5}
+av: a+0 @test(eq, 6)
+base: #Dynamic+0 @test(eq, 2)
+shadow: {int:*1|3, choice:{*int|2,#tag:4}}
+changed: shadow & {int:3}
+sv: changed.choice+0 @test(eq, 3)
+letValue: {let int = #x, *int|2, #x:*1|3}
+letChanged: letValue & {_,#x:3}
+lv: letChanged+0 @test(eq, 3)

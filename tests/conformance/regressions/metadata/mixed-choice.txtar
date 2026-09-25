@@ -1,0 +1,9 @@
+-- in.cue --
+#Top: {_, #x:int}
+a: #Top & {f:3} @test(err, code=eval)
+#Mixed: {*1 | {f:int}, #x:int}
+b: #Mixed & {f:3}
+bf: b.f @test(eq, 3)
+c: {*1|2, #x:3}
+d: c.#x @test(eq, 3)
+e: c+0 @test(eq, 1)

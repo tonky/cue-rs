@@ -1,0 +1,8 @@
+-- in.cue --
+x: int
+flag: bool
+a: x + 1 @test(err, code=incomplete)
+b: +x @test(err, code=incomplete)
+c: !flag @test(err, code=incomplete)
+d: div(x, 2) @test(err, code=incomplete)
+e: flag && false @test(err, code=incomplete)

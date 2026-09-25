@@ -2,6 +2,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+pub mod conformance;
+pub mod legacy;
+
 #[derive(Error, Debug)]
 pub enum TxtarError {
     #[error("IO error: {0}")]
@@ -26,34 +29,40 @@ impl TxtarArchive {
         let mut file_order = Vec::new();
 
         let mut current_file: Option<String> = None;
-        let mut current_content: Vec<&str> = Vec::new();
+        let mut current_content = String::new();
 
-        for line in input.lines() {
+        for raw_line in input.split_inclusive('\n') {
+            let line = raw_line.trim_end_matches(['\r', '\n']);
             if let Some(filename) = Self::parse_file_marker(line) {
                 if let Some(prev_file) = current_file.take() {
-                    let content = current_content.join("\n");
-                    files.insert(prev_file, content);
-                    current_content.clear();
-                } else {
-                    // Everything before the first file marker is the comment
-                    // Ensure comment ends cleanly
+                    files.insert(prev_file, std::mem::take(&mut current_content));
                 }
                 let fname_str = filename.to_string();
+                if file_order.contains(&fname_str) {
+                    return Err(TxtarError::Format(format!(
+                        "duplicate archive path: {filename}"
+                    )));
+                }
+                if std::path::Path::new(filename)
+                    .components()
+                    .any(|part| !matches!(part, std::path::Component::Normal(_)))
+                    || filename.contains('\\')
+                {
+                    return Err(TxtarError::Format(format!(
+                        "unsafe archive path: {filename}"
+                    )));
+                }
                 file_order.push(fname_str.clone());
                 current_file = Some(fname_str);
             } else if current_file.is_none() {
                 comment_lines.push(line);
             } else {
-                current_content.push(line);
+                current_content.push_str(raw_line);
             }
         }
 
         if let Some(last_file) = current_file {
-            let mut content = current_content.join("\n");
-            if input.ends_with('\n') && !content.is_empty() {
-                content.push('\n');
-            }
-            files.insert(last_file, content);
+            files.insert(last_file, current_content);
         }
 
         let mut comment = comment_lines.join("\n");
@@ -90,16 +99,14 @@ impl TxtarArchive {
         self.file_order
             .iter()
             .filter(|name| name.ends_with(".cue"))
+            .filter(|name| !name.starts_with("out/") && !name.starts_with("cue.mod/"))
             .filter_map(|name| self.files.get(name).map(|c| (name.as_str(), c.as_str())))
             .collect()
     }
 
-    /// Get the expected evaluation output if present (`out/eval` or `out/eval/stats`).
+    /// Get the legacy evaluation golden, excluding allocation statistics.
     pub fn expected_eval_output(&self) -> Option<&str> {
-        self.files
-            .get("out/eval")
-            .or_else(|| self.files.get("out/eval/stats"))
-            .map(|s| s.as_str())
+        self.files.get("out/eval").map(|s| s.as_str())
     }
 
     /// Find all .txtar files in a directory.
@@ -119,6 +126,21 @@ impl TxtarArchive {
         }
         fixtures.sort();
         fixtures
+    }
+
+    /// Discover fixtures without silently ignoring unreadable directories.
+    pub fn discover(dir: &Path) -> Result<Vec<PathBuf>, TxtarError> {
+        let mut fixtures = Vec::new();
+        for entry in walkdir::WalkDir::new(dir) {
+            let entry = entry.map_err(|e| TxtarError::Io(e.into()))?;
+            if entry.file_type().is_file()
+                && entry.path().extension().and_then(|s| s.to_str()) == Some("txtar")
+            {
+                fixtures.push(entry.into_path());
+            }
+        }
+        fixtures.sort();
+        Ok(fixtures)
     }
 }
 

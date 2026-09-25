@@ -1,0 +1,45 @@
+{
+  "arena": {
+    "captured_bindings": 402165,
+    "conjunct_count": 2617708,
+    "conjunct_size": 24,
+    "empty_lists": 348,
+    "environments": 168554,
+    "field_entry_size": 32,
+    "field_name_bytes": 14562973,
+    "fields": 1993493,
+    "frames": 305742,
+    "kinds": {
+      "bool": 2,
+      "bottom": 46551,
+      "bounds": 17,
+      "choice": 122946,
+      "float": 43,
+      "int": 63,
+      "list": 370319,
+      "reference": 98,
+      "string": 4833,
+      "struct": 342897,
+      "top": 4,
+      "type": 38,
+      "validator": 2
+    },
+    "metadata": 0,
+    "recipe_sequences": 1252899,
+    "slot_capacity": 1048575,
+    "slots": 887813,
+    "string_cache_entries": 4833,
+    "string_cache_text_bytes": 170466,
+    "text_bytes": 2168685,
+    "trail_capacity": 1048576,
+    "unique_lists": 72418,
+    "unique_strings": 4833,
+    "value_size": 104
+  },
+  "derivations": 48707,
+  "export": {
+    "concrete": false,
+    "error": "cannot export bottom at 'pipeline.components.account.name': _|_ (cycle with field: name: incomplete value)"
+  },
+  "unsettled": 0
+}

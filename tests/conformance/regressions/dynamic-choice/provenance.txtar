@@ -1,0 +1,15 @@
+-- in.cue --
+#Named: {*(#x+1) | {"\(#key)":#x}, #x:*1|int, #key:*"old"|string}
+n: #Named & {new:3,#x:3,#key:"new"}
+nv: n.new @test(eq,3)
+badName: #Named & {old:3,#x:3,#key:"new"} @test(err,code=eval)
+base: #Named+0 @test(eq,2)
+#Pattern: {*(#x+1) | {f:#x}, #x:*1|int, [=~"^extra"]:int}
+p: #Pattern & {f:3,extraOne:4,#x:3}
+pv: p.extraOne @test(eq,4)
+badP: #Pattern & {f:3,extraOne:"bad",#x:3} @test(err,code=eval)
+#A: {*(#x+1) | {f:#x}, #x:*1|int}
+#B: {*(#y+1) | {g:#y}, #y:*1|int}
+badBoth: (#A & #B) & {f:3,g:3,#x:3,#y:3} @test(err,code=eval)
+#Any: {#x,#x:_}
+badTop: #Any & {z:3} @test(err,code=eval)

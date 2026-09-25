@@ -1,0 +1,9 @@
+-- in.cue --
+a: {3, #x: 1}
+b: a & {#x: 1} @test(err, code=eval)
+c: a & {_, #x: 1} @test(eq, 3)
+d: a & {_, #x: 2} @test(err, code=eval)
+optional: {3, x?: 1} @test(eq, 3)
+pattern: {3, [string]: int} @test(eq, 3)
+plain: {_, #x: 1} & {y: 2}
+select: plain.#x @test(eq, 1)

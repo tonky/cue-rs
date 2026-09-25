@@ -21,6 +21,7 @@ pub struct UnifyContext {
     pub active_pairs: BTreeSet<(ValueId, ValueId)>,
     pub active_structs: BTreeSet<(ValueId, ValueId)>,
     pub active_disjunctions: BTreeSet<(ValueId, ValueId)>,
+    pub active_metadata_choices: BTreeSet<(ValueId, ValueId)>,
 }
 
 impl UnifyContext {
@@ -30,6 +31,8 @@ impl UnifyContext {
 }
 
 /// Unify two values in the arena, computing their greatest lower bound (meet: a ⊓ b).
+/// Values carrying lexical recipes need the evaluator's `unify_and_rederive`
+/// entrypoint to refresh their cached results against the merged fields.
 pub fn unify(arena: &mut ValueArena, v1_id: ValueId, v2_id: ValueId) -> ValueId {
     let mut ctx = UnifyContext::new();
     unify_with_context(arena, v1_id, v2_id, &mut ctx)
@@ -94,6 +97,21 @@ fn unify_logic(
 
     if v1_id == v2_id {
         return v1_id;
+    }
+
+    if arena.embedded_metadata(v1_id).is_some() || arena.embedded_metadata(v2_id).is_some() {
+        // Distribute an ordinary choice before merging its branches' metadata.
+        if arena.embedded_metadata(v1_id).is_none()
+            && let Value::Disjunction { branches } = v1_ref.clone()
+        {
+            return unify_disjunction(arena, v1_id, &branches, v2_id, ctx);
+        }
+        if arena.embedded_metadata(v2_id).is_none()
+            && let Value::Disjunction { branches } = v2_ref.clone()
+        {
+            return unify_disjunction(arena, v2_id, &branches, v1_id, ctx);
+        }
+        return unify_metadata(arena, v1_id, v2_id, ctx);
     }
 
     // 1. Bottom propagation: _|_ ⊓ x = _|_
@@ -171,38 +189,38 @@ fn unify_logic(
     // 7. Types & Concrete Values
     match (&val1, &val2) {
         // Concrete vs Concrete
-        (Value::Null, Value::Null) => arena.alloc(Value::Null),
+        (Value::Null, Value::Null) => v1_id,
         (Value::Bool(b1), Value::Bool(b2)) => {
             if b1 == b2 {
-                arena.alloc(Value::Bool(*b1))
+                v1_id
             } else {
                 conflict(arena, format!("conflicting values: {b1} and {b2}"))
             }
         }
         (Value::Int(i1), Value::Int(i2)) => {
             if i1 == i2 {
-                arena.alloc(Value::Int(i1.clone()))
+                v1_id
             } else {
                 conflict(arena, format!("conflicting values: {i1} and {i2}"))
             }
         }
         (Value::Float(f1), Value::Float(f2)) => {
             if (f1 - f2).abs() < f64::EPSILON {
-                arena.alloc(Value::Float(*f1))
+                v1_id
             } else {
                 conflict(arena, format!("conflicting values: {f1} and {f2}"))
             }
         }
         (Value::String(s1), Value::String(s2)) => {
             if s1 == s2 {
-                arena.alloc(Value::String(s1.clone()))
+                v1_id
             } else {
                 conflict(arena, format!("conflicting values: \"{s1}\" and \"{s2}\""))
             }
         }
         (Value::Bytes(b1), Value::Bytes(b2)) => {
             if b1 == b2 {
-                arena.alloc(Value::Bytes(b1.clone()))
+                v1_id
             } else {
                 conflict(arena, "conflicting bytes")
             }
@@ -337,6 +355,61 @@ fn unify_type_and_concrete(
     }
 }
 
+fn unify_metadata(
+    arena: &mut ValueArena,
+    left: ValueId,
+    right: ValueId,
+    ctx: &mut UnifyContext,
+) -> ValueId {
+    let left_meta = arena.embedded_metadata(left).cloned();
+    let right_meta = arena.embedded_metadata(right).cloned();
+    let fields = if arena.has_embedded_recipe(left) || arena.has_embedded_recipe(right) {
+        let mut inputs = None;
+        for id in [left, right] {
+            let body = arena.metadata(id).map(|m| m.fields).unwrap_or(id);
+            let Some(Value::Struct(mut body)) = arena.get(body).cloned() else {
+                continue;
+            };
+            body.is_closed = false;
+            let next = arena.alloc(Value::Struct(body));
+            inputs = Some(match inputs {
+                Some(previous) => unify_internal(arena, previous, next, ctx),
+                None => next,
+            });
+        }
+        inputs.expect("an embedded recipe has inputs")
+    } else {
+        match (&left_meta, &right_meta) {
+            (Some(left), Some(right)) => unify_internal(arena, left.fields, right.fields, ctx),
+            (Some(metadata), None) | (None, Some(metadata)) => metadata.fields,
+            (None, None) => unreachable!("metadata merge has an annotated operand"),
+        }
+    };
+    if !matches!(arena.get(fields), Some(Value::Struct(_))) {
+        return fields;
+    }
+    let mut conjuncts = Vec::new();
+    for (id, metadata) in [(left, left_meta), (right, right_meta)] {
+        match metadata {
+            Some(metadata) if matches!(metadata.source, MetadataSource::Closed { .. }) => {
+                conjuncts.push(Conjunct::Value(id))
+            }
+            Some(metadata) => conjuncts.extend(
+                metadata
+                    .conjuncts()
+                    .expect("embedded metadata has conjuncts")
+                    .iter()
+                    .cloned(),
+            ),
+            None => conjuncts.push(Conjunct::Value(id)),
+        }
+    }
+    let left = crate::metadata::payload(arena, left);
+    let right = crate::metadata::payload(arena, right);
+    let value = unify_internal(arena, left, right, ctx);
+    crate::metadata::finish_with_context(arena, value, fields, conjuncts, ctx)
+}
+
 fn unify_bounds(
     arena: &mut ValueArena,
     base_type: Option<TypeKind>,
@@ -347,6 +420,35 @@ fn unify_bounds(
         Some(v) => v.clone(),
         None => return arena.bottom("invalid node id"),
     };
+
+    // Unlike an ordered bound, !=null does not restrict the candidate's kind.
+    // Discharge it only when that kind excludes null, preserving any remaining
+    // constraints and their base type.
+    let excludes_null = matches!(
+        other,
+        Value::Bool(_)
+            | Value::Int(_)
+            | Value::Float(_)
+            | Value::String(_)
+            | Value::Bytes(_)
+            | Value::List { .. }
+            | Value::Struct(_)
+    ) || matches!(other, Value::Type(kind) if !matches!(kind, TypeKind::Top | TypeKind::Bottom | TypeKind::Null));
+    if excludes_null {
+        let before = constraints.len();
+        constraints.retain(|(op, target)| {
+            !(*op == BoundOp::NotEqual && matches!(arena.get(*target), Some(Value::Null)))
+        });
+        if before != constraints.len() && constraints.is_empty() {
+            return match base_type {
+                Some(kind) => {
+                    let base = arena.type_kind(kind);
+                    unify(arena, base, other_id)
+                }
+                None => other_id,
+            };
+        }
+    }
 
     match other {
         // Unifying Bounds with another Bounds -> merge constraints and base types
@@ -637,7 +739,12 @@ fn merge_conjuncts(e1: &FieldEntry, e2: &FieldEntry) -> Vec<Conjunct> {
 /// [stages.build]}}` loses `build` while `test` is still pending. Left where it
 /// belongs, a reference that never resolves is reported at its own path, `x.r`
 /// rather than `x`, which is how upstream reports it too.
-fn collapses_struct(arena: &ValueArena, val: ValueId) -> bool {
+pub(crate) fn collapses_struct(arena: &ValueArena, val: ValueId) -> bool {
+    // This is a cached recipe result, which the evaluator replaces after the
+    // merged fields have settled. It is not an immutable bottom conjunct.
+    if arena.has_embedded_recipe(val) {
+        return false;
+    }
     match arena.get(val) {
         Some(Value::Bottom(reason)) => {
             !reason.kind.may_resolve_later()
@@ -891,6 +998,7 @@ fn unify_disjunction(
     ctx.disjunction_depth += 1;
 
     let res = unify_disjunction_inner(arena, branches, other_id, ctx);
+    let res = crate::metadata::merged_choice_view(arena, res, disj_id, other_id, ctx);
 
     ctx.disjunction_depth = ctx.disjunction_depth.saturating_sub(1);
     ctx.active_disjunctions.remove(&pair);
@@ -947,7 +1055,9 @@ fn unify_disjunction_inner(
             for b2 in &other_branches {
                 let cp = arena.checkpoint();
                 let u = unify_internal(arena, b1.val, b2.val, ctx);
-                if let Some(Value::Bottom(b)) = arena.get(u) {
+                if !arena.has_embedded_recipe(u)
+                    && let Some(Value::Bottom(b)) = arena.get(u)
+                {
                     branch_errors.push(b.clone());
                     arena.rollback(cp);
                     continue;
@@ -974,7 +1084,9 @@ fn unify_disjunction_inner(
     for branch in branches {
         let cp = arena.checkpoint();
         let u = unify_internal(arena, branch.val, other_id, ctx);
-        if let Some(Value::Bottom(b)) = arena.get(u) {
+        if !arena.has_embedded_recipe(u)
+            && let Some(Value::Bottom(b)) = arena.get(u)
+        {
             // This branch conflicted, rollback allocations made during the branch
             branch_errors.push(b.clone());
             arena.rollback(cp);
@@ -1000,7 +1112,7 @@ fn unify_disjunction_inner(
 /// when no branch survived and one of them is still pending, the result is
 /// pending too. `(int | [...]) & [a.b]` with `a` declared after it, or in
 /// another file of the package, used to fail for good on the first pass.
-fn settle_disjunction(
+pub(crate) fn settle_disjunction(
     arena: &mut ValueArena,
     mut valid_branches: Vec<DisjunctionBranch>,
     branch_errors: &[BottomReason],
@@ -1377,6 +1489,42 @@ fn equivalent(
 }
 
 fn equivalent_inner(
+    arena: &ValueArena,
+    a: ValueId,
+    b: ValueId,
+    active: &mut BTreeSet<(ValueId, ValueId)>,
+    budget: &mut usize,
+) -> bool {
+    match (arena.metadata(a), arena.metadata(b)) {
+        (Some(left), Some(right)) => {
+            if left.conjuncts().is_some() != right.conjuncts().is_some()
+                || !equivalent(arena, left.fields, right.fields, active, budget)
+                || !equivalent(
+                    arena,
+                    left.view.unwrap_or(left.fields),
+                    right.view.unwrap_or(right.fields),
+                    active,
+                    budget,
+                )
+            {
+                return false;
+            }
+        }
+        (None, None) => {}
+        _ => return false,
+    }
+    equivalent_payload(arena, a, b, active, budget)
+}
+
+/// Compare a refreshed payload without allocating an unannotated copy of its
+/// previous value. Child values still include their retained fields.
+pub(crate) fn same_payload(arena: &ValueArena, a: ValueId, b: ValueId) -> bool {
+    let mut active = BTreeSet::from([(a.min(b), a.max(b))]);
+    let mut budget = MAX_EQUIVALENCE_NODES;
+    equivalent_payload(arena, a, b, &mut active, &mut budget)
+}
+
+fn equivalent_payload(
     arena: &ValueArena,
     a: ValueId,
     b: ValueId,

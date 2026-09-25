@@ -3,6 +3,8 @@ use clap::{Parser, Subcommand};
 use cue_test_harness::TxtarArchive;
 use std::path::PathBuf;
 
+mod conformance;
+
 #[derive(Parser, Debug)]
 #[command(
     name = "cue-rs",
@@ -42,7 +44,7 @@ enum Commands {
         #[arg(short, long)]
         write: bool,
     },
-    /// Run .txtar test suites from a file or directory
+    /// Run legacy heuristic txtar checks (does not establish conformance)
     TestTxtar {
         /// Path to .txtar file or directory containing .txtar files
         path: PathBuf,
@@ -52,6 +54,28 @@ enum Commands {
         #[arg(long)]
         strict_errors: bool,
     },
+    /// Compare operation-specific assertions with the pinned upstream oracle
+    Conformance {
+        #[arg(default_value = "tests/testdata")]
+        path: PathBuf,
+        #[arg(long, default_value = "tmp/conformance-oracle")]
+        oracle: PathBuf,
+        #[arg(long, default_value = "tmp/conformance-report.json")]
+        report: PathBuf,
+        /// Migration comparison only; success is not conformance acceptance
+        #[arg(long)]
+        baseline: Option<PathBuf>,
+        /// Verify fixture bytes and source revision against this manifest
+        #[arg(long)]
+        manifest: Option<PathBuf>,
+        /// Select case filenames containing this substring
+        #[arg(long)]
+        filter: Option<String>,
+        #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u64).range(1..))]
+        timeout_seconds: u64,
+    },
+    #[command(hide = true)]
+    ConformanceWorker { request: PathBuf },
     /// Ingest / sync upstream test suites from a local CUE repository checkout
     SyncUpstream {
         /// Source directory or file in upstream CUE repo (e.g. /path/to/cue/cue/testdata/eval)
@@ -161,7 +185,7 @@ fn main() -> Result<()> {
 
             match format.to_lowercase().as_str() {
                 "yaml" | "yml" => {
-                    let yml = serde_yaml_ng::to_string(&json)?;
+                    let yml = cue_eval::export::json_to_yaml(&json).map_err(anyhow::Error::msg)?;
                     print!("{yml}");
                 }
                 _ => {
@@ -187,10 +211,109 @@ fn main() -> Result<()> {
                 Err(e) => anyhow::bail!("Validation failed: {e}"),
             }
         }
+        Commands::ConformanceWorker { request } => conformance::worker(&request)?,
+        Commands::Conformance {
+            path,
+            oracle,
+            report,
+            baseline,
+            manifest,
+            filter,
+            timeout_seconds,
+        } => {
+            use cue_test_harness::conformance::{ORACLE_REVISION, Report, Runner};
+            let mut fixtures = if path.is_file() {
+                vec![path]
+            } else if path.is_dir() {
+                TxtarArchive::discover(&path)?
+            } else {
+                anyhow::bail!("fixture path does not exist: {}", path.display());
+            };
+            if let Some(filter) = filter {
+                fixtures.retain(|path| {
+                    path.file_name()
+                        .is_some_and(|name| name.to_string_lossy().contains(&filter))
+                });
+            }
+            anyhow::ensure!(!fixtures.is_empty(), "no txtar fixtures discovered");
+            let mut names = std::collections::HashSet::new();
+            anyhow::ensure!(
+                fixtures.iter().all(|f| names.insert(f.file_name())),
+                "duplicate case names in fixture directory"
+            );
+            let manifest = manifest
+                .map(|path| -> Result<_> { Ok(serde_json::from_slice(&std::fs::read(path)?)?) })
+                .transpose()?;
+            let baseline: Option<Report> = baseline
+                .map(|path| -> Result<_> {
+                    anyhow::ensure!(
+                        path != report
+                            && (std::fs::canonicalize(&path)
+                                .ok()
+                                .zip(std::fs::canonicalize(&report).ok())
+                                .is_none_or(|(a, b)| a != b)),
+                        "report output must not overwrite the baseline"
+                    );
+                    Ok(serde_json::from_slice(&std::fs::read(path)?)?)
+                })
+                .transpose()?;
+            let runner = Runner {
+                oracle: std::fs::canonicalize(oracle)?,
+                worker: std::env::current_exe()?,
+                timeout_seconds,
+                scratch: PathBuf::from("tmp/conformance"),
+                manifest,
+            };
+            let mut results = Report {
+                oracle_revision: ORACLE_REVISION.into(),
+                cases: Vec::new(),
+            };
+            for fixture in fixtures {
+                let result = runner.run(&fixture);
+                let checked = result
+                    .checks
+                    .iter()
+                    .filter(|c| c.status == cue_test_harness::conformance::Status::Passed)
+                    .count();
+                println!(
+                    "{}: {} ({checked}/{} checks passed)",
+                    result.case,
+                    if result.passed() {
+                        "PASSED"
+                    } else {
+                        "INCOMPLETE/FAILED"
+                    },
+                    result.checks.len()
+                );
+                results.cases.push(result);
+            }
+            if let Some(parent) = report.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&report, serde_json::to_vec_pretty(&results)?)?;
+            let passed = results.cases.iter().filter(|c| c.passed()).count();
+            println!(
+                "Conformance: {passed}/{} cases fully verified; report {}",
+                results.cases.len(),
+                report.display()
+            );
+            if let Some(baseline) = baseline {
+                results
+                    .compare_baseline(&baseline)
+                    .map_err(anyhow::Error::msg)?;
+                println!("Migration baseline matched; this is not a conformance pass.");
+            } else {
+                anyhow::ensure!(
+                    results.accepted(),
+                    "conformance has failures or incomplete verification"
+                );
+            }
+        }
         Commands::TestTxtar {
             path,
             strict_errors,
         } => {
+            println!("Legacy heuristic checks; passes do not establish conformance.");
             if path.is_file() {
                 println!("Running test: {}", path.display());
                 run_txtar_case(&path, strict_errors)?;
@@ -224,6 +347,8 @@ fn main() -> Result<()> {
                     }
                 }
                 println!("\nTest Results: {passed} passed, {failed} failed");
+                anyhow::ensure!(passed + failed > 0, "no txtar fixtures discovered");
+                anyhow::ensure!(failed == 0, "{failed} legacy checks failed");
             } else {
                 anyhow::bail!("Path {} does not exist", path.display());
             }
@@ -264,6 +389,7 @@ fn main() -> Result<()> {
                     }
                 }
                 println!("\nSync Verification Results: {passed} passed, {failed} failed");
+                anyhow::ensure!(failed == 0, "{failed} legacy checks failed");
             }
         }
         Commands::Import { command } => match command {
@@ -408,126 +534,46 @@ fn derive_fixture_name(path: &std::path::Path) -> String {
     }
 }
 
-/// What upstream recorded a case failing with.
-enum ExpectedErrors {
-    /// No `out/errors.txt`, or an empty one.
-    None,
-    /// Every recorded error is `field not allowed`.
-    Closedness,
-    Other,
-}
-
-impl ExpectedErrors {
-    fn of(archive: &TxtarArchive) -> Self {
-        let Some(errors) = archive.files.get("out/errors.txt") else {
-            return Self::None;
-        };
-        let messages: Vec<&str> = errors
-            .lines()
-            .filter(|line| line.starts_with('['))
-            .collect();
-        if messages.is_empty() {
-            Self::None
-        } else if messages.iter().all(|m| m.contains("field not allowed")) {
-            Self::Closedness
-        } else {
-            Self::Other
+struct LegacyBackend;
+impl cue_test_harness::legacy::Backend for LegacyBackend {
+    fn evaluate(
+        &self,
+        files: &[(&str, &str)],
+        export_each: bool,
+    ) -> std::result::Result<(), cue_test_harness::legacy::Failure> {
+        use cue_test_harness::legacy::Failure;
+        let mut evaluator = cue_eval::Evaluator::new();
+        let mut last = None;
+        for (name, content) in files {
+            let file = cue_syntax::parse_file(content).map_err(|e| Failure {
+                message: format!("{name}: {e}"),
+                during_export: false,
+            })?;
+            let value = evaluator.eval_file(&file).map_err(|e| Failure {
+                message: format!("{name}: {e}"),
+                during_export: false,
+            })?;
+            if export_each {
+                evaluator.to_json(value).map_err(|e| Failure {
+                    message: format!("{name}: {e}"),
+                    during_export: true,
+                })?;
+            }
+            last = Some(value);
         }
+        if let Some(value) = last {
+            evaluator.to_json(value).map_err(|message| Failure {
+                message,
+                during_export: true,
+            })?;
+        }
+        Ok(())
     }
 }
-
 fn run_txtar_case(path: &std::path::Path, strict_errors: bool) -> Result<()> {
-    if !strict_errors {
-        return run_txtar_file(path);
-    }
-    let archive = TxtarArchive::from_file(path)
-        .with_context(|| format!("Failed to parse txtar file {}", path.display()))?;
-    let outcome = evaluate_archive(&archive);
-    match (ExpectedErrors::of(&archive), outcome) {
-        (ExpectedErrors::None, _) => run_txtar_file(path),
-        (_, Ok(())) => anyhow::bail!("evaluated without the error upstream records"),
-        (ExpectedErrors::Closedness, Err(e)) if !e.contains("not allowed") => {
-            anyhow::bail!("expected a closedness error, got: {e}")
-        }
-        (_, Err(_)) => Ok(()),
-    }
+    cue_test_harness::legacy::run_case(path, strict_errors, &LegacyBackend)
+        .map_err(anyhow::Error::msg)
 }
-
-/// Evaluate and export every CUE file of an archive, stopping at the first
-/// error. Each file is exported, not only the last: a case's errors may sit in
-/// any of them.
-fn evaluate_archive(archive: &TxtarArchive) -> std::result::Result<(), String> {
-    let mut evaluator = cue_eval::Evaluator::new();
-    for (name, content) in archive.cue_files() {
-        let file = cue_syntax::parse_file(content).map_err(|e| format!("{name}: {e}"))?;
-        let val = evaluator
-            .eval_file(&file)
-            .map_err(|e| format!("{name}: {e}"))?;
-        evaluator.to_json(val).map_err(|e| format!("{name}: {e}"))?;
-    }
-    Ok(())
-}
-
 fn run_txtar_file(path: &std::path::Path) -> Result<()> {
-    let archive = TxtarArchive::from_file(path)
-        .with_context(|| format!("Failed to parse txtar file {}", path.display()))?;
-
-    let cue_files = archive.cue_files();
-    if cue_files.is_empty() {
-        anyhow::bail!("No CUE files found in archive");
-    }
-
-    let has_expected_error = archive.files.keys().any(|k| k.contains("error"))
-        || archive
-            .files
-            .values()
-            .any(|v| v.contains("Errors:") || v.contains("_|_"));
-
-    let mut evaluator = cue_eval::Evaluator::new();
-    let mut last_val = None;
-
-    for (name, content) in cue_files {
-        let file = match cue_syntax::parse_file(content) {
-            Ok(f) => f,
-            Err(e) => {
-                if has_expected_error {
-                    return Ok(());
-                }
-                anyhow::bail!("Parse error in {name}: {e}");
-            }
-        };
-        let val_id = match evaluator.eval_file(&file) {
-            Ok(v) => v,
-            Err(e) => {
-                if has_expected_error {
-                    return Ok(());
-                }
-                anyhow::bail!("Eval error in {name}: {e}");
-            }
-        };
-        last_val = Some(val_id);
-    }
-
-    if let Some(val_id) = last_val {
-        match evaluator.to_json(val_id) {
-            Ok(json) => {
-                println!("Output JSON:\n{}", serde_json::to_string_pretty(&json)?);
-            }
-            Err(e) => {
-                let is_schema_or_stats_fixture = archive.files.keys().any(|k| {
-                    k.contains("error")
-                        || k.contains("evalalpha")
-                        || k.contains("stats")
-                        || k.contains("compile")
-                });
-                if has_expected_error || is_schema_or_stats_fixture {
-                    println!("Evaluated expected error or schema fixture successfully");
-                    return Ok(());
-                }
-                anyhow::bail!("JSON export error: {e}");
-            }
-        }
-    }
-
-    Ok(())
+    run_txtar_case(path, false)
 }

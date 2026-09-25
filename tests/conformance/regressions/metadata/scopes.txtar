@@ -1,0 +1,11 @@
+-- in.cue --
+outer: 5
+#Calc: {outer + #x, #x:int}
+a: #Calc & {_, #x:3}
+aValue: a+0 @test(eq, 8)
+b: {#x:4, _, outer?:99} & #Calc
+bValue: b+0 @test(eq, 9)
+self: {value: {3, #next: self.value+1}}
+next: self.value.#next @test(eq, 4)
+c: {#Calc, #x:6}
+cValue: c+0 @test(eq, 11)

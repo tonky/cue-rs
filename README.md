@@ -2,19 +2,24 @@
 
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Clippy Clean](https://img.shields.io/badge/clippy-0%20warnings-brightgreen.svg)](https://github.com/rust-lang/rust-clippy)
-[![Strict txtar harness](https://img.shields.io/badge/strict%20txtar-504%2F547%20passing-yellow.svg)](impl/11-odoo-unification.md)
+[![Legacy strict txtar harness](https://img.shields.io/badge/strict%20txtar-520%2F547%20passing-yellow.svg)](impl/13-upstream-compatibility.md)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
 
 A high-performance, modular implementation of the [CUE configuration language](https://cuelang.org/) in **Rust (2024 Edition)**.
 
 Designed for embedding in high-throughput data pipelines, cloud-native control planes, CLI tools, procedural macros, and Rust applications without external runtime dependencies.
 
-Current validation (2026-09-25): 179 workspace tests pass; cue-rs passes 504 of
-547 local fixtures under `--strict-errors`, with 43 failures. The corpus
-contains 429 upstream-prefixed imports and 118 other fixtures; all 43 failures
-are in the imported subset.
-The harness checks selected error expectations and does not compare every
-expected value, so these counts do not establish full CUE conformance.
+Validation (2026-09-25): 231 workspace tests with all features and six additional real-reference
+integration controls pass. The legacy strict harness reports 520/547, with
+27 failure signals; it exits nonzero for those failures.
+
+The [new conformance runner](tests/conformance/README.md) pins the upstream
+revision matching all 429 imported fixtures and records each observation.
+Its current baseline has 749 passed checks, 749 mismatches across 173 archives,
+3,383 unsupported checks and one reference-annotation disagreement. Multiple
+checks can share one underlying defect. Only 28 of 547 archives have all their
+applicable checks verified; the rest include verification debt as well as
+implementation differences. These counts are not a full-language coverage claim.
 
 ---
 
@@ -102,6 +107,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+JSON exports preserve arbitrary-size integers as numbers and encode bytes as base64.
+For YAML, use `cue_eval::export::json_to_yaml(&json_val)`; directly serializing
+`serde_json::Value` through a generic serializer can expose serde_json's private
+arbitrary-precision number representation. Values outside the YAML serializer's
+numeric range are emitted as an exact JSON flow document, valid YAML 1.2.
+
 #### 2. Validate Rust Structs with `#[derive(CueValidate)]`
 ```rust
 use serde::Deserialize;
@@ -172,8 +183,12 @@ cue-rs import openapi petstore.yaml --write api.cue
 cue-rs mod init example.com/mymod@v0
 cue-rs mod tidy
 
-# 6. Run upstream .txtar test suites
-cue-rs test-txtar tests/testdata
+# 6. Build the test-only pinned reference engine, then run strict comparisons
+just safe just oracle-build
+just safe just conformance
+
+# Compare with the recorded migration baseline (not full conformance)
+just safe just conformance-baseline
 ```
 
 ---

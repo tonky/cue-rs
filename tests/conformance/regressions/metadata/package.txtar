@@ -1,0 +1,13 @@
+-- cue.mod/module.cue --
+module: "example.test"
+language: version: "v0.15.0"
+-- in.cue --
+package test
+import "example.test/schema"
+result: (schema.#Calc & {_, #x:5}) + 0 @test(eq, 6)
+unit: schema.#unit @test(eq, "kg")
+-- schema/schema.cue --
+package schema
+_
+#unit: "kg"
+#Calc: {#x+1, #x:*1|int}

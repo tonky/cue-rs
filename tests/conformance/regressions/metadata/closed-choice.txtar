@@ -1,0 +1,8 @@
+-- in.cue --
+#A: {b?: int, *{} | {c?: int} | {d?: int}}
+a: #A & {b:3, c:3} @test(eq, {b:3, c:3}) @test(closed)
+b: #A & {c:3, d:4} @test(err, code=eval)
+list: {[1,2], #unit:3}
+index: list[1] @test(eq, 2)
+outside: list[5] @test(err, code=eval)
+negative: list[-1] @test(err, code=eval)

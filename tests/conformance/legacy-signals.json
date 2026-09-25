@@ -1,0 +1,174 @@
+[
+  {
+    "case": "upstream_cue_testdata_builtins_056_issue314.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_builtins_issue299.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_builtins_or.txtar",
+    "legacy_signal": "Eval error in in.cue: Evaluation error: _\\|_ (conflicting incompatible types)"
+  },
+  {
+    "case": "upstream_cue_testdata_comprehensions_015_list_comprehension.txtar",
+    "legacy_signal": "Eval error in in.cue: Evaluation error: _\\|_ (conflicting incompatible types)"
+  },
+  {
+    "case": "upstream_cue_testdata_comprehensions_issue1732.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_comprehensions_issue837.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_definitions_032_definitions_with_embedding.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_definitions_036_closing_with_failed_optional.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_definitions_037_conjunction_of_optional_sets.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_definitions_defembed.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_definitions_embed.txtar",
+    "legacy_signal": "expected a closedness error, got: in.cue: structural cycle at 'deployment.foo': '#Deployment'"
+  },
+  {
+    "case": "upstream_cue_testdata_definitions_exclude.txtar",
+    "legacy_signal": "expected a closedness error, got: regress.cue: cannot export bottom at 'definition.ok2.out': _\\|_ (cannot marshal non-concrete value)"
+  },
+  {
+    "case": "upstream_cue_testdata_definitions_hidden.txtar",
+    "legacy_signal": "expected a closedness error, got: in.cue: cannot export bottom at 'd': _\\|_ (reference \"pkg\" not found)"
+  },
+  {
+    "case": "upstream_cue_testdata_definitions_root4.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_disjunctions_embed.txtar",
+    "legacy_signal": "Eval error in issue3415.cue: Evaluation error: _\\|_ (conflicting incompatible types)"
+  },
+  {
+    "case": "upstream_cue_testdata_disjunctions_propagate_err.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_eval_basictypes.txtar",
+    "legacy_signal": "Eval error in in.cue: Evaluation error: _\\|_ (type mismatch: expected string)"
+  },
+  {
+    "case": "upstream_cue_testdata_eval_insertion.txtar",
+    "legacy_signal": "Eval error in a.cue: Evaluation error: _\\|_ (conflicting incompatible types)"
+  },
+  {
+    "case": "upstream_cue_testdata_eval_issue2568.txtar",
+    "legacy_signal": "expected a closedness error, got: in.cue: structural cycle at 'p1.all[0]': '#X'"
+  },
+  {
+    "case": "upstream_cue_testdata_eval_issue2649.txtar",
+    "legacy_signal": "Eval error in in.cue: Evaluation error: _\\|_ (conflicting incompatible types)"
+  },
+  {
+    "case": "upstream_cue_testdata_eval_v0.7.txtar",
+    "legacy_signal": "expected a closedness error, got: builtins.cue: cannot export bottom at 'mutualBuiltin.t1.ok.s3': _\\|_ (strings.ContainsAny requires (string, chars) arguments)"
+  },
+  {
+    "case": "upstream_cue_testdata_export_000.txtar",
+    "legacy_signal": "Eval error in in.cue: Evaluation error: _\\|_ (conflicting incompatible types)"
+  },
+  {
+    "case": "upstream_cue_testdata_export_001.txtar",
+    "legacy_signal": "Eval error in in.cue: Evaluation error: _\\|_ (conflicting incompatible types)"
+  },
+  {
+    "case": "upstream_cue_testdata_export_002.txtar",
+    "legacy_signal": "Eval error in in.cue: Evaluation error: _\\|_ (conflicting incompatible types)"
+  },
+  {
+    "case": "upstream_cue_testdata_export_003.txtar",
+    "legacy_signal": "Eval error in in.cue: Evaluation error: _\\|_ (conflicting incompatible types)"
+  },
+  {
+    "case": "upstream_cue_testdata_fulleval_012_disjunctions_of_lists.txtar",
+    "legacy_signal": "Eval error in in.cue: Evaluation error: _\\|_ (conflicting incompatible types)"
+  },
+  {
+    "case": "upstream_cue_testdata_fulleval_014_default_disambiguation_and_elimination.txtar",
+    "legacy_signal": "Eval error in in.cue: Evaluation error: _\\|_ (no matching disjunction branch: [_\\|_ (conflicting incompatible types); _\\|_ (conflicting incompatible types); _\\|_ (type mismatch: expected int)])"
+  },
+  {
+    "case": "upstream_cue_testdata_fulleval_029_Issue_#94.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_fulleval_032_or_builtin_should_not_fail_on_non-concrete_empty_list.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_fulleval_034_label_and_field_aliases.txtar",
+    "legacy_signal": "Eval error in in.cue: Evaluation error: unresolved reference in dynamic field label"
+  },
+  {
+    "case": "upstream_cue_testdata_fulleval_049_alias_reuse_in_nested_scope.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_fulleval_051_detectIncompleteYAML.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_fulleval_052_detectIncompleteJSON.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_fulleval_055_issue318.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_interpolation_issue487.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_interpolation_scalars.txtar",
+    "legacy_signal": "Parse error in in.cue: Interpolation is not supported here, at 263..265"
+  },
+  {
+    "case": "upstream_cue_testdata_packages_embed.txtar",
+    "legacy_signal": "Eval error in in.cue: Evaluation error: _\\|_ (reference \"bar\" not found)"
+  },
+  {
+    "case": "upstream_cue_testdata_packages_issue398.txtar",
+    "legacy_signal": "Eval error in foo.cue: Evaluation error: _\\|_ (reference \"bar\" not found)"
+  },
+  {
+    "case": "upstream_cue_testdata_packages_sub.txtar",
+    "legacy_signal": "Eval error in in.cue: Evaluation error: _\\|_ (string interpolation requires concrete scalar value, got Some(RecursiveRef { name: \"#pkg1\", target: None }) for expr DefIdent(\"#pkg1\"))"
+  },
+  {
+    "case": "upstream_cue_testdata_resolve_010_optional_field_resolves_to_incomplete.txtar",
+    "legacy_signal": "evaluated without the error upstream records"
+  },
+  {
+    "case": "upstream_cue_testdata_resolve_025_definitions.txtar",
+    "legacy_signal": "expected a closedness error, got: in.cue: cannot export type string at 'Mixed' to JSON"
+  },
+  {
+    "case": "upstream_cue_testdata_scalars_embed_bound.txtar",
+    "legacy_signal": "Eval error in in.cue: Evaluation error: _\\|_ (cannot unify bound constraint with value)"
+  },
+  {
+    "case": "upstream_cue_testdata_scalars_emptystruct.txtar",
+    "legacy_signal": "Eval error in in.cue: Evaluation error: _\\|_ (type mismatch: expected string)"
+  }
+]

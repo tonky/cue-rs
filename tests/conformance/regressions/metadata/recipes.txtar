@@ -1,0 +1,9 @@
+-- in.cue --
+#Sum: {#a+#b, #a: int, #b: int}
+a: (#Sum & {_, #a: 1, #b: 3}) + 2 @test(eq, 6)
+b: ({_, #a: 1, #b: 3} & #Sum) + 2 @test(eq, 6)
+#Default: {#a+1, #a: *1|int}
+c: #Default+0 @test(eq, 2)
+d: (#Default & {_, #a: 5})+0 @test(eq, 6)
+e: (#Default & {_, #a: 5}) & 6 @test(eq, 6)
+f: (#Default & {_, #a: 5}) & 2 @test(err, code=eval)

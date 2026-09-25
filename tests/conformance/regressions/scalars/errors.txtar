@@ -1,0 +1,9 @@
+-- in.cue --
+zero: 1.0 / 0 @test(err, code=eval)
+undefined: 0 / 0 @test(err, code=eval)
+ambiguous: (*1 | *2) + 1 @test(err, code=incomplete)
+plain: (1 | 2) + 1 @test(err, code=incomplete)
+badPositive: +"text" @test(err, code=eval)
+integerKind: div(1.0, 2) @test(err, code=eval)
+unknown: int
+incompatibleArgument: div(unknown, true) @test(err, code=eval)
