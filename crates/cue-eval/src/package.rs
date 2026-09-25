@@ -11,6 +11,25 @@ pub struct ModuleInfo {
 
 pub struct PackageLoader;
 
+/// Record the directory each value was declared in, for the values that ask.
+///
+/// A struct carrying the hidden field `marker` gets the regular field `field`
+/// set to the canonical directory of the package - or, for a single file, the
+/// file's directory - it was declared in. A schema opts its values in by
+/// declaring the marker, so nothing else in the tree is touched. The first
+/// package to reach a value wins: an imported value keeps its own directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OriginAnnotation {
+    pub marker: String,
+    pub field: String,
+}
+
+/// How [`PackageLoader`] loads a file or package.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LoadOptions {
+    pub origin: Option<OriginAnnotation>,
+}
+
 impl PackageLoader {
     /// Discovers all ancestor module roots by searching parent directories for `cue.mod/module.cue`.
     pub fn find_all_module_roots<P: AsRef<Path>>(start_dir: P) -> Vec<(PathBuf, ModuleInfo)> {
@@ -82,6 +101,14 @@ impl PackageLoader {
 
     /// Load and evaluate a single .cue file with module and vendored package resolution.
     pub fn load_file<P: AsRef<Path>>(file: P) -> Result<(Evaluator, ValueId), EvalError> {
+        Self::load_file_with(file, &LoadOptions::default())
+    }
+
+    /// [`Self::load_file`], with options.
+    pub fn load_file_with<P: AsRef<Path>>(
+        file: P,
+        options: &LoadOptions,
+    ) -> Result<(Evaluator, ValueId), EvalError> {
         let canonical_file =
             std::fs::canonicalize(file.as_ref()).unwrap_or_else(|_| file.as_ref().to_path_buf());
         let file_path = canonical_file.as_path();
@@ -98,6 +125,7 @@ impl PackageLoader {
         let parsed_file = cue_syntax::parse_file(&content)?;
 
         let mut evaluator = Evaluator::new();
+        evaluator.origin = options.origin.clone();
         let mod_roots = file_path
             .parent()
             .map(Self::find_all_module_roots)
@@ -111,9 +139,9 @@ impl PackageLoader {
         )?;
 
         let mut root_struct = StructValue::new(false);
-        evaluator.eval_decls_into_struct(&parsed_file.decls, &mut root_struct)?;
+        evaluator.eval_root_decls(&parsed_file.decls, &mut root_struct)?;
         let parent_dir = file_path.parent().unwrap_or_else(|| Path::new("."));
-        Self::attach_origin_dir_to_structs(&mut evaluator, &mut root_struct, parent_dir);
+        Self::annotate_origin(&mut evaluator, &mut root_struct, parent_dir);
 
         let root_id = evaluator.arena.alloc(Value::Struct(root_struct));
         Ok((evaluator, root_id))
@@ -129,7 +157,17 @@ impl PackageLoader {
         dir: P,
         target_pkg: Option<&str>,
     ) -> Result<(Evaluator, ValueId), EvalError> {
+        Self::load_dir_with(dir, target_pkg, &LoadOptions::default())
+    }
+
+    /// [`Self::load_dir_with_package`], with options.
+    pub fn load_dir_with<P: AsRef<Path>>(
+        dir: P,
+        target_pkg: Option<&str>,
+        options: &LoadOptions,
+    ) -> Result<(Evaluator, ValueId), EvalError> {
         let mut evaluator = Evaluator::new();
+        evaluator.origin = options.origin.clone();
         let root_id = Self::load_dir_into(dir.as_ref(), target_pkg, &mut evaluator)?;
         Ok((evaluator, root_id))
     }
@@ -192,9 +230,9 @@ impl PackageLoader {
 
         let all_decls: Vec<Decl> = parsed_files.into_iter().flat_map(|f| f.decls).collect();
         let mut package_struct = StructValue::new(false);
-        evaluator.eval_decls_into_struct(&all_decls, &mut package_struct)?;
+        evaluator.eval_root_decls(&all_decls, &mut package_struct)?;
         let canonical_dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
-        Self::attach_origin_dir_to_structs(evaluator, &mut package_struct, &canonical_dir);
+        Self::annotate_origin(evaluator, &mut package_struct, &canonical_dir);
 
         Ok(evaluator.arena.alloc(Value::Struct(package_struct)))
     }
@@ -240,6 +278,9 @@ impl PackageLoader {
                     continue;
                 }
 
+                // A package found but failing to load is reported as itself,
+                // not later as a reference to an alias nothing bound.
+                let mut load_error = None;
                 for (mod_root, mod_info) in mod_roots {
                     let mod_base = mod_info
                         .module
@@ -278,15 +319,26 @@ impl PackageLoader {
                         // carry survive the import. The arena comes back either way:
                         // a package that fails to load must not take it with it.
                         let mut sub = Evaluator::with_arena(std::mem::take(&mut evaluator.arena));
+                        sub.origin = evaluator.origin.clone();
                         let loaded = Self::load_dir_into(&p_dir, pkg_qualifier, &mut sub);
                         evaluator.arena = std::mem::take(&mut sub.arena);
-                        if let Ok(package_id) = loaded {
-                            std::rc::Rc::make_mut(&mut evaluator.imports)
-                                .packages
-                                .insert(imp.path.clone(), package_id);
-                            break;
+                        match loaded {
+                            Ok(package_id) => {
+                                std::rc::Rc::make_mut(&mut evaluator.imports)
+                                    .packages
+                                    .insert(imp.path.clone(), package_id);
+                                load_error = None;
+                                break;
+                            }
+                            Err(error) => load_error = Some(error),
                         }
                     }
+                }
+                if let Some(error) = load_error {
+                    return Err(EvalError::Evaluation(format!(
+                        "import \"{}\": {error}",
+                        imp.path
+                    )));
                 }
             }
         }
@@ -316,40 +368,88 @@ impl PackageLoader {
         Ok(files)
     }
 
-    fn attach_origin_dir_to_structs(
-        evaluator: &mut Evaluator,
-        root: &mut StructValue,
-        origin_dir: &Path,
-    ) {
-        let dir_str = origin_dir.to_string_lossy();
-        let origin_id = evaluator.arena.string(dir_str.to_string());
-
-        let mut queue = Vec::new();
-        for entry in root.fields.values() {
-            queue.push(entry.val);
-        }
-
-        let mut visited = std::collections::HashSet::new();
-        while let Some(vid) = queue.pop() {
-            if !visited.insert(vid) {
-                continue;
-            }
-            if let Some(Value::Struct(s)) = evaluator.arena.get_mut(vid) {
-                let is_service = s.fields.contains_key("command")
-                    || s.fields.contains_key("image")
-                    || s.fields.contains_key("readinessProbe")
-                    || s.fields.contains_key("healthCheck")
-                    || (s.fields.contains_key("name") && s.fields.contains_key("port"))
-                    || s.fields.contains_key("lifecycle");
-
-                if is_service && !s.fields.contains_key("originDir") {
-                    s.insert_field("originDir".to_string(), origin_id, false);
-                }
-
-                for entry in s.fields.values() {
-                    queue.push(entry.val);
-                }
-            }
+    fn annotate_origin(evaluator: &mut Evaluator, root: &mut StructValue, origin_dir: &Path) {
+        let Some(annotation) = evaluator.origin.clone() else {
+            return;
+        };
+        let origin = evaluator
+            .arena
+            .string(origin_dir.to_string_lossy().to_string());
+        let mut done = std::collections::HashMap::new();
+        for entry in root.fields.values_mut() {
+            entry.val = annotate(evaluator, entry.val, &annotation, origin, &mut done);
         }
     }
+}
+
+/// `id` with every struct below it that carries the marker annotated, copied
+/// on write: a node another value shares - a definition's closed copy, an
+/// imported package's field - is never changed in place.
+fn annotate(
+    evaluator: &mut Evaluator,
+    id: ValueId,
+    annotation: &OriginAnnotation,
+    origin: ValueId,
+    done: &mut std::collections::HashMap<ValueId, ValueId>,
+) -> ValueId {
+    if let Some(&copy) = done.get(&id) {
+        return copy;
+    }
+    // A cyclic graph reaches a node again before its copy exists.
+    done.insert(id, id);
+    let annotated = match evaluator.arena.get(id).cloned() {
+        Some(Value::Struct(mut s)) => {
+            let mut changed = false;
+            for entry in s.fields.values_mut() {
+                let val = annotate(evaluator, entry.val, annotation, origin, done);
+                changed |= val != entry.val;
+                entry.val = val;
+            }
+            // An optional declaration (`originDir?: string`) is a constraint, not
+            // a value: only a regular field the author set wins.
+            let set = s.fields.get(&annotation.field).is_some_and(|f| !f.optional);
+            if s.hidden.contains_key(&annotation.marker) && !set {
+                s.insert_field(annotation.field.clone(), origin, false);
+                changed = true;
+            }
+            if changed {
+                evaluator.arena.alloc(Value::Struct(s))
+            } else {
+                id
+            }
+        }
+        Some(Value::Disjunction { branches }) => {
+            let annotated: Vec<crate::value::DisjunctionBranch> = branches
+                .iter()
+                .map(|b| crate::value::DisjunctionBranch {
+                    default: b.default,
+                    val: annotate(evaluator, b.val, annotation, origin, done),
+                })
+                .collect();
+            if annotated == branches {
+                id
+            } else {
+                evaluator.arena.alloc(Value::Disjunction {
+                    branches: annotated,
+                })
+            }
+        }
+        Some(Value::List { elements, ellipsis }) => {
+            let annotated: Vec<ValueId> = elements
+                .iter()
+                .map(|&e| annotate(evaluator, e, annotation, origin, done))
+                .collect();
+            if annotated == elements {
+                id
+            } else {
+                evaluator.arena.alloc(Value::List {
+                    elements: annotated,
+                    ellipsis,
+                })
+            }
+        }
+        _ => id,
+    };
+    done.insert(id, annotated);
+    annotated
 }

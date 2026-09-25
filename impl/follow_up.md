@@ -203,3 +203,33 @@ CUE file in either repository has two attributes on a field.
 **A wrapped `&` chain is not preserved.** `DisjunctionBranch::on_new_line`
 covers `|` because that is where the wrapping occurs in practice — a union of
 named constants. The same field on `Expr::Binary` would cover the rest.
+
+## Closedness divergences phase 10 left open
+
+All five are measured against `cue export` v0.16.1 and pinned in
+`tests/closedness.rs` or `impl/10-closedness.md`.
+
+**Merged closed structs allow the union of their fields.** `#A & #B & {x: 1}`
+exports when `#B` does not declare `x`. Upstream records per conjunct which
+closed struct admitted a field (`closeInfo`). Accepting too much is the safe
+direction for enve and enact, which only need typos rejected. The test
+`merged_definitions_allow_the_union_of_their_fields` flips when this closes.
+
+**Errors inside an unused definition are not reported.** `#B: #A & {y: int}`
+exports `{}`. Upstream fails with `#B.y: field not allowed`. Export does not
+evaluate definitions for errors. The fix is a vet pass over definitions, which
+also belongs in `cue vet`.
+
+**A disjunction names the field once per branch.** The error reads
+`no matching disjunction branch: [_|_ (z: field not allowed); ...]`. Upstream
+collapses branches that fail for the same reason into one message.
+
+**Root-embedding suppression is broad.** While a file-root embedding is
+evaluated, every definition it reads stays open, not only the embedded value.
+This matches the corpus (`definitions_root5`, `root7`, `root8`) and the probes,
+but it is not how upstream reasons about it.
+
+**Error paths are leaf-only.** `bogus: field not allowed` where upstream says
+`a.b.bogus: field not allowed`. The unifier does not know the path it is
+working at. Threading one through would help every conflict message, not only
+closedness.

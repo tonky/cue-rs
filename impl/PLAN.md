@@ -101,3 +101,15 @@
    `[...] & [1, 2]` was a length conflict. 133 workspace tests (up from 126),
    corpus unchanged at 526/547, enve green at 693. Four stated divergences in
    follow_up.md, every one of them a shape `cue fmt` accepts back unchanged.
+
+10. [Closed definitions](10-closedness.md): close a definition where it is
+    read, recursively; `...` opens; embedding keeps the literal's own fields.
+    Replace the hard-coded `originDir` injection with an opt-in, marker-based
+    origin annotation, and report an import that fails to load as that import.
+    Status: implemented and validated. 146 workspace tests (up from 133),
+    Clippy and `fmt --check` clean. Corpus 527/547, one fixed and none new.
+    New `--strict-errors` harness mode: 48 failures against 65 before (17
+    fixed, none new). 38 of 41 upstream probes match, 3 on verdict only. Cost
+    unchanged at 0.54 s / 202 MB. enve 737 green on this tree. Five stated
+    divergences in follow_up.md, the main one being that merged closed structs
+    allow the union of their fields.

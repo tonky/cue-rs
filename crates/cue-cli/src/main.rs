@@ -46,6 +46,11 @@ enum Commands {
     TestTxtar {
         /// Path to .txtar file or directory containing .txtar files
         path: PathBuf,
+        /// Hold a case to the errors upstream recorded: a case with an
+        /// `out/errors.txt` must fail, and one whose recorded errors are all
+        /// closedness errors must fail with one.
+        #[arg(long)]
+        strict_errors: bool,
     },
     /// Ingest / sync upstream test suites from a local CUE repository checkout
     SyncUpstream {
@@ -182,10 +187,13 @@ fn main() -> Result<()> {
                 Err(e) => anyhow::bail!("Validation failed: {e}"),
             }
         }
-        Commands::TestTxtar { path } => {
+        Commands::TestTxtar {
+            path,
+            strict_errors,
+        } => {
             if path.is_file() {
                 println!("Running test: {}", path.display());
-                run_txtar_file(&path)?;
+                run_txtar_case(&path, strict_errors)?;
                 println!("PASSED");
             } else if path.is_dir() {
                 let mut fixtures = Vec::new();
@@ -204,7 +212,7 @@ fn main() -> Result<()> {
 
                 for fix in fixtures {
                     print!("Running {} ... ", fix.display());
-                    match run_txtar_file(&fix) {
+                    match run_txtar_case(&fix, strict_errors) {
                         Ok(()) => {
                             println!("PASSED");
                             passed += 1;
@@ -398,6 +406,66 @@ fn derive_fixture_name(path: &std::path::Path) -> String {
             .unwrap_or_else(|| std::borrow::Cow::Borrowed("fixture"));
         format!("upstream_{base}")
     }
+}
+
+/// What upstream recorded a case failing with.
+enum ExpectedErrors {
+    /// No `out/errors.txt`, or an empty one.
+    None,
+    /// Every recorded error is `field not allowed`.
+    Closedness,
+    Other,
+}
+
+impl ExpectedErrors {
+    fn of(archive: &TxtarArchive) -> Self {
+        let Some(errors) = archive.files.get("out/errors.txt") else {
+            return Self::None;
+        };
+        let messages: Vec<&str> = errors
+            .lines()
+            .filter(|line| line.starts_with('['))
+            .collect();
+        if messages.is_empty() {
+            Self::None
+        } else if messages.iter().all(|m| m.contains("field not allowed")) {
+            Self::Closedness
+        } else {
+            Self::Other
+        }
+    }
+}
+
+fn run_txtar_case(path: &std::path::Path, strict_errors: bool) -> Result<()> {
+    if !strict_errors {
+        return run_txtar_file(path);
+    }
+    let archive = TxtarArchive::from_file(path)
+        .with_context(|| format!("Failed to parse txtar file {}", path.display()))?;
+    let outcome = evaluate_archive(&archive);
+    match (ExpectedErrors::of(&archive), outcome) {
+        (ExpectedErrors::None, _) => run_txtar_file(path),
+        (_, Ok(())) => anyhow::bail!("evaluated without the error upstream records"),
+        (ExpectedErrors::Closedness, Err(e)) if !e.contains("not allowed") => {
+            anyhow::bail!("expected a closedness error, got: {e}")
+        }
+        (_, Err(_)) => Ok(()),
+    }
+}
+
+/// Evaluate and export every CUE file of an archive, stopping at the first
+/// error. Each file is exported, not only the last: a case's errors may sit in
+/// any of them.
+fn evaluate_archive(archive: &TxtarArchive) -> std::result::Result<(), String> {
+    let mut evaluator = cue_eval::Evaluator::new();
+    for (name, content) in archive.cue_files() {
+        let file = cue_syntax::parse_file(content).map_err(|e| format!("{name}: {e}"))?;
+        let val = evaluator
+            .eval_file(&file)
+            .map_err(|e| format!("{name}: {e}"))?;
+        evaluator.to_json(val).map_err(|e| format!("{name}: {e}"))?;
+    }
+    Ok(())
 }
 
 fn run_txtar_file(path: &std::path::Path) -> Result<()> {

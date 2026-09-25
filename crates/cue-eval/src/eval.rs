@@ -1,3 +1,4 @@
+use crate::closedness::{ClosedCopies, open_for_embedding, reclose};
 use crate::unify::unify;
 use crate::unify::{Equivalence, compare_values};
 use crate::value::{
@@ -103,6 +104,17 @@ pub struct Evaluator {
     /// importer's.
     pub imports: Rc<Imports>,
     expr_depth: usize,
+    /// The closed copy each definition read so far resolves to.
+    closed: ClosedCopies,
+    /// Whether the literal being evaluated is a file's top level, which an
+    /// embedded definition does not close.
+    at_file_root: bool,
+    /// Set while evaluating an embedding at a file's top level. Upstream merges
+    /// such an embedding without closedness at any depth, so the definitions it
+    /// reads are left open.
+    reading_root_embedding: bool,
+    /// Set by the package loader: which values to record their directory on.
+    pub(crate) origin: Option<crate::package::OriginAnnotation>,
 }
 
 const MAX_EXPR_DEPTH: usize = 64;
@@ -134,6 +146,10 @@ impl Evaluator {
             unsettled: 0,
             imports: Rc::new(Imports::default()),
             expr_depth: 0,
+            closed: ClosedCopies::default(),
+            at_file_root: false,
+            reading_root_embedding: false,
+            origin: None,
         };
         evaluator.register_builtins();
         evaluator
@@ -233,8 +249,21 @@ impl Evaluator {
         }
 
         let mut root_struct = StructValue::new(false);
-        self.eval_decls_into_struct(&file.decls, &mut root_struct)?;
+        self.eval_root_decls(&file.decls, &mut root_struct)?;
         Ok(self.arena.alloc(Value::Struct(root_struct)))
+    }
+
+    /// Evaluate the top level of a file or package. It is never closed: a
+    /// definition embedded there constrains nothing beside it.
+    pub fn eval_root_decls(
+        &mut self,
+        decls: &[Decl],
+        target_struct: &mut StructValue,
+    ) -> Result<(), EvalError> {
+        let enclosing = std::mem::replace(&mut self.at_file_root, true);
+        let result = self.eval_decls_into_struct(decls, target_struct);
+        self.at_file_root = enclosing;
+        result
     }
 
     pub fn eval_decls_into_struct(
@@ -648,10 +677,15 @@ impl Evaluator {
                             self.unify_decl_field(fields, name, val_id, f.optional, conjunct)?;
                         if f.label.is_definition()
                             && let Some(&placeholder_id) = self.placeholders.get(name)
-                            && let Some(Value::RecursiveRef { target, .. }) =
-                                self.arena.get_mut(placeholder_id)
                         {
-                            *target = Some(val_id);
+                            // A recursive reference reads the definition, so it
+                            // meets the closed value like any other reader.
+                            let closed = self.closed.close(&mut self.arena, val_id);
+                            if let Some(Value::RecursiveRef { target, .. }) =
+                                self.arena.get_mut(placeholder_id)
+                            {
+                                *target = Some(closed);
+                            }
                         }
                         self.insert_binding(name, val_id);
                     }
@@ -667,13 +701,23 @@ impl Evaluator {
                 Ok(!is_unresolved)
             }
             Decl::Embedding(expr) => {
-                let embedded_id = self.eval_expr(expr)?;
+                let enclosing = self.reading_root_embedding;
+                self.reading_root_embedding |= self.at_file_root;
+                let embedded_id = self.eval_expr(expr);
+                self.reading_root_embedding = enclosing;
+                let embedded_id = embedded_id?;
                 let is_unresolved = self.is_unresolved(embedded_id);
                 if is_unresolved && !final_pass {
                     return Ok(false);
                 }
                 let current_id = self.arena.alloc(Value::Struct(target_struct.clone()));
+                let (embedded_id, was_closed) = open_for_embedding(&mut self.arena, embedded_id);
                 let unified_id = unify(&mut self.arena, current_id, embedded_id);
+                let unified_id = if was_closed && !self.at_file_root {
+                    reclose(&mut self.arena, unified_id)
+                } else {
+                    unified_id
+                };
                 if let Some(Value::Struct(s)) = self.arena.get(unified_id) {
                     // An embedding may change a field another field has already
                     // read; the pass at the end of the literal derives those
@@ -693,6 +737,10 @@ impl Evaluator {
                 }
                 Ok(!is_unresolved)
             }
+            Decl::Ellipsis(_) => {
+                target_struct.is_open = true;
+                Ok(true)
+            }
             Decl::Comprehension(comp) => {
                 self.eval_comprehension(comp, target_struct)?;
                 // Loop-local bindings have been popped; subsequent references
@@ -701,6 +749,16 @@ impl Evaluator {
                 Ok(true)
             }
             _ => Ok(true),
+        }
+    }
+
+    /// What reading `name` yields: a definition's closed copy, anything else as
+    /// it is.
+    fn read_definition(&mut self, name: &str, val: ValueId) -> ValueId {
+        if !self.reading_root_embedding && (name.starts_with('#') || name.starts_with("_#")) {
+            self.closed.close(&mut self.arena, val)
+        } else {
+            val
         }
     }
 
@@ -1309,7 +1367,7 @@ impl Evaluator {
                 }
 
                 if let Some(val) = self.lookup_binding(id) {
-                    Ok(val)
+                    Ok(self.read_definition(id, val))
                 } else if self.declares_field(id) {
                     // The literal being evaluated declares this name, so it is
                     // not missing - it is not computed yet, which after the
@@ -1327,7 +1385,9 @@ impl Evaluator {
             Expr::Struct(s) => {
                 let mut struct_val = StructValue::new(false);
                 self.push_scope();
+                let enclosing = std::mem::replace(&mut self.at_file_root, false);
                 let result = self.eval_decls_into_struct(&s.decls, &mut struct_val);
+                self.at_file_root = enclosing;
                 self.pop_scope();
                 if let Err(error) = result {
                     // Carry an incomplete nested struct to the enclosing retry
@@ -1458,7 +1518,8 @@ impl Evaluator {
                         && let Some(Value::Struct(s)) = self.arena.get(pkg_struct_id)
                         && let Some(f) = s.fields.get(field).or_else(|| s.definitions.get(field))
                     {
-                        return Ok(f.val);
+                        let val = f.val;
+                        return Ok(self.read_definition(field, val));
                     }
                     if let Ok(res) = crate::stdlib::call_stdlib_func(
                         &mut self.arena,
@@ -1475,7 +1536,8 @@ impl Evaluator {
                 }
                 if let Some(Value::Struct(s)) = self.arena.get(val_id) {
                     if let Some(f) = s.fields.get(field).or_else(|| s.definitions.get(field)) {
-                        Ok(f.val)
+                        let val = f.val;
+                        Ok(self.read_definition(field, val))
                     } else {
                         // The base resolved and has no such field. It may still
                         // gain one on a later pass, which is why this kind is

@@ -1,3 +1,4 @@
+pub mod closedness;
 pub mod deps;
 pub mod eval;
 pub mod importer;
@@ -10,7 +11,7 @@ pub mod value;
 pub use eval::{EvalError, Evaluator};
 pub use importer::{json_schema_to_cue, openapi_to_cue};
 pub use manifest::{DependencyInfo, ModuleManifest};
-pub use package::PackageLoader;
+pub use package::{LoadOptions, OriginAnnotation, PackageLoader};
 pub use stdlib::{StdlibFn, StdlibValidator, is_known_package};
 pub use unify::unify;
 pub use value::{

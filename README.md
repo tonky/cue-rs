@@ -26,7 +26,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
 │   └── cue-cli/                # CLI binary (`eval`, `vet`, `fmt`, `import`, `mod`, `test-txtar`, `sync-upstream`)
 ├── tests/
-│   └── testdata/               # 547 upstream conformance .txtar suites (100% passing)
+│   └── testdata/               # 547 upstream conformance .txtar suites (527 pass; 499 with --strict-errors)
 └── examples/                   # Sample CUE schemas and data files
 ```
 
@@ -34,7 +34,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 
 ## 2. Key Features
 
-- **Lattice Unification ($\sqcap$)**: Greatest lower bound calculation over scalar values, recursive structs, bounds (`>1024 & <65535`), regex constraints (`=~ "^[a-z]+$"`), and closed `#Definitions`.
+- **Lattice Unification ($\sqcap$)**: Greatest lower bound calculation over scalar values, recursive structs, bounds (`>1024 & <65535`), regex constraints (`=~ "^[a-z]+$"`), and closed `#Definitions` (closed where read; `...` opens; see impl/10-closedness.md for the stated divergences).
 - **String Transformations & Prefix/Suffix Trimming**: `strings.ReplaceAll(s, old, new)`, `strings.TrimPrefixAny(s, prefixes)`, `strings.TrimSuffixAny(s, suffixes)`, `strings.SplitN(s, sep, n)`, `strings.HasPrefixAny(s, prefixes)`, `strings.HasSuffixAny(s, suffixes)`.
 - **Math & Numeric Functions**: `math.FMA(x, y, z)`, `math.Pow10(n)`, `math.Frexp(x)`, `math.Modf(x)`, `math.Scaleb(x, n)`, `math.Erf(x)`, `math.Erfc(x)`, `math.Gamma(x)`, `math.LogGamma(x)`, `math.RoundToEven(x)`, `math.Logb(x)`, `math.Ilogb(x)`, `math.Nextafter(x, y)`.
 - **List Operations**: `list.Chunk(l, n)`, `list.Distinct(l)`, `list.Zip(l1, l2)`, `list.Unzip(l)`, `list.Compact(l)`, `list.Reverse(l)`, `list.SortStrings(l)`.

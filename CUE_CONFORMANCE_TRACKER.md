@@ -18,7 +18,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | `cue/testdata/basic/` | ~35 | Primitive types, literals, raw strings, mixed arithmetic, list/string arithmetic, comparisons, numeric types, hierarchy, logical expressions | **Active** |
 | `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, module discovery (`cue.mod/module.cue`), module-aware package import resolution (`import "myorg.com/app/sub"`), vendored packages (`cue.mod/pkg/...`) | **Active via `PackageLoader`** |
 | `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `math/bits`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding/json`, `encoding/yaml`, `encoding/html`, `encoding/csv`, `encoding/base32`, `encoding/base64`, `encoding/hex`, `text/tabwriter`, `text/template`, `crypto/sha512`, `crypto/sha256`, `crypto/md5`, `crypto/sha1`, `crypto/hmac`, `path`) | **24 core packages active** |
-| **Total** | **~580+ fixtures** | | **547 conformance suites (100% pass)** |
+| **Total** | **~580+ fixtures** | | **527 / 547 pass; 499 / 547 with `--strict-errors`** |
 
 ---
 
@@ -70,7 +70,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | **Discriminated Union Disjunctions** | ✅ | **100% Complete** | `#Shape: #Circle \| #Rectangle` selecting correct branch. |
 | **Disjunction Meet Algebra** | ✅ | **100% Complete** | `(A | B) & (C | D)` cross-product branch unification. |
 | **Multi-Constraint Bounds** | ✅ | **100% Complete** | `int & >0 & <65535 & !=8080`, regex bounds `=~ "^app\\."`. |
-| **Closed Definition Algebra** | ✅ | **100% Complete** | Closed `#Def` structs reject unrecognized fields. |
+| **Closed Definition Algebra** | 🟡 | **Partial** | Definitions close where read, recursively; `...` opens; embedding keeps the literal's own fields. Divergences: merged closed structs allow the union of fields; errors inside unused definitions are not reported (impl/10-closedness.md). Before 2026-09-25 nothing set the flag. |
 | **Multi-Pattern Constraints** | ✅ | **100% Complete** | Multiple simultaneous pattern fields (`[=~"^STR_"]: string`, `[=~"^NUM_"]: int`). |
 | **Disjunctions & Defaults** | ✅ | **100% Complete** | Branch selection with default markers (`*default \| other`). |
 | **Two-Pass Hoisting** | ✅ | **100% Complete** | Mutual and recursive schema definitions (`#Tree`). |

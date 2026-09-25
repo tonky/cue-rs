@@ -240,6 +240,9 @@ pub struct StructValue {
     pub hidden: BTreeMap<String, FieldEntry>,
     pub pattern_constraints: Vec<PatternConstraint>,
     pub is_closed: bool,
+    /// Written with `...`: closing the definition it belongs to leaves this
+    /// struct open, though the structs inside it are closed as usual.
+    pub is_open: bool,
 }
 
 /// The packages one file imported.
@@ -425,6 +428,7 @@ impl StructValue {
             hidden: BTreeMap::new(),
             pattern_constraints: Vec::new(),
             is_closed,
+            is_open: false,
         }
     }
 

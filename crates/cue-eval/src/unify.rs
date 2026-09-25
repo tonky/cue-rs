@@ -644,42 +644,46 @@ fn collapses_struct(arena: &ValueArena, val: ValueId) -> bool {
     }
 }
 
+/// The first regular field of `other` that closed struct `closed` does not
+/// allow, if any. A field is allowed when `closed` declares it or one of its
+/// pattern constraints matches the label. An optional field adds no value, so
+/// upstream lets a closed struct meet one it does not declare.
+fn disallowed_field<'a>(
+    arena: &ValueArena,
+    closed: &StructValue,
+    other: &'a StructValue,
+) -> Option<&'a str> {
+    if !closed.is_closed {
+        return None;
+    }
+    other
+        .fields
+        .iter()
+        .filter(|(_, entry)| !entry.optional)
+        .map(|(name, _)| name.as_str())
+        .find(|name| {
+            !closed.fields.contains_key(*name)
+                && !closed
+                    .pattern_constraints
+                    .iter()
+                    .any(|pc| field_matches_pattern(arena, pc.pattern_val, name))
+        })
+}
+
 fn unify_structs_inner(
     arena: &mut ValueArena,
     s1: &StructValue,
     s2: &StructValue,
     ctx: &mut UnifyContext,
 ) -> ValueId {
-    // Closedness validation with pattern constraints support
-    if s1.is_closed {
-        for k in s2.fields.keys() {
-            let allowed_in_fields = s1.fields.contains_key(k);
-            let allowed_by_pattern = s1
-                .pattern_constraints
-                .iter()
-                .any(|pc| field_matches_pattern(arena, pc.pattern_val, k));
-
-            if !allowed_in_fields && !allowed_by_pattern {
-                return conflict(arena, format!("field '{k}' not allowed in closed struct"));
-            }
-        }
-    }
-    if s2.is_closed {
-        for k in s1.fields.keys() {
-            let allowed_in_fields = s2.fields.contains_key(k);
-            let allowed_by_pattern = s2
-                .pattern_constraints
-                .iter()
-                .any(|pc| field_matches_pattern(arena, pc.pattern_val, k));
-
-            if !allowed_in_fields && !allowed_by_pattern {
-                return conflict(arena, format!("field '{k}' not allowed in closed struct"));
-            }
+    for (closed, other) in [(s1, s2), (s2, s1)] {
+        if let Some(name) = disallowed_field(arena, closed, other) {
+            return conflict(arena, format!("{name}: field not allowed"));
         }
     }
 
-    let is_closed = s1.is_closed || s2.is_closed;
-    let mut merged = StructValue::new(is_closed);
+    let mut merged = StructValue::new(s1.is_closed || s2.is_closed);
+    merged.is_open = s1.is_open || s2.is_open;
 
     // Merge pattern constraints
     merged
@@ -1374,6 +1378,7 @@ fn equivalent_inner(
     match (left, right) {
         (Value::Struct(left), Value::Struct(right)) => {
             if left.is_closed != right.is_closed
+                || left.is_open != right.is_open
                 || left.pattern_constraints.len() != right.pattern_constraints.len()
             {
                 return false;
