@@ -154,3 +154,22 @@ fn an_empty_set_in_an_unused_definition_is_not_an_error() {
         json!({"x": 1})
     );
 }
+
+/// The pipeline declared twice, as a package of several files has it: each
+/// declaration brings the schema's `#jobName`, and the two empty sets meeting
+/// is not a conflict that takes the whole pipeline with it.
+#[test]
+fn a_definition_declared_twice_keeps_its_incomplete_set() {
+    let source = SELF_REFERENCING.replace(
+        "p: #P & {\n\tcomponents: a: {lint: \"x\", test: \"y\"}\n\tstages: [{select: [J.lint, SELECT]}]\n}",
+        "p: #P & {components: a: {lint: \"x\", test: \"y\"}}\np: #P & {stages: [{select: [J.lint, \"test\"]}]}",
+    );
+    assert!(source.contains("p: #P & {stages"), "{source}");
+    assert_eq!(
+        eval_to_json(&source).unwrap(),
+        json!({"p": {
+            "components": {"a": {"lint": "x", "test": "y"}},
+            "stages": [{"select": ["lint", "test"]}],
+        }})
+    );
+}

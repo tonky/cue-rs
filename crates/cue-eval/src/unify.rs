@@ -743,7 +743,7 @@ fn unify_structs_inner(
         let entry = match (s1.definitions.get(&key), s2.definitions.get(&key)) {
             (Some(e1), Some(e2)) => {
                 let unified_val = unify_internal(arena, e1.val, e2.val, ctx);
-                if let Some(Value::Bottom(_)) = arena.get(unified_val) {
+                if collapses_struct(arena, unified_val) {
                     return unified_val;
                 }
                 FieldEntry::with_conjuncts(
@@ -766,7 +766,7 @@ fn unify_structs_inner(
         let entry = match (s1.hidden.get(&key), s2.hidden.get(&key)) {
             (Some(e1), Some(e2)) => {
                 let unified_val = unify_internal(arena, e1.val, e2.val, ctx);
-                if let Some(Value::Bottom(_)) = arena.get(unified_val) {
+                if collapses_struct(arena, unified_val) {
                     return unified_val;
                 }
                 FieldEntry::with_conjuncts(
