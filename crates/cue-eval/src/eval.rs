@@ -1243,8 +1243,13 @@ impl Evaluator {
         target_struct: &mut StructValue,
     ) -> Result<(), EvalError> {
         if clause_idx >= comp.clauses.len() {
-            // Reached the body: evaluate decls in struct_lit
-            self.eval_decls_into_struct(&comp.struct_lit.decls, target_struct)?;
+            // Reached the body. It is a struct of its own, merged into the
+            // target: evaluated in place, every iteration would clone and
+            // re-derive everything the iterations before it generated, which is
+            // quadratic in the size of the source.
+            let mut generated = StructValue::new(false);
+            self.eval_decls_into_struct(&comp.struct_lit.decls, &mut generated)?;
+            self.merge_generated(target_struct, generated);
             return Ok(());
         }
 
@@ -1319,6 +1324,41 @@ impl Evaluator {
         }
 
         Ok(())
+    }
+
+    /// Merge what one iteration of a comprehension generated into the struct
+    /// it generates into, keeping each field's recipes for re-derivation.
+    fn merge_generated(&mut self, target: &mut StructValue, generated: StructValue) {
+        let StructValue {
+            fields,
+            definitions,
+            hidden,
+            pattern_constraints,
+            is_open,
+            ..
+        } = generated;
+        for (section, entries) in [
+            (Section::Field, fields),
+            (Section::Definition, definitions),
+            (Section::Hidden, hidden),
+        ] {
+            let map = section.map_mut(target);
+            for (name, entry) in entries {
+                match map.entry(name) {
+                    std::collections::btree_map::Entry::Occupied(mut slot) => {
+                        let existing = slot.get_mut();
+                        existing.val = unify(&mut self.arena, existing.val, entry.val);
+                        existing.optional &= entry.optional;
+                        existing.conjuncts.extend(entry.conjuncts);
+                    }
+                    std::collections::btree_map::Entry::Vacant(slot) => {
+                        slot.insert(entry);
+                    }
+                }
+            }
+        }
+        target.pattern_constraints.extend(pattern_constraints);
+        target.is_open |= is_open;
     }
 
     fn eval_list_comprehension_clause(
