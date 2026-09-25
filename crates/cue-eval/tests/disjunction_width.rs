@@ -25,7 +25,7 @@ fn fixture() -> PathBuf {
 
 /// How many branches the value at `path` holds. One for a value that is not a
 /// disjunction, which is what a fully resolved field looks like.
-fn width(arena: &ValueArena, root: ValueId, path: &[&str]) -> usize {
+fn value_at(arena: &ValueArena, root: ValueId, path: &[&str]) -> ValueId {
     let mut id = root;
     for step in path {
         let Some(Value::Struct(s)) = arena.get(id) else {
@@ -37,7 +37,11 @@ fn width(arena: &ValueArena, root: ValueId, path: &[&str]) -> usize {
             .unwrap_or_else(|| panic!("{path:?}: no field '{step}'"))
             .val;
     }
-    match arena.get(id) {
+    id
+}
+
+fn width(arena: &ValueArena, root: ValueId, path: &[&str]) -> usize {
+    match arena.get(value_at(arena, root, path)) {
         Some(Value::Disjunction { branches }) => branches.len(),
         _ => 1,
     }
@@ -109,8 +113,12 @@ fn a_branch_that_differs_is_kept() {
     );
     let (evaluator, root) = eval(source);
     assert_eq!(width(&evaluator.arena, root, &["x"]), 2);
+    assert!(evaluator.to_json(root).is_err());
+    let (evaluator, root) = eval(&format!("{source}y: x & {{t: \"c\"}}\n"));
     assert_eq!(
-        cue_eval::eval_to_json(&format!("{source}y: x & {{t: \"c\"}}\n")).unwrap()["y"],
+        evaluator
+            .to_json(value_at(&evaluator.arena, root, &["y"]))
+            .unwrap(),
         json!({"t": "c"})
     );
 }
@@ -150,9 +158,18 @@ fn a_package_whose_files_each_unify_the_same_disjunction_stays_narrow() {
 
     // The unambiguous part of the same value still exports, and every file's conjunct
     // reached it.
-    let json = evaluator.to_json(root).expect("exports");
-    assert_eq!(json["pipeline"]["name"], json!("width"));
+    let error = evaluator.to_json(root).unwrap_err();
+    assert!(error.contains("pipeline.services.db"), "{error}");
+    assert_eq!(
+        evaluator
+            .to_json(value_at(&evaluator.arena, root, &["pipeline", "name"]))
+            .unwrap(),
+        json!("width")
+    );
+    let tasks = evaluator
+        .to_json(value_at(&evaluator.arena, root, &["pipeline", "tasks"]))
+        .unwrap();
     for name in ["one", "two", "three", "four"] {
-        assert_eq!(json["pipeline"]["tasks"][name], json!(name));
+        assert_eq!(tasks[name], json!(name));
     }
 }

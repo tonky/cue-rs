@@ -1,5 +1,30 @@
 # Follow-up
 
+## Corpus harness does not establish full conformance
+
+Open. Phase 11 measures 43 failures out of 547 local fixtures (429 upstream
+imports and 118 others; all failures are in the imported subset):
+18 accepted inputs where an error is expected, 6 wrong error categories,
+19 other parse/evaluation/export failures. The 504 passes are only passes
+of our current harness: it does not compare every expected value and many
+error fixtures accept any error. The directory runner also prints failures
+without returning a failing process status. A proper conformance runner
+needs expected-value comparisons, precise error expectations and a nonzero
+status for failed cases. The README badge and tracker now state the measured
+strict-harness count and its limits rather than claiming all fixtures pass.
+
+## Odoo allocation cost after the cycle fix
+
+Open performance work; phase 11 fixes runaway diagnostic growth and the
+shadowing/default verdicts. The original 662-component snapshot now rejects
+normally in 4.12 s at 2,184,656 KiB, about 2.08 GiB. Its original documented
+cost was 2.2 GB before the partial fix introduced growing cycle messages.
+The valid refs/literal variants remain at 576,956 / 348,692 KiB and match
+upstream JSON. Arena retention, scope snapshots and struct cloning remain
+profiling targets; this phase does not add collection or redesign retry
+passes. Use CUE_SAFE_MEMORY=3G with just safe for the original, and keep the
+default 2 GiB limit for smaller investigations.
+
 ## Deferred generated-field evaluation
 
 Closed by stage 3 of 03-deferred-field-conjuncts.md. A comprehension or an

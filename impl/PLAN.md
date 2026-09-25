@@ -113,3 +113,12 @@
     unchanged at 0.54 s / 202 MB. enve 737 green on this tree. Five stated
     divergences in follow_up.md, the main one being that merged closed structs
     allow the union of their fields.
+
+11. [Odoo unification and bounded cycle diagnostics](11-odoo-unification.md):
+    finish the in-progress shadowing/default fixes and stop cycle error
+    messages changing on every re-derivation. Status: implemented and validated:
+    179 workspace tests, Clippy and formatting clean; strict corpus unchanged
+    at 504/547 by failure name. The original rejects without runaway sweeps,
+    and the corrected variants match upstream JSON. The original's existing
+    allocation cost still requires a 3 GiB cap; the default safe runner uses
+    2 GiB.

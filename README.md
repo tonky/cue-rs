@@ -2,12 +2,19 @@
 
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Clippy Clean](https://img.shields.io/badge/clippy-0%20warnings-brightgreen.svg)](https://github.com/rust-lang/rust-clippy)
-[![Txtar Conformance](https://img.shields.io/badge/txtar%20tests-547%2F547%20passing-brightgreen.svg)](tests/testdata/)
+[![Strict txtar harness](https://img.shields.io/badge/strict%20txtar-504%2F547%20passing-yellow.svg)](impl/11-odoo-unification.md)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
 
 A high-performance, modular implementation of the [CUE configuration language](https://cuelang.org/) in **Rust (2024 Edition)**.
 
 Designed for embedding in high-throughput data pipelines, cloud-native control planes, CLI tools, procedural macros, and Rust applications without external runtime dependencies.
+
+Current validation (2026-09-25): 179 workspace tests pass; cue-rs passes 504 of
+547 local fixtures under `--strict-errors`, with 43 failures. The corpus
+contains 429 upstream-prefixed imports and 118 other fixtures; all 43 failures
+are in the imported subset.
+The harness checks selected error expectations and does not compare every
+expected value, so these counts do not establish full CUE conformance.
 
 ---
 
@@ -26,7 +33,7 @@ Designed for embedding in high-throughput data pipelines, cloud-native control p
 │   ├── cue-test-harness/       # Upstream .txtar test fixture parser & test runner
 │   └── cue-cli/                # CLI binary (`eval`, `vet`, `fmt`, `import`, `mod`, `test-txtar`, `sync-upstream`)
 ├── tests/
-│   └── testdata/               # 547 upstream conformance .txtar suites (527 pass; 498 with --strict-errors)
+│   └── testdata/               # 547 fixtures, including 429 upstream imports (504 strict passes)
 └── examples/                   # Sample CUE schemas and data files
 ```
 

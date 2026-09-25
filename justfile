@@ -3,6 +3,13 @@
 default:
     @just --list
 
+# Run a command with a process-tree cap (default 2 GiB), no swap, and a three-minute timeout.
+# Examples: just safe cargo test --workspace; just safe just eval repro.cue
+# For the original Odoo snapshot: CUE_SAFE_MEMORY=3G just safe just eval ../cue-rs-odoo-repro/original
+[positional-arguments]
+safe *COMMAND:
+    systemd-run --user --scope -p "MemoryMax=${CUE_SAFE_MEMORY:-2G}" -p MemorySwapMax=0 -p TasksMax=256 timeout --kill-after=5s 180s env CARGO_BUILD_JOBS=1 RUST_TEST_THREADS=1 prlimit --core=0 -- "$@"
+
 # Workspace tests.
 test *ARGS:
     cargo test --workspace --no-fail-fast {{ARGS}}

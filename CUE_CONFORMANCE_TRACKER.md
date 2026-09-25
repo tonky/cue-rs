@@ -2,6 +2,14 @@
 
 This document provides a comprehensive inventory of the official CUE language specification, the size and structure of the upstream test suite (`cue-lang/cue`), a detailed feature gap analysis, and the roadmap toward full conformance.
 
+Measured on 2026-09-25: cue-rs passes **504 of 547 local fixtures** with
+`--strict-errors`; **43 fail** (18 missing expected errors, 6 wrong error
+categories, 19 other parse/evaluation/export failures). The corpus contains
+429 upstream-prefixed imports and 118 other fixtures; all 43 failures are in
+the imported subset (386/429 pass). The harness does not
+compare every expected value. The historical feature inventory below describes
+implementation coverage; its percentage labels are not conformance guarantees.
+
 ---
 
 ## 1. Upstream CUE Test Suite Scale
@@ -18,7 +26,7 @@ The official Go implementation of CUE (`cue-lang/cue`) contains approximately **
 | `cue/testdata/basic/` | ~35 | Primitive types, literals, raw strings, mixed arithmetic, list/string arithmetic, comparisons, numeric types, hierarchy, logical expressions | **Active** |
 | `cue/testdata/packages/` | ~30 | Multi-file packages, directory loading, module discovery (`cue.mod/module.cue`), module-aware package import resolution (`import "myorg.com/app/sub"`), vendored packages (`cue.mod/pkg/...`) | **Active via `PackageLoader`** |
 | `pkg/.../testdata/` | ~50 | Standard library package tests (`strings`, `math`, `math/bits`, `list`, `struct`, `time`, `net`, `strconv`, `uuid`, `regexp`, `encoding/json`, `encoding/yaml`, `encoding/html`, `encoding/csv`, `encoding/base32`, `encoding/base64`, `encoding/hex`, `text/tabwriter`, `text/template`, `crypto/sha512`, `crypto/sha256`, `crypto/md5`, `crypto/sha1`, `crypto/hmac`, `path`) | **24 core packages active** |
-| **Total** | **~580+ fixtures** | | **527 / 547 pass; 498 / 547 with `--strict-errors`** |
+| **Total** | **~580+ fixtures** | | **504 / 547 pass with `--strict-errors`; incomplete value checking** |
 
 ---
 

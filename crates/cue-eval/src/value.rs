@@ -150,6 +150,8 @@ pub enum BottomKind {
     Incomplete,
     /// An infinite value: a recursive reference that reached export.
     StructuralCycle,
+    /// A self-referential cycle within a struct.
+    Cycle,
     /// Two values that cannot both hold.
     Conflict,
     /// A failure that is none of the above - a depth limit, a failed validator,

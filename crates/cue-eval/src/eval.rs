@@ -1,6 +1,6 @@
 use crate::closedness::{ClosedCopies, open_for_embedding, reclose};
 use crate::unify::unify;
-use crate::unify::{Equivalence, compare_values};
+use crate::unify::{Equivalence, compare_values, push_branch};
 use crate::value::{
     BottomKind, BoundOp, Conjunct, DisjunctionBranch as ValueBranch, FieldEntry, Imports,
     StructValue, Thunk, ThunkEnv, TypeKind, Value, ValueArena, ValueId,
@@ -91,6 +91,10 @@ pub struct Evaluator {
     /// Environment of the struct literal being evaluated, which its fields
     /// capture as the scope their recipes run in.
     current_env: Option<Rc<ThunkEnv>>,
+    /// Name of the field currently being evaluated in the innermost struct.
+    current_field: Option<String>,
+    /// Depth of the current struct's scope in `self.scopes`.
+    struct_scope_depth: usize,
     pub placeholders: HashMap<String, ValueId>,
     /// How many field recipes re-derivation has run, and how many structs it
     /// gave up on at the sweep cap. Evaluation never reads them; they are what a
@@ -145,6 +149,8 @@ impl Evaluator {
             scopes: vec![HashMap::new()],
             resolving_symbols: HashSet::new(),
             current_env: None,
+            current_field: None,
+            struct_scope_depth: 0,
             placeholders: HashMap::new(),
             derivations: 0,
             unsettled: 0,
@@ -279,7 +285,10 @@ impl Evaluator {
         // The literal being evaluated owns `current_env` while it runs, and the
         // one it is written inside takes it back afterwards.
         let enclosing = self.current_env.take();
+        let saved_depth = self.struct_scope_depth;
+        self.struct_scope_depth = self.scopes.len().saturating_sub(1);
         let result = self.eval_decls_scoped(decls, target_struct);
+        self.struct_scope_depth = saved_depth;
         self.current_env = enclosing;
         result
     }
@@ -301,6 +310,28 @@ impl Evaluator {
             self.imports.clone(),
         ));
         self.current_env = Some(env.clone());
+        // Reserve names that shadow an existing outer binding. Nested literals
+        // must not read that outer value while this field is still uncomputed.
+        // Without an outer binding a missing lookup already waits, so it needs
+        // no placeholder. All reservations can share one pending value.
+        let mut pending = None;
+        for decl in &decls {
+            if let Decl::Field(field) = decl
+                && !field.label.is_definition()
+                && let Some(name) = field.label.name()
+                && !self
+                    .scopes
+                    .last()
+                    .is_some_and(|scope| scope.contains_key(name))
+                && self.lookup_binding(name).is_some()
+            {
+                let val = *pending.get_or_insert_with(|| {
+                    self.arena
+                        .bottom_of(BottomKind::Unresolved, "incomplete value")
+                });
+                self.insert_binding(name, val);
+            }
+        }
         let dynamic_base = decls
             .iter()
             .any(|decl| {
@@ -636,7 +667,10 @@ impl Evaluator {
                     let label_val_id = self.eval_expr(dyn_expr)?;
                     if let Some(Value::String(name)) = self.arena.get(label_val_id) {
                         let name = name.clone();
-                        let (val_id, conjunct) = self.eval_field_value(&f.value, env)?;
+                        let saved_field = self.current_field.replace(name.clone());
+                        let res = self.eval_field_value(&f.value, env);
+                        self.current_field = saved_field;
+                        let (val_id, conjunct) = res?;
                         let is_unresolved = self.is_unresolved(val_id);
                         if is_unresolved && !final_pass {
                             return Ok(false);
@@ -663,7 +697,13 @@ impl Evaluator {
                     }
                 }
                 _ => {
-                    let (val_id, conjunct) = self.eval_field_value(&f.value, env)?;
+                    let saved_field = self.current_field.clone();
+                    if let Some(name) = f.label.name() {
+                        self.current_field = Some(name.to_string());
+                    }
+                    let res = self.eval_field_value(&f.value, env);
+                    self.current_field = saved_field;
+                    let (val_id, conjunct) = res?;
                     // A definition read before its declaration was evaluated
                     // absorbs whatever it is unified with: it is no value yet.
                     // Only at the top: inside a value it is how a recursive
@@ -821,14 +861,10 @@ impl Evaluator {
         }
     }
 
-    /// Record a field name as reachable from the literal being evaluated.
     /// Whether the literal being evaluated declares this name as a field.
     ///
-    /// Only the innermost literal is asked, which is all the evaluator keeps:
-    /// an enclosing literal's environment is saved and restored around this
-    /// one. A name an *enclosing* literal declares therefore reads as not
-    /// found until the pass that binds it, which is a wording difference on a
-    /// value that is an error either way.
+    /// Enclosing declarations that shadow existing names have pending bindings
+    /// in their own frames, so a reader waits until they are evaluated.
     fn declares_field(&self, name: &str) -> bool {
         self.current_env
             .as_ref()
@@ -1140,6 +1176,18 @@ impl Evaluator {
         name: &str,
     ) -> Result<Option<ValueId>, EvalError> {
         self.derivations += 1;
+        let saved_field = self.current_field.replace(name.to_string());
+        let result = self.derive_field_value(entry, s, name);
+        self.current_field = saved_field;
+        result
+    }
+
+    fn derive_field_value(
+        &mut self,
+        entry: &FieldEntry,
+        s: &StructValue,
+        name: &str,
+    ) -> Result<Option<ValueId>, EvalError> {
         let mut val: Option<ValueId> = None;
         for conjunct in &entry.conjuncts {
             let conjunct_val = match conjunct {
@@ -1184,8 +1232,10 @@ impl Evaluator {
         // The recipe may have been written in another file, and `pkg.Name` means
         // what `pkg` names there.
         let saved_imports = std::mem::replace(&mut self.imports, thunk.env.imports.clone());
+        let saved_depth = self.struct_scope_depth;
 
         self.push_scope();
+        self.struct_scope_depth = self.scopes.len().saturating_sub(1);
         for section in SECTIONS {
             for (name, entry) in section.map(s) {
                 if thunk.env.owns_field(name) {
@@ -1221,6 +1271,7 @@ impl Evaluator {
         self.scopes = saved_scopes;
         self.current_env = saved_env;
         self.imports = saved_imports;
+        self.struct_scope_depth = saved_depth;
         result
     }
 
@@ -1248,7 +1299,7 @@ impl Evaluator {
             // re-derive everything the iterations before it generated, which is
             // quadratic in the size of the source.
             let mut generated = StructValue::new(false);
-            self.eval_decls_into_struct(&comp.struct_lit.decls, &mut generated)?;
+            self.eval_nested_decls(&comp.struct_lit.decls, &mut generated)?;
             self.merge_generated(target_struct, generated);
             return Ok(());
         }
@@ -1461,6 +1512,34 @@ impl Evaluator {
         res
     }
 
+    /// A literal owns a frame distinct from comprehension variables and from
+    /// the field whose value contains it. Restore that context even on error.
+    fn eval_nested_decls(
+        &mut self,
+        decls: &[Decl],
+        target: &mut StructValue,
+    ) -> Result<(), EvalError> {
+        self.push_scope();
+        let enclosing = std::mem::replace(&mut self.at_file_root, false);
+        let saved_field = self.current_field.take();
+        let result = self.eval_decls_into_struct(decls, target);
+        self.current_field = saved_field;
+        self.at_file_root = enclosing;
+        self.pop_scope();
+        result
+    }
+
+    /// A bare reference to the field being defined contributes no new
+    /// constraint in a conjunction: x: x & 1 is simply x: 1. Restrict this to
+    /// the reference itself; a cycle inside arithmetic or interpolation is
+    /// not an identity and must still fail.
+    fn is_unbound_self_reference(&self, expr: &Expr, val: ValueId) -> bool {
+        matches!(expr, Expr::Ident(name) | Expr::HiddenIdent(name)
+            if self.current_field.as_deref() == Some(name))
+            && matches!(self.arena.get(val), Some(Value::Bottom(reason))
+                if reason.kind == BottomKind::Cycle)
+    }
+
     fn eval_expr_inner(&mut self, expr: &Expr) -> Result<ValueId, EvalError> {
         match expr {
             Expr::Bottom => Ok(self.arena.bottom("explicit bottom")),
@@ -1487,15 +1566,61 @@ impl Evaluator {
                     }
                 }
 
-                if let Some(val) = self.lookup_binding(id) {
+                // Loop bindings inside the literal take precedence over its fields.
+                let local_scope_count = self.scopes.len().saturating_sub(self.struct_scope_depth);
+                let local_val = self
+                    .scopes
+                    .iter()
+                    .rev()
+                    .take(local_scope_count)
+                    .find_map(|scope| scope.get(id).copied());
+
+                if let Some(val) = local_val {
+                    if self.current_field.as_deref() == Some(id)
+                        && self.declares_field(id)
+                        && matches!(self.arena.get(val), Some(Value::Bottom(reason))
+                            if reason.kind == BottomKind::Unresolved)
+                    {
+                        return Ok(self.arena.bottom_of(
+                            BottomKind::Cycle,
+                            format!("cycle with field: {id}: incomplete value"),
+                        ));
+                    }
+                    return Ok(self.read_definition(id, val));
+                }
+
+                // An uncomputed field shadows bindings outside its literal.
+                if self.declares_field(id) {
+                    if self.current_field.as_deref() == Some(id) {
+                        if id.starts_with('#') || id.starts_with("_#") {
+                            return Ok(self.arena.alloc(Value::RecursiveRef {
+                                name: id.clone(),
+                                target: self.lookup_binding(id),
+                            }));
+                        } else {
+                            return Ok(self.arena.bottom_of(
+                                BottomKind::Cycle,
+                                format!("cycle with field: {id}: incomplete value"),
+                            ));
+                        }
+                    } else {
+                        // Forward reference to a sibling field in the same struct
+                        return Ok(self
+                            .arena
+                            .bottom_of(BottomKind::Unresolved, "incomplete value"));
+                    }
+                }
+
+                // The literal does not declare this name: read its enclosing scope.
+                let outer_val = self
+                    .scopes
+                    .iter()
+                    .rev()
+                    .skip(local_scope_count)
+                    .find_map(|scope| scope.get(id).copied());
+
+                if let Some(val) = outer_val {
                     Ok(self.read_definition(id, val))
-                } else if self.declares_field(id) {
-                    // The literal being evaluated declares this name, so it is
-                    // not missing - it is not computed yet, which after the
-                    // final pass means it never will be.
-                    Ok(self
-                        .arena
-                        .bottom_of(BottomKind::Unresolved, "incomplete value"))
                 } else {
                     Ok(self.arena.bottom_of(
                         BottomKind::ReferenceNotFound,
@@ -1505,11 +1630,7 @@ impl Evaluator {
             }
             Expr::Struct(s) => {
                 let mut struct_val = StructValue::new(false);
-                self.push_scope();
-                let enclosing = std::mem::replace(&mut self.at_file_root, false);
-                let result = self.eval_decls_into_struct(&s.decls, &mut struct_val);
-                self.at_file_root = enclosing;
-                self.pop_scope();
+                let result = self.eval_nested_decls(&s.decls, &mut struct_val);
                 if let Err(error) = result {
                     // Carry an incomplete nested struct to the enclosing retry
                     // loop, which may resolve its dynamic labels in a later pass.
@@ -1567,6 +1688,12 @@ impl Evaluator {
 
                 match op {
                     BinaryOp::Unify => {
+                        if self.is_unbound_self_reference(left, left_id) {
+                            return Ok(right_id);
+                        }
+                        if self.is_unbound_self_reference(right, right_id) {
+                            return Ok(left_id);
+                        }
                         let merged = unify(&mut self.arena, left_id, right_id);
                         self.rederive(merged)
                     }
@@ -1634,10 +1761,14 @@ impl Evaluator {
                 let mut eval_branches = Vec::new();
                 for b in branches {
                     let val_id = self.eval_expr(&b.expr)?;
-                    eval_branches.push(ValueBranch {
-                        default: b.default,
-                        val: val_id,
-                    });
+                    push_branch(
+                        &self.arena,
+                        &mut eval_branches,
+                        ValueBranch {
+                            default: b.default,
+                            val: val_id,
+                        },
+                    );
                 }
                 Ok(self.arena.alloc(Value::Disjunction {
                     branches: eval_branches,
@@ -1787,10 +1918,12 @@ impl Evaluator {
                             let mut val_id = self.eval_expr(e)?;
                             while let Some(Value::Disjunction { branches }) = self.arena.get(val_id)
                             {
-                                if let Some(b) = branches.iter().find(|b| b.default) {
-                                    val_id = b.val;
-                                } else if let Some(b) = branches.first() {
-                                    val_id = b.val;
+                                let defaults: Vec<_> =
+                                    branches.iter().filter(|b| b.default).collect();
+                                if defaults.len() == 1 {
+                                    val_id = defaults[0].val;
+                                } else if defaults.is_empty() && branches.len() == 1 {
+                                    val_id = branches[0].val;
                                 } else {
                                     break;
                                 }
@@ -1800,6 +1933,9 @@ impl Evaluator {
                                 Some(Value::Int(i)) => result_str.push_str(&i.to_string()),
                                 Some(Value::Float(f)) => result_str.push_str(&f.to_string()),
                                 Some(Value::Bool(b)) => result_str.push_str(&b.to_string()),
+                                // A propagated error is already the cause. Decorating it
+                                // on each derivation changes the value forever, preventing
+                                // the merge from settling and retaining growing messages.
                                 Some(Value::Bottom(_)) => return Ok(val_id),
                                 other => {
                                     return Ok(self.arena.bottom(format!(
@@ -2250,10 +2386,19 @@ impl Evaluator {
                 Ok(serde_json::Value::Object(map))
             }
             Some(Value::Disjunction { branches }) => {
-                if let Some(default_branch) = branches.iter().find(|b| b.default) {
+                let defaults: Vec<_> = branches.iter().filter(|b| b.default).collect();
+                if defaults.len() > 1 {
+                    if path == "$" {
+                        Err("cannot export disjunction with ambiguous defaults to JSON".to_string())
+                    } else {
+                        Err(format!(
+                            "cannot export disjunction with ambiguous defaults at '{path}' to JSON"
+                        ))
+                    }
+                } else if let Some(default_branch) = defaults.first() {
                     self.to_json_at_path(default_branch.val, path)
-                } else if let Some(first_branch) = branches.first() {
-                    self.to_json_at_path(first_branch.val, path)
+                } else if let [branch] = branches.as_slice() {
+                    self.to_json_at_path(branch.val, path)
                 } else if path == "$" {
                     Err("cannot export non-concrete disjunction to JSON".to_string())
                 } else {

@@ -640,7 +640,9 @@ fn merge_conjuncts(e1: &FieldEntry, e2: &FieldEntry) -> Vec<Conjunct> {
 fn collapses_struct(arena: &ValueArena, val: ValueId) -> bool {
     match arena.get(val) {
         Some(Value::Bottom(reason)) => {
-            !reason.kind.may_resolve_later() && reason.kind != BottomKind::Incomplete
+            !reason.kind.may_resolve_later()
+                && reason.kind != BottomKind::Incomplete
+                && reason.kind != BottomKind::Cycle
         }
         _ => false,
     }
@@ -913,7 +915,11 @@ fn unify_disjunction(
 /// [`Equivalence::Unknown`] - the comparison budget running out on a large
 /// branch - keeps the branch. A duplicate kept costs width; a distinct branch
 /// dropped costs meaning.
-fn push_branch(arena: &ValueArena, kept: &mut Vec<DisjunctionBranch>, branch: DisjunctionBranch) {
+pub(crate) fn push_branch(
+    arena: &ValueArena,
+    kept: &mut Vec<DisjunctionBranch>,
+    branch: DisjunctionBranch,
+) {
     for existing in kept.iter_mut() {
         if compare_values(arena, existing.val, branch.val) == Equivalence::Equal {
             existing.default |= branch.default;
@@ -933,6 +939,8 @@ fn unify_disjunction_inner(
         branches: other_branches,
     }) = arena.get(other_id).cloned()
     {
+        let d1_has_default = branches.iter().any(|b| b.default);
+        let d2_has_default = other_branches.iter().any(|b| b.default);
         let mut valid_branches = Vec::new();
         let mut branch_errors = Vec::new();
         for b1 in branches {
@@ -944,13 +952,16 @@ fn unify_disjunction_inner(
                     arena.rollback(cp);
                     continue;
                 }
+                let default = match (d1_has_default, d2_has_default) {
+                    (true, true) => b1.default && b2.default,
+                    (true, false) => b1.default,
+                    (false, true) => b2.default,
+                    (false, false) => false,
+                };
                 push_branch(
                     arena,
                     &mut valid_branches,
-                    DisjunctionBranch {
-                        default: b1.default || b2.default,
-                        val: u,
-                    },
+                    DisjunctionBranch { default, val: u },
                 );
             }
         }
