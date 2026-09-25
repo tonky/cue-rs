@@ -542,6 +542,14 @@ impl Evaluator {
         collected
     }
 
+    /// Whether a value is the placeholder of a definition not evaluated yet.
+    fn is_placeholder(&self, val_id: ValueId) -> bool {
+        matches!(
+            self.arena.get(val_id),
+            Some(Value::RecursiveRef { target: None, .. })
+        )
+    }
+
     /// Whether a value carries a reference nothing has resolved yet.
     ///
     /// Two callers, one meaning: the relaxation loop retries a declaration that
@@ -656,7 +664,12 @@ impl Evaluator {
                 }
                 _ => {
                     let (val_id, conjunct) = self.eval_field_value(&f.value, env)?;
-                    let is_unresolved = self.is_unresolved(val_id);
+                    // A definition read before its declaration was evaluated
+                    // absorbs whatever it is unified with: it is no value yet.
+                    // Only at the top: inside a value it is how a recursive
+                    // definition refers to itself.
+                    let placeholder = self.is_placeholder(val_id);
+                    let is_unresolved = placeholder || self.is_unresolved(val_id);
                     // A retry must not meet a transient unresolved-reference bottom
                     // with a resolved declaration: bottom would permanently win.
                     if is_unresolved && !final_pass {
@@ -677,6 +690,7 @@ impl Evaluator {
                         if let Some(name) = f.label.name()
                             && !f.label.is_definition()
                             && !f.label.is_hidden()
+                            && !placeholder
                         {
                             let partial = match target_struct.fields.get(name) {
                                 Some(entry) => unify(&mut self.arena, entry.val, val_id),
@@ -1115,8 +1129,10 @@ impl Evaluator {
     }
 
     /// Unify one field's recipes again. `None` keeps the value it has: a recipe
-    /// that derives to an unresolved reference is one the enclosing relaxation
-    /// loop has yet to satisfy, not a field that lost its value.
+    /// that derives to an unresolved reference once no loop can retry is one
+    /// the merge cannot satisfy, not a field that lost its value. While a loop
+    /// can still retry, the unresolved value is written instead (see
+    /// [`Self::derive_thunk`]).
     fn derive_field(
         &mut self,
         entry: &FieldEntry,
@@ -1193,9 +1209,13 @@ impl Evaluator {
             }
         }
         if result.is_ok() {
+            // While a loop around can still retry, the value this recipe had
+            // is stale - it was derived before the merge - so the reference it
+            // waits on is the answer: keeping the stale value would pass the
+            // partial off as resolved.
             result = self
                 .eval_expr(&thunk.expr)
-                .map(|val| (!self.is_unresolved(val)).then_some(val));
+                .map(|val| (self.deferring || !self.is_unresolved(val)).then_some(val));
         }
 
         self.scopes = saved_scopes;
@@ -1613,6 +1633,12 @@ impl Evaluator {
                 let val_id = self.eval_expr(expr)?;
                 if let Some(Value::Bottom(_)) = self.arena.get(val_id) {
                     return Ok(val_id);
+                }
+                // A definition read before its declaration was evaluated has no
+                // fields *yet*.
+                if let Some(Value::RecursiveRef { name, target: None }) = self.arena.get(val_id) {
+                    let message = format!("{name} not evaluated yet");
+                    return Ok(self.arena.bottom_of(BottomKind::Unresolved, message));
                 }
                 if let Some(Value::Struct(s)) = self.arena.get(val_id) {
                     if let Some(f) = s.fields.get(field).or_else(|| s.definitions.get(field)) {
