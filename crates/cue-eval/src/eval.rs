@@ -1272,7 +1272,7 @@ impl Evaluator {
                         }
                     }
                     Value::Struct(s) => {
-                        for (k, entry) in &s.fields {
+                        for (k, entry) in s.fields.iter().filter(|(_, e)| !e.optional) {
                             self.push_scope();
                             self.insert_binding(value, entry.val);
                             if let Some(k_name) = key {
@@ -1352,7 +1352,7 @@ impl Evaluator {
                         }
                     }
                     Value::Struct(s) => {
-                        for (k, entry) in &s.fields {
+                        for (k, entry) in s.fields.iter().filter(|(_, e)| !e.optional) {
                             self.push_scope();
                             self.insert_binding(value, entry.val);
                             if let Some(k_name) = key {
@@ -1825,8 +1825,10 @@ impl Evaluator {
                             Some(Value::List { elements, .. }) => {
                                 return Ok(self.arena.int(elements.len() as i64));
                             }
+                            // An optional field that nothing set is not there.
                             Some(Value::Struct(s)) => {
-                                return Ok(self.arena.int(s.fields.len() as i64));
+                                let set = s.fields.values().filter(|e| !e.optional).count();
+                                return Ok(self.arena.int(set as i64));
                             }
                             _ => return Ok(self.arena.bottom("len: unsupported type")),
                         }
