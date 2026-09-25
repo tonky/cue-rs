@@ -142,6 +142,12 @@ pub enum BottomKind {
     /// Not resolved *yet*. The relaxation loop may resolve it on a later pass,
     /// and one that survives the final pass is a cycle.
     Unresolved,
+    /// Not concrete enough to decide, and no reference to wait for: `or([])`
+    /// over a comprehension whose source the instance has yet to fill. Unlike
+    /// [`Self::Unresolved`], the relaxation loop does not wait on it - the merge
+    /// that supplies the source re-derives it - and it does not collapse the
+    /// struct holding it, which is a schema, not a conflict.
+    Incomplete,
     /// An infinite value: a recursive reference that reached export.
     StructuralCycle,
     /// Two values that cannot both hold.

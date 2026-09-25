@@ -639,7 +639,9 @@ fn merge_conjuncts(e1: &FieldEntry, e2: &FieldEntry) -> Vec<Conjunct> {
 /// rather than `x`, which is how upstream reports it too.
 fn collapses_struct(arena: &ValueArena, val: ValueId) -> bool {
     match arena.get(val) {
-        Some(Value::Bottom(reason)) => !reason.kind.may_resolve_later(),
+        Some(Value::Bottom(reason)) => {
+            !reason.kind.may_resolve_later() && reason.kind != BottomKind::Incomplete
+        }
         _ => false,
     }
 }

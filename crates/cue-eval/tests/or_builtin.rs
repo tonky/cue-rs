@@ -102,3 +102,55 @@ fn a_stage_selects_only_the_jobs_its_components_define() {
         assert!(error.contains("\"unti\""), "{case}: {error}");
     }
 }
+
+/// `#jobs` and the set drawn from it are both inside the definition, and the
+/// stage reads a job name back through the pipeline it belongs to. `or([])` is
+/// what the definition holds on its own; it must neither hold the definition
+/// pending nor survive the merge that adds the components.
+const SELF_REFERENCING: &str = r#"
+#P: {
+	components: [string]: {lint?: string, test?: string, ...}
+	#jobs: {for _, c in components for k, _ in c {(k): k}}
+	#jobName: or([for k, _ in #jobs {k}])
+	stages?: [...{select?: [...#jobName], ...}]
+}
+
+let J = p.#jobs
+p: #P & {
+	components: a: {lint: "x", test: "y"}
+	stages: [{select: [J.lint, SELECT]}]
+}
+"#;
+
+#[test]
+fn a_set_drawn_from_a_definition_comprehension_accepts_its_members() {
+    let json = eval_to_json(&SELF_REFERENCING.replace("SELECT", r#""test""#)).unwrap();
+    assert_eq!(
+        json,
+        json!({"p": {
+            "components": {"a": {"lint": "x", "test": "y"}},
+            "stages": [{"select": ["lint", "test"]}],
+        }})
+    );
+}
+
+/// Upstream: `p.stages.0.select.1: 2 errors in empty disjunction: conflicting
+/// values "lint" and "tset" … conflicting values "test" and "tset"`.
+#[test]
+fn a_set_drawn_from_a_definition_comprehension_rejects_a_typo() {
+    let error = eval_to_json(&SELF_REFERENCING.replace("SELECT", r#""tset""#))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("\"tset\""), "{error}");
+    assert!(!error.contains("empty list"), "{error}");
+}
+
+/// Upstream exports the schema's instance-free parts and reports nothing for
+/// the definition: an unused `or([])` in a definition is not an error.
+#[test]
+fn an_empty_set_in_an_unused_definition_is_not_an_error() {
+    assert_eq!(
+        eval_to_json("#P: {#names: or([for k, _ in {} {k}])}\nx: 1").unwrap(),
+        json!({"x": 1})
+    );
+}

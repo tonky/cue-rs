@@ -1932,11 +1932,14 @@ impl Evaluator {
                     };
                     // Upstream reports this as incomplete, not as a conflict: the
                     // list is usually built by a comprehension over fields that a
-                    // later conjunct has yet to add.
+                    // later conjunct has yet to add. Not a reference to wait
+                    // for either: the definition holding it would never count
+                    // as evaluated, and neither would anything reading it. The
+                    // merge that adds the fields re-derives it.
                     if elements.is_empty() {
                         return Ok(self
                             .arena
-                            .bottom_of(BottomKind::Unresolved, "empty list in call to or"));
+                            .bottom_of(BottomKind::Incomplete, "empty list in call to or"));
                     }
                     let branches = elements
                         .into_iter()
