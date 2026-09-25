@@ -115,6 +115,10 @@ pub struct Evaluator {
     reading_root_embedding: bool,
     /// Set by the package loader: which values to record their directory on.
     pub(crate) origin: Option<crate::package::OriginAnnotation>,
+    /// Set while some enclosing relaxation loop can still retry. A reference
+    /// that has not resolved yet is then not an answer: an existence check or a
+    /// comprehension's condition stays pending instead of deciding on it.
+    deferring: bool,
 }
 
 const MAX_EXPR_DEPTH: usize = 64;
@@ -150,6 +154,7 @@ impl Evaluator {
             at_file_root: false,
             reading_root_embedding: false,
             origin: None,
+            deferring: false,
         };
         evaluator.register_builtins();
         evaluator
@@ -595,6 +600,22 @@ impl Evaluator {
         env: &Rc<ThunkEnv>,
         final_pass: bool,
     ) -> Result<bool, EvalError> {
+        // A literal's final pass settles only its own declarations; a loop
+        // around it that still retries may yet bind what they read.
+        let enclosing = self.deferring;
+        self.deferring = enclosing || !final_pass;
+        let result = self.eval_decl_pass(decl, target_struct, env, final_pass);
+        self.deferring = enclosing;
+        result
+    }
+
+    fn eval_decl_pass(
+        &mut self,
+        decl: &Decl,
+        target_struct: &mut StructValue,
+        env: &Rc<ThunkEnv>,
+        final_pass: bool,
+    ) -> Result<bool, EvalError> {
         match decl {
             Decl::Field(f) => match &f.label {
                 Label::Pattern(pattern_expr) => {
@@ -742,7 +763,14 @@ impl Evaluator {
                 Ok(true)
             }
             Decl::Comprehension(comp) => {
-                self.eval_comprehension(comp, target_struct)?;
+                // A comprehension that waits on a reference yields nothing yet:
+                // the fields it generated before it stopped are dropped with it.
+                let mut scratch = target_struct.clone();
+                match self.eval_comprehension(comp, &mut scratch) {
+                    Err(EvalError::Unresolved(_)) if !final_pass => return Ok(false),
+                    other => other?,
+                }
+                *target_struct = scratch;
                 // Loop-local bindings have been popped; subsequent references
                 // must resolve to the final generated field values.
                 self.bind_struct_fields(target_struct);
@@ -1203,8 +1231,14 @@ impl Evaluator {
         match &comp.clauses[clause_idx] {
             ComprehensionClause::If { condition } => {
                 let cond_val = self.eval_expr(condition)?;
-                if let Some(Value::Bool(true)) = self.arena.get(cond_val) {
-                    self.eval_comprehension_clause(clause_idx + 1, comp, target_struct)?;
+                match self.arena.get(cond_val) {
+                    Some(Value::Bool(true)) => {
+                        self.eval_comprehension_clause(clause_idx + 1, comp, target_struct)?;
+                    }
+                    Some(Value::Bottom(r)) if r.kind.may_resolve_later() && self.deferring => {
+                        return Err(EvalError::Unresolved(r.to_string()));
+                    }
+                    _ => {}
                 }
             }
             ComprehensionClause::Let { ident, expr } => {
@@ -1274,16 +1308,23 @@ impl Evaluator {
         match &comp.clauses[clause_idx] {
             ComprehensionClause::If { condition } => {
                 let cond_val = self.eval_expr(condition)?;
-                if let Some(Value::Bool(true)) = self.arena.get(cond_val) {
-                    self.eval_list_comprehension_clause(clause_idx + 1, comp, elements)?;
+                match self.arena.get(cond_val) {
+                    Some(Value::Bool(true)) => {
+                        self.eval_list_comprehension_clause(clause_idx + 1, comp, elements)?;
+                    }
+                    Some(Value::Bottom(r)) if r.kind.may_resolve_later() && self.deferring => {
+                        return Err(EvalError::Unresolved(r.to_string()));
+                    }
+                    _ => {}
                 }
             }
             ComprehensionClause::Let { ident, expr } => {
                 let val_id = self.eval_expr(expr)?;
                 self.push_scope();
                 self.insert_binding(ident, val_id);
-                self.eval_list_comprehension_clause(clause_idx + 1, comp, elements)?;
+                let result = self.eval_list_comprehension_clause(clause_idx + 1, comp, elements);
                 self.pop_scope();
+                result?;
             }
             ComprehensionClause::For { key, value, source } => {
                 let src_id = self.eval_expr(source)?;
@@ -1304,8 +1345,10 @@ impl Evaluator {
                                 let k_id = self.arena.int(idx as i64);
                                 self.insert_binding(k_name, k_id);
                             }
-                            self.eval_list_comprehension_clause(clause_idx + 1, comp, elements)?;
+                            let result =
+                                self.eval_list_comprehension_clause(clause_idx + 1, comp, elements);
                             self.pop_scope();
+                            result?;
                         }
                     }
                     Value::Struct(s) => {
@@ -1316,8 +1359,10 @@ impl Evaluator {
                                 let k_id = self.arena.string(k.clone());
                                 self.insert_binding(k_name, k_id);
                             }
-                            self.eval_list_comprehension_clause(clause_idx + 1, comp, elements)?;
+                            let result =
+                                self.eval_list_comprehension_clause(clause_idx + 1, comp, elements);
                             self.pop_scope();
+                            result?;
                         }
                     }
                     _ => {}
@@ -1428,6 +1473,17 @@ impl Evaluator {
                     (None, false) => None,
                 };
                 Ok(self.arena.alloc(Value::List { elements, ellipsis }))
+            }
+            Expr::Binary { op, left, right }
+                if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
+                    && (matches!(**left, Expr::Bottom) || matches!(**right, Expr::Bottom)) =>
+            {
+                let operand = if matches!(**left, Expr::Bottom) {
+                    right
+                } else {
+                    left
+                };
+                self.eval_bottom_check(*op, operand)
             }
             Expr::Binary { op, left, right } => {
                 let left_id = self.eval_expr(left)?;
@@ -1676,13 +1732,67 @@ impl Evaluator {
             }
             Expr::ListComp(comp) => {
                 let mut elements = Vec::new();
-                self.eval_list_comprehension_clause(0, comp, &mut elements)?;
+                match self.eval_list_comprehension_clause(0, comp, &mut elements) {
+                    Err(EvalError::Unresolved(m)) => {
+                        return Ok(self.arena.bottom_of(BottomKind::Unresolved, m));
+                    }
+                    other => other?,
+                }
                 Ok(self.arena.alloc(Value::List {
                     elements,
                     ellipsis: None,
                 }))
             }
         }
+    }
+
+    /// `x == _|_` and `x != _|_`: whether `x` is an error, not arithmetic on
+    /// one. An operand that has not resolved yet is no answer while a loop
+    /// around it can still retry, so it is returned as it is and the check
+    /// stays pending; once nothing can retry, it counts as missing.
+    fn eval_bottom_check(&mut self, op: BinaryOp, operand: &Expr) -> Result<ValueId, EvalError> {
+        if self.selects_unset_optional(operand)? {
+            return Ok(self.arena.bool(op == BinaryOp::Equal));
+        }
+        let id = match self.eval_expr(operand) {
+            Ok(id) => id,
+            Err(EvalError::Unresolved(message)) => {
+                self.arena.bottom_of(BottomKind::Unresolved, message)
+            }
+            Err(error) => return Err(error),
+        };
+        let is_bottom = match self.arena.get(id) {
+            Some(Value::Bottom(r)) if r.kind.may_resolve_later() && self.deferring => {
+                return Ok(id);
+            }
+            Some(Value::Bottom(_)) => true,
+            _ => false,
+        };
+        Ok(self.arena.bool(is_bottom == (op == BinaryOp::Equal)))
+    }
+
+    /// Whether `operand` names an optional field its struct has not set. A
+    /// selector reads such a field's constraint, but for an existence check it
+    /// is not there. A package member is never optional, so imports are not
+    /// looked at.
+    fn selects_unset_optional(&mut self, operand: &Expr) -> Result<bool, EvalError> {
+        let Expr::Selector { expr, field } = operand else {
+            return Ok(false);
+        };
+        if let Expr::Ident(name) = expr.as_ref()
+            && self.imports.package_of(name).is_some()
+        {
+            return Ok(false);
+        }
+        let base = match self.eval_expr(expr) {
+            Ok(base) => base,
+            Err(EvalError::Unresolved(_)) => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        Ok(matches!(
+            self.arena.get(base),
+            Some(Value::Struct(s)) if s.fields.get(field).is_some_and(|e| e.optional)
+        ))
     }
 
     fn eval_call(&mut self, func_expr: &Expr, arg_exprs: &[Expr]) -> Result<ValueId, EvalError> {
