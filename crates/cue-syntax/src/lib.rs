@@ -1,11 +1,17 @@
 pub mod ast;
+pub mod bound;
 pub mod formatter;
+pub mod import_path;
+pub mod number;
 pub mod parser;
 pub mod token;
 pub mod visitor;
 
 pub use ast::*;
+pub use bound::{Bound, NotABound};
 pub use formatter::format_file;
+pub use import_path::{ImportAlias, ImportPathError, PackagePath};
+pub use number::{NumberError, NumberLit, NumberValue};
 pub use parser::{ParseError, Parser};
 pub use token::Token;
 pub use visitor::{Folder, Visitor};
@@ -121,6 +127,15 @@ mod tests {
         assert!(diag.contains("--> config.cue:2:"));
         assert!(diag.contains("b: @invalid"));
         assert!(diag.contains("^"));
+    }
+
+    #[test]
+    fn test_invalid_number_rejected_at_parse() {
+        // Phase 16.2: numeric validity is a parse-time invariant, not an
+        // eval-time bottom. A bare radix prefix must fail here.
+        assert!(parse_expr("0x").is_err());
+        assert!(parse_expr("4Ki").is_ok());
+        assert!(parse_expr("12.5").is_ok());
     }
 
     #[test]

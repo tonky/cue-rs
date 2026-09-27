@@ -1,16 +1,20 @@
 use crate::closedness::{ClosedCopies, open_for_embedding, reclose};
 use crate::declaration::DeclarationValue;
 use crate::expression::ExpressionStore;
+use crate::schedule::{
+    SECTIONS, Section, Sweep, collect_field_declarations, collect_field_names, derivation_order,
+    pending_binding_name, refined_any,
+};
 use crate::scope::ScopeFrame;
 use crate::unify::unify;
 use crate::unify::{Equivalence, compare_values, push_branch};
 use crate::value::{
-    BottomKind, BoundOp, Conjunct, DisjunctionBranch as ValueBranch, FieldEntry, Imports,
-    StructValue, Thunk, ThunkEnv, TypeKind, Value, ValueArena, ValueId,
+    BottomKind, Bound, Conjunct, DisjunctionBranch as ValueBranch, FieldEntry, Imports,
+    StructValue, Thunk, ThunkEnv, Value, ValueArena, ValueId,
 };
 use cue_syntax::ast::*;
 use num_traits::ToPrimitive;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use thiserror::Error;
 
@@ -22,15 +26,6 @@ const MAX_UNRESOLVED_DEPTH: usize = 64;
 /// Sweeps one merged struct may take to settle. A chain of n references needs
 /// n of them, so this only stops a recipe that never settles at all.
 const MAX_REDERIVE_SWEEPS: usize = 256;
-
-/// What one re-derivation sweep did: which fields moved, so the next sweep knows
-/// what to derive, and whether anything was written at all, which is what the
-/// caller's copy on write turns on.
-#[derive(Debug, Default)]
-struct Sweep {
-    moved: HashSet<String>,
-    wrote: bool,
-}
 
 /// How many passes of a literal may be spent refining a partial value that no
 /// declaration has finished reading. Bounds the chain of self-references that
@@ -55,35 +50,6 @@ pub enum EvalError {
     #[error("Evaluation error: {0}")]
     Unresolved(String),
 }
-
-/// Which map of a struct a field lives in. Definitions and hidden fields keep
-/// their sigil in the name, so the three never collide.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Section {
-    Field,
-    Definition,
-    Hidden,
-}
-
-impl Section {
-    fn map(self, s: &StructValue) -> &BTreeMap<String, FieldEntry> {
-        match self {
-            Section::Field => &s.fields,
-            Section::Definition => &s.definitions,
-            Section::Hidden => &s.hidden,
-        }
-    }
-
-    fn map_mut(self, s: &mut StructValue) -> &mut BTreeMap<String, FieldEntry> {
-        match self {
-            Section::Field => &mut s.fields,
-            Section::Definition => &mut s.definitions,
-            Section::Hidden => &mut s.hidden,
-        }
-    }
-}
-
-const SECTIONS: [Section; 3] = [Section::Field, Section::Definition, Section::Hidden];
 
 pub struct Evaluator {
     pub arena: ValueArena,
@@ -170,46 +136,9 @@ impl Evaluator {
     }
 
     fn register_builtins(&mut self) {
-        // Top-level type builtins
-        let top = self.arena.alloc(Value::Type(TypeKind::Top));
-        let null = self.arena.alloc(Value::Type(TypeKind::Null));
-        let bool_t = self.arena.alloc(Value::Type(TypeKind::Bool));
-        let int_t = self.arena.alloc(Value::Type(TypeKind::Int));
-        let uint_t = self.arena.alloc(Value::Type(TypeKind::Uint));
-        let uint8_t = self.arena.alloc(Value::Type(TypeKind::Uint8));
-        let uint16_t = self.arena.alloc(Value::Type(TypeKind::Uint16));
-        let uint32_t = self.arena.alloc(Value::Type(TypeKind::Uint32));
-        let uint64_t = self.arena.alloc(Value::Type(TypeKind::Uint64));
-        let int8_t = self.arena.alloc(Value::Type(TypeKind::Int8));
-        let int16_t = self.arena.alloc(Value::Type(TypeKind::Int16));
-        let int32_t = self.arena.alloc(Value::Type(TypeKind::Int32));
-        let int64_t = self.arena.alloc(Value::Type(TypeKind::Int64));
-        let float_t = self.arena.alloc(Value::Type(TypeKind::Float));
-        let float32_t = self.arena.alloc(Value::Type(TypeKind::Float32));
-        let float64_t = self.arena.alloc(Value::Type(TypeKind::Float64));
-        let num_t = self.arena.alloc(Value::Type(TypeKind::Number));
-        let string_t = self.arena.alloc(Value::Type(TypeKind::String));
-        let bytes_t = self.arena.alloc(Value::Type(TypeKind::Bytes));
-
-        self.insert_binding("_", top);
-        self.insert_binding("null", null);
-        self.insert_binding("bool", bool_t);
-        self.insert_binding("int", int_t);
-        self.insert_binding("uint", uint_t);
-        self.insert_binding("uint8", uint8_t);
-        self.insert_binding("uint16", uint16_t);
-        self.insert_binding("uint32", uint32_t);
-        self.insert_binding("uint64", uint64_t);
-        self.insert_binding("int8", int8_t);
-        self.insert_binding("int16", int16_t);
-        self.insert_binding("int32", int32_t);
-        self.insert_binding("int64", int64_t);
-        self.insert_binding("float", float_t);
-        self.insert_binding("float32", float32_t);
-        self.insert_binding("float64", float64_t);
-        self.insert_binding("number", num_t);
-        self.insert_binding("string", string_t);
-        self.insert_binding("bytes", bytes_t);
+        for (name, id) in crate::builtins::type_builtins(&mut self.arena) {
+            self.insert_binding(&name, id);
+        }
     }
 
     pub fn push_scope(&mut self) {
@@ -248,18 +177,14 @@ impl Evaluator {
     /// Evaluate an entire CUE source file.
     pub fn eval_file(&mut self, file: &SourceFile) -> Result<ValueId, EvalError> {
         for imp in &file.imports {
-            let pkg_name = if let Some(alias) = &imp.alias {
-                alias.clone()
-            } else {
-                imp.path
-                    .split('/')
-                    .next_back()
-                    .unwrap_or(&imp.path)
-                    .to_string()
-            };
+            let pkg_name = imp
+                .alias
+                .clone()
+                .unwrap_or_else(|| imp.path.default_alias())
+                .into_inner();
             Rc::make_mut(&mut self.imports)
                 .aliases
-                .insert(pkg_name, imp.path.clone());
+                .insert(pkg_name, imp.path.as_str().to_string());
         }
 
         self.eval_root_decls(&file.decls)
@@ -314,13 +239,13 @@ impl Evaluator {
     ) -> Result<(), EvalError> {
         // A reference must see every declaration of a static field, including
         // declarations appearing after the reference in source order.
-        let decls = Self::collect_field_declarations(decls);
+        let decls = collect_field_declarations(decls);
         // Captured once per literal and shared by its thunks: every field of this
         // struct was written in the same lexical scope.
         let env = Rc::new(ThunkEnv::new(
             self.scopes.clone(),
             self.collect_let_declarations(&decls),
-            Self::collect_field_names(&decls),
+            collect_field_names(&decls),
             self.imports.clone(),
         ));
         self.current_env = Some(env.clone());
@@ -387,7 +312,7 @@ impl Evaluator {
             // next pass has something new to read.
             let before: Vec<Option<ValueId>> = pending_decls
                 .iter()
-                .map(|decl| Self::pending_binding_name(decl).and_then(|n| self.lookup_binding(n)))
+                .map(|decl| pending_binding_name(decl).and_then(|n| self.lookup_binding(n)))
                 .collect();
             let mut next_pending = Vec::new();
             let mut made_progress = false;
@@ -402,7 +327,12 @@ impl Evaluator {
             }
 
             if !made_progress {
-                let refining = self.refined_any(&pending_decls, &before);
+                let refining = refined_any(
+                    &self.arena,
+                    &|name| self.lookup_binding(name),
+                    &pending_decls,
+                    &before,
+                );
                 if refining && refinements < MAX_REFINEMENT_PASSES {
                     refinements += 1;
                     pending_decls = next_pending;
@@ -414,7 +344,7 @@ impl Evaluator {
                     // reference at the link it is written on rather than at the
                     // bottom of however many levels were unrolled getting here.
                     for &decl in &next_pending {
-                        if let Some(name) = Self::pending_binding_name(decl) {
+                        if let Some(name) = pending_binding_name(decl) {
                             self.remove_binding(name);
                         }
                     }
@@ -488,57 +418,6 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Field names one literal declares outright. A reference inside it resolves
-    /// to these at whatever value the merged struct gives them; anything else it
-    /// names belongs to an enclosing scope and keeps resolving there.
-    /// The name a pending declaration binds its partial value to, if any. The
-    /// same three conditions as the binding itself: a definition or a hidden
-    /// field is not read this way.
-    fn pending_binding_name(decl: &Decl) -> Option<&str> {
-        match decl {
-            Decl::Field(f) if !f.label.is_definition() && !f.label.is_hidden() => f.label.name(),
-            _ => None,
-        }
-    }
-
-    /// Whether a pass that resolved no declaration nevertheless left one of them
-    /// bound to more than it was.
-    ///
-    /// This is what lets a chain of self-references resolve. `stages: {a: …, b:
-    /// {needs: [stages.a]}, c: {needs: [stages.b]}}` is one declaration at this
-    /// level, so no pass of it ever "resolves" anything until the whole chain
-    /// does; without this the loop would give up after the first. Each pass
-    /// binds a partial `stages` one link deeper, and a chain of n links needs n
-    /// of them - a property of the user's graph, not of this literal's
-    /// declaration count, which is why the allowance is separate.
-    ///
-    /// It is bounded because a structural cycle refines forever: `a: {x: a}`
-    /// grows a level per pass and never finishes.
-    fn refined_any(&self, pending: &[&Decl], before: &[Option<ValueId>]) -> bool {
-        pending.iter().zip(before).any(|(decl, &prev)| {
-            let Some(name) = Self::pending_binding_name(decl) else {
-                return false;
-            };
-            match (prev, self.lookup_binding(name)) {
-                (None, Some(_)) => true,
-                (Some(prev), Some(now)) => {
-                    prev != now && compare_values(&self.arena, prev, now) != Equivalence::Equal
-                }
-                _ => false,
-            }
-        })
-    }
-
-    fn collect_field_names(decls: &[Decl]) -> HashSet<String> {
-        decls
-            .iter()
-            .filter_map(|decl| match decl {
-                Decl::Field(field) => field.label.name().map(str::to_string),
-                _ => None,
-            })
-            .collect()
-    }
-
     /// `let` and alias declarations of one literal, in declaration order. They are
     /// scope bindings rather than fields, so a thunk cannot read them back from
     /// the struct it is forced against and has to derive them again.
@@ -552,39 +431,6 @@ impl Evaluator {
                 _ => None,
             })
             .collect()
-    }
-
-    fn collect_field_declarations(decls: &[Decl]) -> Vec<Decl> {
-        let mut collected: Vec<Decl> = Vec::with_capacity(decls.len());
-        let mut positions = HashMap::new();
-        for decl in decls {
-            if let Decl::Field(field) = decl
-                && let Some(name) = field.label.name()
-            {
-                // Quoted labels share the ordinary namespace, even when their
-                // text starts with a definition or hidden-field prefix.
-                let key = (
-                    name.to_string(),
-                    field.label.is_definition(),
-                    field.label.is_hidden(),
-                );
-                if let Some(&index) = positions.get(&key) {
-                    let Decl::Field(previous) = &mut collected[index] else {
-                        unreachable!();
-                    };
-                    previous.optional &= field.optional;
-                    previous.value = Expr::Binary {
-                        op: BinaryOp::Unify,
-                        left: Box::new(previous.value.clone()),
-                        right: Box::new(field.value.clone()),
-                    };
-                    continue;
-                }
-                positions.insert(key, collected.len());
-            }
-            collected.push(decl.clone());
-        }
-        collected
     }
 
     /// Whether a value is the placeholder of a definition not evaluated yet.
@@ -1256,7 +1102,7 @@ impl Evaluator {
                 .collect();
         }
 
-        let order = Self::derivation_order(s);
+        let order = derivation_order(s);
         let mut changed = false;
         // Two things move a field here. Deriving the field beside it, and
         // descending into a field the unifier merged, which settles a nested
@@ -1320,65 +1166,6 @@ impl Evaluator {
             }
         }
         Ok(descent)
-    }
-
-    /// The order to derive a struct's fields in: a field after the fields it
-    /// reads, so one sweep carries a change the whole length of a chain.
-    ///
-    /// Only names this struct holds are edges - anything else a recipe mentions
-    /// comes from an enclosing scope, which a merge here cannot change. Recipes
-    /// that read each other have no such order, and are left to the sweep loop.
-    fn derivation_order(s: &StructValue) -> Vec<(Section, String)> {
-        let mut nodes: Vec<(Section, String)> = Vec::new();
-        for section in SECTIONS {
-            nodes.extend(section.map(s).keys().map(|name| (section, name.clone())));
-        }
-        let held: HashSet<&str> = nodes.iter().map(|(_, name)| name.as_str()).collect();
-
-        // Fields that read this one, and how many of a field's reads are still
-        // to come: Kahn's algorithm over the reads-within-this-struct graph.
-        let mut readers: HashMap<&str, Vec<usize>> = HashMap::new();
-        let mut pending: Vec<usize> = vec![0; nodes.len()];
-        for (index, (section, name)) in nodes.iter().enumerate() {
-            let Some(entry) = section.map(s).get(name) else {
-                continue;
-            };
-            let mut read: HashSet<&str> = entry.deps().filter(|dep| held.contains(dep)).collect();
-            // A recipe that reads its own field is a cycle of one, and waiting
-            // for itself would keep it out of the order entirely.
-            read.remove(name.as_str());
-            pending[index] = read.len();
-            for dep in read {
-                readers.entry(dep).or_default().push(index);
-            }
-        }
-
-        let mut order: Vec<(Section, String)> = Vec::with_capacity(nodes.len());
-        let mut ready: Vec<usize> = (0..nodes.len()).filter(|i| pending[*i] == 0).collect();
-        let mut placed = vec![false; nodes.len()];
-        while let Some(index) = ready.pop() {
-            if std::mem::replace(&mut placed[index], true) {
-                continue;
-            }
-            order.push(nodes[index].clone());
-            if let Some(dependents) = readers.get(nodes[index].1.as_str()) {
-                for dependent in dependents {
-                    pending[*dependent] = pending[*dependent].saturating_sub(1);
-                    if pending[*dependent] == 0 {
-                        ready.push(*dependent);
-                    }
-                }
-            }
-        }
-        // Whatever a cycle left behind keeps its map order.
-        order.extend(
-            nodes
-                .into_iter()
-                .enumerate()
-                .filter(|(index, _)| !placed[*index])
-                .map(|(_, node)| node),
-        );
-        order
     }
 
     /// One sweep over the recipes that read a name the last sweep moved,
@@ -1811,7 +1598,7 @@ impl Evaluator {
             Expr::Top => Ok(self.arena.top()),
             Expr::Null => Ok(self.arena.null()),
             Expr::Bool(b) => Ok(self.arena.bool(*b)),
-            Expr::Number(n) => self.eval_number(n),
+            Expr::Number(n) => Ok(self.eval_number(n)),
             Expr::String(s) => Ok(self.arena.string(s.value.as_str())),
             Expr::Bytes(b) => Ok(self.arena.alloc(Value::Bytes(b.value.clone()))),
             Expr::Ident(id)
@@ -1982,35 +1769,15 @@ impl Evaluator {
                     UnaryOp::Neg | UnaryOp::Pos | UnaryOp::Not => {
                         Ok(crate::operators::unary(&mut self.arena, *op, target_id))
                     }
-                    UnaryOp::Less => Ok(self.arena.alloc(Value::Bounds {
-                        base_type: None,
-                        constraints: vec![(BoundOp::Less, target_id)],
-                    })),
-                    UnaryOp::LessEqual => Ok(self.arena.alloc(Value::Bounds {
-                        base_type: None,
-                        constraints: vec![(BoundOp::LessEqual, target_id)],
-                    })),
-                    UnaryOp::Greater => Ok(self.arena.alloc(Value::Bounds {
-                        base_type: None,
-                        constraints: vec![(BoundOp::Greater, target_id)],
-                    })),
-                    UnaryOp::GreaterEqual => Ok(self.arena.alloc(Value::Bounds {
-                        base_type: None,
-                        constraints: vec![(BoundOp::GreaterEqual, target_id)],
-                    })),
-                    UnaryOp::NotEqual => Ok(self.arena.alloc(Value::Bounds {
-                        base_type: None,
-                        constraints: vec![(BoundOp::NotEqual, target_id)],
-                    })),
-                    UnaryOp::RegexMatch => Ok(self.arena.alloc(Value::Bounds {
-                        base_type: None,
-                        constraints: vec![(BoundOp::RegexMatch, target_id)],
-                    })),
-                    UnaryOp::RegexNotMatch => Ok(self.arena.alloc(Value::Bounds {
-                        base_type: None,
-                        constraints: vec![(BoundOp::RegexNotMatch, target_id)],
-                    })),
-                    _ => Ok(target_id),
+                    // Bounds convert from their syntax position; the default
+                    // marker (`*v`) is not a bound and passes through.
+                    op => match Bound::try_from(*op) {
+                        Ok(bound) => Ok(self.arena.alloc(Value::Bounds {
+                            base_type: None,
+                            constraints: vec![(bound, target_id)],
+                        })),
+                        Err(_) => Ok(target_id),
+                    },
                 }
             }
             Expr::Disjunction { branches } => {
@@ -2375,11 +2142,13 @@ impl Evaluator {
         Ok(self.arena.bottom("unsupported function call"))
     }
 
-    fn eval_number(&mut self, text: &str) -> Result<ValueId, EvalError> {
-        Ok(match crate::number::literal(text) {
-            Ok(value) => self.arena.alloc(value),
-            Err(message) => self.arena.bottom(message),
-        })
+    /// Map a pre-validated literal to its value. Infallible by construction:
+    /// the parser is the only producer of [`NumberLit`](cue_syntax::NumberLit).
+    fn eval_number(&mut self, lit: &cue_syntax::NumberLit) -> ValueId {
+        match lit.value() {
+            cue_syntax::NumberValue::Int(i) => self.arena.alloc(Value::Int(i.clone())),
+            cue_syntax::NumberValue::Float(f) => self.arena.alloc(Value::Float(*f)),
+        }
     }
 
     /// Export an evaluated value to JSON, selecting defaults and omitting optional fields.

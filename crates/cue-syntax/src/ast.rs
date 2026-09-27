@@ -96,8 +96,8 @@ pub struct SourceFile {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ImportDecl {
-    pub path: String,
-    pub alias: Option<String>,
+    pub path: crate::import_path::PackagePath,
+    pub alias: Option<crate::import_path::ImportAlias>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -267,7 +267,7 @@ pub enum Expr {
     Top,
     Null,
     Bool(bool),
-    Number(String),
+    Number(crate::number::NumberLit),
     String(StringLit),
     Bytes(BytesLit),
     Ident(String),

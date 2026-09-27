@@ -416,16 +416,38 @@ impl<'a> Parser<'a> {
     fn parse_import_spec(&mut self) -> Result<ImportDecl, ParseError> {
         let (tok, span) = self.advance()?;
         match tok {
-            Token::StringLit(path) => Ok(ImportDecl {
-                path: decode_string(path, span)?,
-                alias: None,
-            }),
+            Token::StringLit(path) => {
+                let decoded = decode_string(path, span.clone())?;
+                Ok(ImportDecl {
+                    path: crate::import_path::PackagePath::new(decoded).map_err(|error| {
+                        ParseError::UnexpectedToken {
+                            found: error.to_string(),
+                            expected: "non-empty import path".to_string(),
+                            span,
+                        }
+                    })?,
+                    alias: None,
+                })
+            }
             Token::Ident(alias) => {
                 let (path_tok, path_span) = self.advance()?;
                 if let Token::StringLit(path) = path_tok {
+                    let decoded = decode_string(path, path_span.clone())?;
                     Ok(ImportDecl {
-                        path: decode_string(path, path_span)?,
-                        alias: Some(alias),
+                        path: crate::import_path::PackagePath::new(decoded).map_err(|error| {
+                            ParseError::UnexpectedToken {
+                                found: error.to_string(),
+                                expected: "non-empty import path".to_string(),
+                                span: path_span,
+                            }
+                        })?,
+                        alias: Some(crate::import_path::ImportAlias::new(alias).map_err(
+                            |error| ParseError::UnexpectedToken {
+                                found: error.to_string(),
+                                expected: "non-empty import alias".to_string(),
+                                span,
+                            },
+                        )?),
                     })
                 } else {
                     Err(ParseError::UnexpectedToken {
@@ -1265,7 +1287,13 @@ impl<'a> Parser<'a> {
             Token::KwNull => Ok(Expr::Null),
             Token::KwTrue => Ok(Expr::Bool(true)),
             Token::KwFalse => Ok(Expr::Bool(false)),
-            Token::Number(n) => Ok(Expr::Number(n)),
+            Token::Number(n) => Ok(Expr::Number(crate::number::NumberLit::parse(n).map_err(
+                |error| ParseError::UnexpectedToken {
+                    found: error.to_string(),
+                    expected: "numeric literal".to_string(),
+                    span,
+                },
+            )?)),
             Token::StringLit(s) => Self::parse_string_lit(s, span),
             // Bytes hold octets, not text; cue-rs does not interpolate them, and
             // `Decoder::escape` says so rather than dropping the `\(` silently.

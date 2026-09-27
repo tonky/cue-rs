@@ -1,4 +1,4 @@
-use cue_eval::{BottomKind, Evaluator, PackageLoader, TypeKind, Value, eval_to_json};
+use cue_eval::{BottomKind, Evaluator, NumberKind, PackageLoader, TypeKind, Value, eval_to_json};
 use serde_json::json;
 
 #[test]
@@ -39,7 +39,7 @@ fn empty_struct_top_and_abstract_embeddings_stay_distinct() {
         match (kind, evaluator.arena.get(id).unwrap()) {
             ("struct", Value::Struct(_))
             | ("top", Value::Top)
-            | ("int", Value::Type(TypeKind::Int))
+            | ("int", Value::Type(TypeKind::Number(NumberKind::Int)))
             | ("bounds", Value::Bounds { .. }) => {}
             (_, value) => panic!("{source}: {value:?}"),
         }

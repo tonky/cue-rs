@@ -236,7 +236,10 @@ version = "0.1.0"
 dependencies = [
  "insta",
  "logos",
+ "num-bigint",
+ "num-traits",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 

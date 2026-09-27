@@ -1,4 +1,5 @@
 use crate::eval::{EvalError, Evaluator};
+use crate::fs::{FileProvider, StdFs};
 use crate::value::{Value, ValueId};
 use cue_syntax::ast::Decl;
 use std::path::{Path, PathBuf};
@@ -33,24 +34,32 @@ pub struct LoadOptions {
 impl PackageLoader {
     /// Discovers all ancestor module roots by searching parent directories for `cue.mod/module.cue`.
     pub fn find_all_module_roots<P: AsRef<Path>>(start_dir: P) -> Vec<(PathBuf, ModuleInfo)> {
+        Self::find_all_module_roots_with_fs(start_dir, &StdFs)
+    }
+
+    /// [`Self::find_all_module_roots`], reading through `fs`.
+    pub fn find_all_module_roots_with_fs<P: AsRef<Path>>(
+        start_dir: P,
+        fs: &dyn FileProvider,
+    ) -> Vec<(PathBuf, ModuleInfo)> {
         let mut roots = Vec::new();
         let start = if start_dir.as_ref().as_os_str().is_empty() {
             Path::new(".")
         } else {
             start_dir.as_ref()
         };
-        let Ok(canonical) = std::fs::canonicalize(start) else {
+        let Ok(canonical) = fs.canonicalize(start) else {
             return roots;
         };
         let mut curr = canonical;
-        if curr.is_file() {
+        if fs.is_file(&curr) {
             curr.pop();
         }
 
         loop {
             let mod_cue = curr.join("cue.mod").join("module.cue");
-            if mod_cue.is_file()
-                && let Ok(content) = std::fs::read_to_string(&mod_cue)
+            if fs.is_file(&mod_cue)
+                && let Ok(content) = fs.read_to_string(&mod_cue)
                 && let Ok(source) = cue_syntax::parse_file(&content)
             {
                 let mut mod_name = String::new();
@@ -96,7 +105,17 @@ impl PackageLoader {
 
     /// Discovers the nearest module root by searching parent directories for `cue.mod/module.cue`.
     pub fn find_module_root<P: AsRef<Path>>(start_dir: P) -> Option<(PathBuf, ModuleInfo)> {
-        Self::find_all_module_roots(start_dir).into_iter().next()
+        Self::find_module_root_with_fs(start_dir, &StdFs)
+    }
+
+    /// [`Self::find_module_root`], reading through `fs`.
+    pub fn find_module_root_with_fs<P: AsRef<Path>>(
+        start_dir: P,
+        fs: &dyn FileProvider,
+    ) -> Option<(PathBuf, ModuleInfo)> {
+        Self::find_all_module_roots_with_fs(start_dir, fs)
+            .into_iter()
+            .next()
     }
 
     /// Load and evaluate a single .cue file with module and vendored package resolution.
@@ -109,17 +128,27 @@ impl PackageLoader {
         file: P,
         options: &LoadOptions,
     ) -> Result<(Evaluator, ValueId), EvalError> {
-        let canonical_file =
-            std::fs::canonicalize(file.as_ref()).unwrap_or_else(|_| file.as_ref().to_path_buf());
+        Self::load_file_with_fs(file, options, &StdFs)
+    }
+
+    /// [`Self::load_file_with`], reading through `fs`.
+    pub fn load_file_with_fs<P: AsRef<Path>>(
+        file: P,
+        options: &LoadOptions,
+        fs: &dyn FileProvider,
+    ) -> Result<(Evaluator, ValueId), EvalError> {
+        let canonical_file = fs
+            .canonicalize(file.as_ref())
+            .unwrap_or_else(|_| file.as_ref().to_path_buf());
         let file_path = canonical_file.as_path();
-        if !file_path.is_file() {
+        if !fs.is_file(file_path) {
             return Err(EvalError::Evaluation(format!(
                 "File {} does not exist",
                 file.as_ref().display()
             )));
         }
 
-        let content = std::fs::read_to_string(file_path).map_err(|e| {
+        let content = fs.read_to_string(file_path).map_err(|e| {
             EvalError::Evaluation(format!("Failed to read {}: {e}", file_path.display()))
         })?;
         let parsed_file = cue_syntax::parse_file(&content)?;
@@ -128,7 +157,7 @@ impl PackageLoader {
         evaluator.origin = options.origin.clone();
         let mod_roots = file_path
             .parent()
-            .map(Self::find_all_module_roots)
+            .map(|parent| Self::find_all_module_roots_with_fs(parent, fs))
             .unwrap_or_default();
 
         // Resolve imports in file
@@ -136,6 +165,7 @@ impl PackageLoader {
             std::slice::from_ref(&parsed_file),
             &mod_roots,
             &mut evaluator,
+            fs,
         )?;
 
         let root_id = evaluator.eval_root_decls(&parsed_file.decls)?;
@@ -164,9 +194,19 @@ impl PackageLoader {
         target_pkg: Option<&str>,
         options: &LoadOptions,
     ) -> Result<(Evaluator, ValueId), EvalError> {
+        Self::load_dir_with_fs(dir, target_pkg, options, &StdFs)
+    }
+
+    /// [`Self::load_dir_with`], reading through `fs`.
+    pub fn load_dir_with_fs<P: AsRef<Path>>(
+        dir: P,
+        target_pkg: Option<&str>,
+        options: &LoadOptions,
+        fs: &dyn FileProvider,
+    ) -> Result<(Evaluator, ValueId), EvalError> {
         let mut evaluator = Evaluator::new();
         evaluator.origin = options.origin.clone();
-        let root_id = Self::load_dir_into(dir.as_ref(), target_pkg, &mut evaluator)?;
+        let root_id = Self::load_dir_into(dir.as_ref(), target_pkg, &mut evaluator, fs)?;
         Ok((evaluator, root_id))
     }
 
@@ -181,8 +221,9 @@ impl PackageLoader {
         dir: &Path,
         target_pkg: Option<&str>,
         evaluator: &mut Evaluator,
+        fs: &dyn FileProvider,
     ) -> Result<ValueId, EvalError> {
-        let files = Self::find_cue_files(dir)?;
+        let files = Self::find_cue_files(dir, fs)?;
 
         if files.is_empty() {
             return Err(EvalError::Evaluation(
@@ -193,7 +234,7 @@ impl PackageLoader {
         let mut parsed_files = Vec::new();
         let mut all_files = Vec::new();
         for path in files {
-            let content = std::fs::read_to_string(&path).map_err(|e| {
+            let content = fs.read_to_string(&path).map_err(|e| {
                 EvalError::Evaluation(format!("Failed to read {}: {e}", path.display()))
             })?;
             let source_file = cue_syntax::parse_file(&content)?;
@@ -221,14 +262,14 @@ impl PackageLoader {
             )));
         }
 
-        let mod_roots = Self::find_all_module_roots(dir);
+        let mod_roots = Self::find_all_module_roots_with_fs(dir, fs);
 
         // Process imports across parsed files and resolve external/module packages
-        Self::resolve_imports_for_files(&parsed_files, &mod_roots, evaluator)?;
+        Self::resolve_imports_for_files(&parsed_files, &mod_roots, evaluator, fs)?;
 
         let all_decls: Vec<Decl> = parsed_files.into_iter().flat_map(|f| f.decls).collect();
         let root_id = evaluator.eval_root_decls(&all_decls)?;
-        let canonical_dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+        let canonical_dir = fs.canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
         Self::annotate_origin(evaluator, root_id, &canonical_dir);
 
         Ok(root_id)
@@ -238,25 +279,22 @@ impl PackageLoader {
         files: &[cue_syntax::ast::SourceFile],
         mod_roots: &[(PathBuf, ModuleInfo)],
         evaluator: &mut Evaluator,
+        fs: &dyn FileProvider,
     ) -> Result<(), EvalError> {
         for file in files {
             for imp in &file.imports {
-                let (dir_path, pkg_qualifier) = match imp.path.split_once(':') {
-                    Some((p, q)) => (p, Some(q)),
-                    None => (imp.path.as_str(), None),
-                };
+                let (dir_path, pkg_qualifier) = imp.path.split_qualifier();
 
-                let default_alias = pkg_qualifier
-                    .unwrap_or_else(|| dir_path.split('/').next_back().unwrap_or(dir_path));
                 let alias = imp
                     .alias
                     .clone()
-                    .unwrap_or_else(|| default_alias.to_string());
+                    .unwrap_or_else(|| imp.path.default_alias())
+                    .into_inner();
                 std::rc::Rc::make_mut(&mut evaluator.imports)
                     .aliases
-                    .insert(alias, imp.path.clone());
+                    .insert(alias, imp.path.as_str().to_string());
 
-                if evaluator.imports.packages.contains_key(&imp.path) {
+                if evaluator.imports.packages.contains_key(imp.path.as_str()) {
                     continue;
                 }
 
@@ -287,7 +325,7 @@ impl PackageLoader {
                     let pkg_dir = if let Some(stripped) = dir_path.strip_prefix(mod_base) {
                         let sub = stripped.trim_start_matches('/');
                         let p = mod_root.join(sub);
-                        if p.is_dir() { Some(p) } else { None }
+                        if fs.is_dir(&p) { Some(p) } else { None }
                     } else {
                         None
                     };
@@ -297,11 +335,11 @@ impl PackageLoader {
                         let gen_dir = mod_root.join("cue.mod").join("gen").join(dir_path);
                         let usr = mod_root.join("cue.mod").join("usr").join(dir_path);
 
-                        if vendored.is_dir() {
+                        if fs.is_dir(&vendored) {
                             Some(vendored)
-                        } else if gen_dir.is_dir() {
+                        } else if fs.is_dir(&gen_dir) {
                             Some(gen_dir)
-                        } else if usr.is_dir() {
+                        } else if fs.is_dir(&usr) {
                             Some(usr)
                         } else {
                             None
@@ -309,7 +347,7 @@ impl PackageLoader {
                     });
 
                     if let Some(p_dir) = pkg_dir
-                        && p_dir.is_dir()
+                        && fs.is_dir(&p_dir)
                     {
                         // The package is evaluated into this evaluator's arena, so
                         // its values keep their ids here and the recipes its fields
@@ -317,13 +355,13 @@ impl PackageLoader {
                         // a package that fails to load must not take it with it.
                         let mut sub = Evaluator::with_arena(std::mem::take(&mut evaluator.arena));
                         sub.origin = evaluator.origin.clone();
-                        let loaded = Self::load_dir_into(&p_dir, pkg_qualifier, &mut sub);
+                        let loaded = Self::load_dir_into(&p_dir, pkg_qualifier, &mut sub, fs);
                         evaluator.arena = std::mem::take(&mut sub.arena);
                         match loaded {
                             Ok(package_id) => {
                                 std::rc::Rc::make_mut(&mut evaluator.imports)
                                     .packages
-                                    .insert(imp.path.clone(), package_id);
+                                    .insert(imp.path.as_str().to_string(), package_id);
                                 load_error = None;
                                 break;
                             }
@@ -342,21 +380,24 @@ impl PackageLoader {
         Ok(())
     }
 
-    fn find_cue_files<P: AsRef<Path>>(dir: P) -> Result<Vec<PathBuf>, EvalError> {
+    fn find_cue_files<P: AsRef<Path>>(
+        dir: P,
+        fs: &dyn FileProvider,
+    ) -> Result<Vec<PathBuf>, EvalError> {
         let mut files = Vec::new();
-        if !dir.as_ref().exists() {
+        if !fs.exists(dir.as_ref()) {
             return Err(EvalError::Evaluation(format!(
                 "Directory {} does not exist",
                 dir.as_ref().display()
             )));
         }
 
-        let read_dir = std::fs::read_dir(dir.as_ref())
+        let read_dir = fs
+            .read_dir(dir.as_ref())
             .map_err(|e| EvalError::Evaluation(format!("Failed to read dir: {e}")))?;
 
-        for entry in read_dir.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("cue") {
+        for path in read_dir {
+            if fs.is_file(&path) && path.extension().and_then(|s| s.to_str()) == Some("cue") {
                 files.push(path);
             }
         }

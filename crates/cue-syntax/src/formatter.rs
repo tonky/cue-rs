@@ -463,7 +463,7 @@ fn format_expr(expr_node: &Expr, out: &mut String, indent: usize) {
         Expr::Top => out.push('_'),
         Expr::Null => out.push_str("null"),
         Expr::Bool(b) => out.push_str(&b.to_string()),
-        Expr::Number(n) => out.push_str(n),
+        Expr::Number(n) => out.push_str(n.as_str()),
         Expr::String(s) => format_string_lit(s, '"', out, indent),
         Expr::Bytes(b) => format_bytes_lit(b, out, indent),
         Expr::Ident(id) | Expr::DefIdent(id) | Expr::HiddenIdent(id) | Expr::HiddenDefIdent(id) => {

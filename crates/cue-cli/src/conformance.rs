@@ -1,4 +1,4 @@
-use cue_eval::{Evaluator, PackageLoader, TypeKind, Value, ValueId};
+use cue_eval::{Evaluator, NumberKind, PackageLoader, TypeKind, Value, ValueId};
 use cue_test_harness::conformance::{Check, Observation, Request, Response, Selector};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -144,11 +144,14 @@ fn kind(value: Option<&Value>) -> Option<Vec<&'static str>> {
         Value::String(_) | Value::Type(TypeKind::String) => "string",
         Value::Bytes(_) | Value::Type(TypeKind::Bytes) => "bytes",
         Value::Int(_) => "int",
-        Value::Float(_) | Value::Type(TypeKind::Float | TypeKind::Float32 | TypeKind::Float64) => {
-            "float"
-        }
+        Value::Float(_)
+        | Value::Type(
+            TypeKind::Number(NumberKind::Float)
+            | TypeKind::Number(NumberKind::Float32)
+            | TypeKind::Number(NumberKind::Float64),
+        ) => "float",
         Value::Type(t) if t.is_integer() => "int",
-        Value::Type(TypeKind::Number) => return Some(vec!["float", "int"]),
+        Value::Type(TypeKind::Number(NumberKind::Number)) => return Some(vec!["float", "int"]),
         Value::Struct(_) | Value::Type(TypeKind::Struct) => "struct",
         Value::List { .. } | Value::Type(TypeKind::List) => "list",
         _ => return None,

@@ -226,7 +226,8 @@ fn unify_logic(
             }
         }
 
-        // Type vs Type
+        // Type vs Type: the numeric lattice decides. The narrower side wins;
+        // unrelated kinds conflict. See `NumberKind::subsumes`.
         (Value::Type(t1), Value::Type(t2)) => {
             if t1 == t2 {
                 v1_id
@@ -234,22 +235,14 @@ fn unify_logic(
                 v2_id
             } else if *t2 == TypeKind::Top {
                 v1_id
-            } else if *t1 == TypeKind::Number && (t2.is_integer() || t2.is_float()) {
-                v2_id
-            } else if *t2 == TypeKind::Number && (t1.is_integer() || t1.is_float()) {
-                v1_id
-            } else if *t1 == TypeKind::Int && t2.is_integer() {
-                v2_id
-            } else if *t2 == TypeKind::Int && t1.is_integer() {
-                v1_id
-            } else if *t1 == TypeKind::Uint && t2.is_unsigned_integer() {
-                v2_id
-            } else if *t2 == TypeKind::Uint && t1.is_unsigned_integer() {
-                v1_id
-            } else if *t1 == TypeKind::Float && t2.is_float() {
-                v2_id
-            } else if *t2 == TypeKind::Float && t1.is_float() {
-                v1_id
+            } else if let (Some(n1), Some(n2)) = (t1.number_kind(), t2.number_kind()) {
+                if n1.subsumes(n2) {
+                    v2_id
+                } else if n2.subsumes(n1) {
+                    v1_id
+                } else {
+                    conflict(arena, format!("conflicting types: {t1} and {t2}"))
+                }
             } else {
                 conflict(arena, format!("conflicting types: {t1} and {t2}"))
             }
@@ -288,58 +281,14 @@ fn unify_type_and_concrete(
     let matches = match (t, concrete) {
         (TypeKind::Null, Value::Null) => true,
         (TypeKind::Bool, Value::Bool(_)) => true,
-        (TypeKind::Int, Value::Int(_)) => true,
-        (TypeKind::Uint, Value::Int(i)) => i.sign() != num_bigint::Sign::Minus,
-        (TypeKind::Uint8, Value::Int(i)) => {
-            if let Some(n) = i.to_i64() {
-                (0..=255).contains(&n)
-            } else {
-                false
-            }
-        }
-        (TypeKind::Uint16, Value::Int(i)) => {
-            if let Some(n) = i.to_i64() {
-                (0..=65535).contains(&n)
-            } else {
-                false
-            }
-        }
-        (TypeKind::Uint32, Value::Int(i)) => {
-            if let Some(n) = i.to_i64() {
-                (0..=4294967295).contains(&n)
-            } else {
-                false
-            }
-        }
-        (TypeKind::Uint64, Value::Int(i)) => {
-            i.sign() != num_bigint::Sign::Minus && i.to_u64().is_some()
-        }
-        (TypeKind::Int8, Value::Int(i)) => {
-            if let Some(n) = i.to_i64() {
-                (-128..=127).contains(&n)
-            } else {
-                false
-            }
-        }
-        (TypeKind::Int16, Value::Int(i)) => {
-            if let Some(n) = i.to_i64() {
-                (-32768..=32767).contains(&n)
-            } else {
-                false
-            }
-        }
-        (TypeKind::Int32, Value::Int(i)) => {
-            if let Some(n) = i.to_i64() {
-                (-2147483648..=2147483647).contains(&n)
-            } else {
-                false
-            }
-        }
-        (TypeKind::Int64, Value::Int(i)) => i.to_i64().is_some(),
-        (TypeKind::Float, Value::Float(_)) => true,
-        (TypeKind::Float32, Value::Float(_)) => true,
-        (TypeKind::Float64, Value::Float(_)) => true,
-        (TypeKind::Number, Value::Int(_) | Value::Float(_)) => true,
+        // Range checks live on `NumberKind`; float kinds accept no integer.
+        (TypeKind::Number(kind), Value::Int(i)) => kind.contains_int(i),
+        (
+            TypeKind::Number(
+                NumberKind::Number | NumberKind::Float | NumberKind::Float32 | NumberKind::Float64,
+            ),
+            Value::Float(_),
+        ) => true,
         (TypeKind::String, Value::String(_)) => true,
         (TypeKind::Bytes, Value::Bytes(_)) => true,
         (TypeKind::List, Value::List { .. }) => true,
@@ -410,10 +359,18 @@ fn unify_metadata(
     crate::metadata::finish_with_context(arena, value, fields, conjuncts, ctx)
 }
 
+/// Whether a bound base type narrows to the other side: `number` to
+/// `int`/`float` only. Deliberately narrower than the Type-vs-Type meet —
+/// `int` does not narrow to `uint8` here; that pair conflicts.
+fn narrows_number_base(base: &TypeKind, other: &TypeKind) -> bool {
+    *base == TypeKind::Number(NumberKind::Number)
+        && matches!(other, TypeKind::Number(NumberKind::Int | NumberKind::Float))
+}
+
 fn unify_bounds(
     arena: &mut ValueArena,
     base_type: Option<TypeKind>,
-    mut constraints: Vec<(BoundOp, ValueId)>,
+    mut constraints: Vec<(Bound, ValueId)>,
     other_id: ValueId,
 ) -> ValueId {
     let other = match arena.get(other_id) {
@@ -437,7 +394,7 @@ fn unify_bounds(
     if excludes_null {
         let before = constraints.len();
         constraints.retain(|(op, target)| {
-            !(*op == BoundOp::NotEqual && matches!(arena.get(*target), Some(Value::Null)))
+            !(*op == Bound::NotEqual && matches!(arena.get(*target), Some(Value::Null)))
         });
         if before != constraints.len() && constraints.is_empty() {
             return match base_type {
@@ -460,13 +417,9 @@ fn unify_bounds(
                 (Some(b1), Some(b2)) => {
                     if b1 == b2 {
                         Some(b1)
-                    } else if b1 == TypeKind::Number
-                        && (b2 == TypeKind::Int || b2 == TypeKind::Float)
-                    {
+                    } else if narrows_number_base(&b1, &b2) {
                         Some(b2)
-                    } else if b2 == TypeKind::Number
-                        && (b1 == TypeKind::Int || b1 == TypeKind::Float)
-                    {
+                    } else if narrows_number_base(&b2, &b1) {
                         Some(b1)
                     } else {
                         return conflict(
@@ -491,11 +444,9 @@ fn unify_bounds(
                 Some(b) => {
                     if b == t {
                         Some(b)
-                    } else if b == TypeKind::Number && (t == TypeKind::Int || t == TypeKind::Float)
-                    {
+                    } else if narrows_number_base(&b, &t) {
                         Some(t)
-                    } else if t == TypeKind::Number && (b == TypeKind::Int || b == TypeKind::Float)
-                    {
+                    } else if narrows_number_base(&t, &b) {
                         Some(b)
                     } else {
                         return conflict(
@@ -515,8 +466,8 @@ fn unify_bounds(
         // Unifying Bounds with concrete value -> test all constraints against candidate
         Value::Int(ref i_val) => {
             if let Some(bt) = base_type
-                && bt != TypeKind::Int
-                && bt != TypeKind::Number
+                && bt != TypeKind::Number(NumberKind::Int)
+                && bt != TypeKind::Number(NumberKind::Number)
             {
                 return conflict(arena, format!("type mismatch: expected {bt}, found int"));
             }
@@ -524,11 +475,11 @@ fn unify_bounds(
                 match arena.get(target_id) {
                     Some(Value::Int(t_val)) => {
                         let ok = match op {
-                            BoundOp::Less => i_val < t_val,
-                            BoundOp::LessEqual => i_val <= t_val,
-                            BoundOp::Greater => i_val > t_val,
-                            BoundOp::GreaterEqual => i_val >= t_val,
-                            BoundOp::NotEqual => i_val != t_val,
+                            Bound::Less => i_val < t_val,
+                            Bound::LessEqual => i_val <= t_val,
+                            Bound::Greater => i_val > t_val,
+                            Bound::GreaterEqual => i_val >= t_val,
+                            Bound::NotEqual => i_val != t_val,
                             _ => false,
                         };
                         if !ok {
@@ -541,11 +492,11 @@ fn unify_bounds(
                     Some(Value::Float(t_val)) => {
                         let i_f = i_val.to_f64().unwrap_or(0.0);
                         let ok = match op {
-                            BoundOp::Less => i_f < *t_val,
-                            BoundOp::LessEqual => i_f <= *t_val,
-                            BoundOp::Greater => i_f > *t_val,
-                            BoundOp::GreaterEqual => i_f >= *t_val,
-                            BoundOp::NotEqual => (i_f - *t_val).abs() > f64::EPSILON,
+                            Bound::Less => i_f < *t_val,
+                            Bound::LessEqual => i_f <= *t_val,
+                            Bound::Greater => i_f > *t_val,
+                            Bound::GreaterEqual => i_f >= *t_val,
+                            Bound::NotEqual => (i_f - *t_val).abs() > f64::EPSILON,
                             _ => false,
                         };
                         if !ok {
@@ -565,8 +516,8 @@ fn unify_bounds(
 
         Value::Float(f_val) => {
             if let Some(bt) = base_type
-                && bt != TypeKind::Float
-                && bt != TypeKind::Number
+                && bt != TypeKind::Number(NumberKind::Float)
+                && bt != TypeKind::Number(NumberKind::Number)
             {
                 return conflict(arena, format!("type mismatch: expected {bt}, found float"));
             }
@@ -579,11 +530,11 @@ fn unify_bounds(
 
                 if let Some(t_val) = target_f {
                     let ok = match op {
-                        BoundOp::Less => f_val < t_val,
-                        BoundOp::LessEqual => f_val <= t_val,
-                        BoundOp::Greater => f_val > t_val,
-                        BoundOp::GreaterEqual => f_val >= t_val,
-                        BoundOp::NotEqual => (f_val - t_val).abs() > f64::EPSILON,
+                        Bound::Less => f_val < t_val,
+                        Bound::LessEqual => f_val <= t_val,
+                        Bound::Greater => f_val > t_val,
+                        Bound::GreaterEqual => f_val >= t_val,
+                        Bound::NotEqual => (f_val - t_val).abs() > f64::EPSILON,
                         _ => false,
                     };
                     if !ok {
@@ -608,7 +559,7 @@ fn unify_bounds(
             for (op, target_id) in constraints {
                 if let Some(Value::String(pattern)) = arena.get(target_id) {
                     match op {
-                        BoundOp::NotEqual => {
+                        Bound::NotEqual => {
                             if s_val == pattern {
                                 return conflict(
                                     arena,
@@ -618,7 +569,7 @@ fn unify_bounds(
                                 );
                             }
                         }
-                        BoundOp::RegexMatch => {
+                        Bound::RegexMatch => {
                             if let Ok(re) = Regex::new(pattern) {
                                 if !re.is_match(s_val) {
                                     return conflict(
@@ -632,7 +583,7 @@ fn unify_bounds(
                                 return conflict(arena, format!("invalid regex: \"{pattern}\""));
                             }
                         }
-                        BoundOp::RegexNotMatch => {
+                        Bound::RegexNotMatch => {
                             if let Ok(re) = Regex::new(pattern) {
                                 if re.is_match(s_val) {
                                     return conflict(
@@ -681,8 +632,8 @@ pub fn field_matches_pattern(arena: &ValueArena, pattern_val: ValueId, field_nam
                     && let Ok(re) = Regex::new(pat)
                 {
                     let matched = match op {
-                        BoundOp::RegexMatch => re.is_match(field_name),
-                        BoundOp::RegexNotMatch => !re.is_match(field_name),
+                        Bound::RegexMatch => re.is_match(field_name),
+                        Bound::RegexNotMatch => !re.is_match(field_name),
                         _ => false,
                     };
                     if !matched {
@@ -1156,8 +1107,8 @@ fn unify_validators_list(
             | TypeKind::String
             | TypeKind::List
             | TypeKind::Struct
-            | TypeKind::Int
-            | TypeKind::Number,
+            | TypeKind::Number(NumberKind::Int)
+            | TypeKind::Number(NumberKind::Number),
         ) => arena.alloc(Value::Validators(list)),
         Value::BuiltinValidator { .. } => {
             list.push(other_id);
@@ -1202,8 +1153,8 @@ fn unify_validator(
             | TypeKind::String
             | TypeKind::List
             | TypeKind::Struct
-            | TypeKind::Int
-            | TypeKind::Number,
+            | TypeKind::Number(NumberKind::Int)
+            | TypeKind::Number(NumberKind::Number),
         ) => validator_id,
         Value::BuiltinValidator { .. } => {
             arena.alloc(Value::Validators(vec![validator_id, candidate_id]))

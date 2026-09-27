@@ -1,29 +1,32 @@
 mod binary;
+mod builtins;
 pub mod closedness;
 mod declaration;
 pub mod deps;
 pub mod eval;
 pub mod export;
 mod expression;
+pub mod fs;
 pub mod importer;
 pub mod manifest;
 mod metadata;
-mod number;
 mod operators;
 pub mod package;
+mod schedule;
 pub mod scope;
 pub mod stdlib;
 pub mod unify;
 pub mod value;
 
 pub use eval::{EvalError, Evaluator};
+pub use fs::{FileProvider, MemFs, StdFs};
 pub use importer::{json_schema_to_cue, openapi_to_cue};
 pub use manifest::{DependencyInfo, ModuleManifest};
 pub use package::{LoadOptions, OriginAnnotation, PackageLoader};
 pub use stdlib::{StdlibFn, StdlibValidator, is_known_package};
 pub use unify::unify;
 pub use value::{
-    BottomKind, BottomReason, BoundOp, StructValue, TypeKind, Value, ValueArena, ValueId,
+    BottomKind, BottomReason, Bound, NumberKind, StructValue, TypeKind, Value, ValueArena, ValueId,
 };
 
 /// Convenience function to evaluate a CUE string and export as JSON.
@@ -82,7 +85,9 @@ mod tests {
     #[test]
     fn test_unify_scalars_and_types() {
         let mut evaluator = Evaluator::new();
-        let int_t = evaluator.arena.alloc(Value::Type(TypeKind::Int));
+        let int_t = evaluator
+            .arena
+            .alloc(Value::Type(TypeKind::Number(NumberKind::Int)));
         let forty_two = evaluator.arena.int(42);
 
         let res = unify(&mut evaluator.arena, int_t, forty_two);
@@ -442,11 +447,9 @@ mod tests {
 
     #[test]
     fn test_module_root_discovery() {
-        let temp_dir = std::env::temp_dir().join(format!("cue_test_mod_{}", std::process::id()));
-        let mod_dir = temp_dir.join("cue.mod");
-        let sub_dir = temp_dir.join("pkg").join("service");
-        std::fs::create_dir_all(&mod_dir).unwrap();
-        std::fs::create_dir_all(&sub_dir).unwrap();
+        let mut fs = MemFs::new();
+        let root = std::path::PathBuf::from("/mem/mod");
+        let sub_dir = root.join("pkg").join("service");
 
         let mod_cue = r#"
             module: "example.com/kepler@v0"
@@ -454,30 +457,25 @@ mod tests {
                 version: "v0.9.0"
             }
         "#;
-        std::fs::write(mod_dir.join("module.cue"), mod_cue).unwrap();
+        fs.write(root.join("cue.mod").join("module.cue"), mod_cue);
 
-        let discovered = crate::package::PackageLoader::find_module_root(&sub_dir);
+        let discovered = crate::package::PackageLoader::find_module_root_with_fs(&sub_dir, &fs);
         assert!(discovered.is_some());
-        let (root, info) = discovered.unwrap();
-        assert_eq!(root, temp_dir);
+        let (found, info) = discovered.unwrap();
+        assert_eq!(found, root);
         assert_eq!(info.module, "example.com/kepler@v0");
         assert_eq!(info.language_version.as_deref(), Some("v0.9.0"));
-
-        let _ = std::fs::remove_dir_all(temp_dir);
     }
 
     #[test]
     fn test_module_package_import_resolution() {
-        let temp_dir = std::env::temp_dir().join(format!("cue_test_pkg_{}", std::process::id()));
-        let mod_dir = temp_dir.join("cue.mod");
-        let schema_dir = temp_dir.join("schema");
-        let app_dir = temp_dir.join("app");
-        std::fs::create_dir_all(&mod_dir).unwrap();
-        std::fs::create_dir_all(&schema_dir).unwrap();
-        std::fs::create_dir_all(&app_dir).unwrap();
+        let mut fs = MemFs::new();
+        let root = std::path::PathBuf::from("/mem/pkg");
+        let schema_dir = root.join("schema");
+        let app_dir = root.join("app");
 
         let mod_cue = r#"module: "example.com/myapp""#;
-        std::fs::write(mod_dir.join("module.cue"), mod_cue).unwrap();
+        fs.write(root.join("cue.mod").join("module.cue"), mod_cue);
 
         let schema_cue = r#"
             package schema
@@ -486,7 +484,7 @@ mod tests {
                 port: int & >0
             }
         "#;
-        std::fs::write(schema_dir.join("schema.cue"), schema_cue).unwrap();
+        fs.write(schema_dir.join("schema.cue"), schema_cue);
 
         let app_cue = r#"
             package app
@@ -497,32 +495,35 @@ mod tests {
                 port: 8080
             }
         "#;
-        std::fs::write(app_dir.join("app.cue"), app_cue).unwrap();
+        fs.write(app_dir.join("app.cue"), app_cue);
 
-        let loaded = crate::package::PackageLoader::load_dir(&app_dir);
+        let loaded = crate::package::PackageLoader::load_dir_with_fs(
+            &app_dir,
+            None,
+            &LoadOptions::default(),
+            &fs,
+        );
         assert!(loaded.is_ok());
         let (eval, root_id) = loaded.unwrap();
         let json_val = eval.to_json(root_id).unwrap();
         assert_eq!(json_val["server"]["name"], "api-server");
         assert_eq!(json_val["server"]["port"], 8080);
-
-        let _ = std::fs::remove_dir_all(temp_dir);
     }
 
     #[test]
     fn test_vendored_package_import_with_qualifier() {
-        let temp_dir =
-            std::env::temp_dir().join(format!("cue_test_vendored_{}", std::process::id()));
-        let mod_dir = temp_dir.join("cue.mod");
-        let vendored_pkg_dir = mod_dir.join("pkg").join("github.com/tonky/enve/schema/v1");
-        std::fs::create_dir_all(&mod_dir).unwrap();
-        std::fs::create_dir_all(&vendored_pkg_dir).unwrap();
+        let mut fs = MemFs::new();
+        let root = std::path::PathBuf::from("/mem/vendored");
+        let vendored_pkg_dir = root
+            .join("cue.mod")
+            .join("pkg")
+            .join("github.com/tonky/enve/schema/v1");
 
         let mod_cue = r#"
             module: "example.com/myapp"
             language: version: "v0.12.0"
         "#;
-        std::fs::write(mod_dir.join("module.cue"), mod_cue).unwrap();
+        fs.write(root.join("cue.mod").join("module.cue"), mod_cue);
 
         let schema_cue = r#"
             package devshell
@@ -532,7 +533,7 @@ mod tests {
                 packages: [...string]
             }
         "#;
-        std::fs::write(vendored_pkg_dir.join("devshell.cue"), schema_cue).unwrap();
+        fs.write(vendored_pkg_dir.join("devshell.cue"), schema_cue);
 
         let app_cue = r#"
             package main
@@ -543,71 +544,62 @@ mod tests {
                 packages: ["cargo", "rustc"]
             }
         "#;
-        let app_file = temp_dir.join("enve.cue");
-        std::fs::write(&app_file, app_cue).unwrap();
+        let app_file = root.join("enve.cue");
+        fs.write(&app_file, app_cue);
 
-        let loaded = crate::package::PackageLoader::load_file(&app_file);
+        let loaded = crate::package::PackageLoader::load_file_with_fs(
+            &app_file,
+            &LoadOptions::default(),
+            &fs,
+        );
         assert!(loaded.is_ok());
         let (eval, root_id) = loaded.unwrap();
         let json_val = eval.to_json(root_id).unwrap();
         assert_eq!(json_val["env"]["name"], "rust-dev");
         assert_eq!(json_val["env"]["packages"][0], "cargo");
         assert_eq!(json_val["env"]["packages"][1], "rustc");
-
-        let _ = std::fs::remove_dir_all(temp_dir);
     }
 
     #[test]
     fn test_cross_file_definitions_and_hierarchical_module() {
-        let temp_dir = std::env::temp_dir().join(format!(
-            "cue_hierarchical_test_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let mod_dir = temp_dir.join("cue.mod");
-        std::fs::create_dir_all(&mod_dir).unwrap();
-        std::fs::write(
-            mod_dir.join("module.cue"),
+        let mut fs = MemFs::new();
+        let root = std::path::PathBuf::from("/mem/hier");
+        fs.write(
+            root.join("cue.mod").join("module.cue"),
             "module: \"example.com/platform@v0\"\nlanguage: { version: \"v0.16.1\" }\n",
-        )
-        .unwrap();
+        );
 
-        let schema_dir = temp_dir.join("schema");
-        std::fs::create_dir_all(&schema_dir).unwrap();
-        std::fs::write(
+        let schema_dir = root.join("schema");
+        fs.write(
             schema_dir.join("a.cue"),
             "package schema\n#Resource: { cpu: int }\n",
-        )
-        .unwrap();
-        std::fs::write(
+        );
+        fs.write(
             schema_dir.join("b.cue"),
             "package schema\n#Service: { name: string, res: #Resource }\n",
-        )
-        .unwrap();
+        );
 
-        let sub_dir = temp_dir.join("subprojects").join("app");
+        let sub_dir = root.join("subprojects").join("app");
         let sub_mod = sub_dir.join("cue.mod");
-        std::fs::create_dir_all(&sub_mod).unwrap();
-        std::fs::write(
+        fs.write(
             sub_mod.join("module.cue"),
             "module: \"example.com/platform@v0\"\nlanguage: { version: \"v0.16.1\" }\n",
-        )
-        .unwrap();
+        );
 
         let app_cue = "package app\nimport \"example.com/platform/schema\"\nservice: schema.#Service & { name: \"web\", res: { cpu: 4 } }\n";
         let app_file = sub_dir.join("app.cue");
-        std::fs::write(&app_file, app_cue).unwrap();
+        fs.write(&app_file, app_cue);
 
-        let loaded = crate::package::PackageLoader::load_file(&app_file);
+        let loaded = crate::package::PackageLoader::load_file_with_fs(
+            &app_file,
+            &LoadOptions::default(),
+            &fs,
+        );
         assert!(loaded.is_ok(), "Failed to load: {:?}", loaded.err());
         let (eval, root_id) = loaded.unwrap();
         let json_val = eval.to_json(root_id).unwrap();
         assert_eq!(json_val["service"]["name"], "web");
         assert_eq!(json_val["service"]["res"]["cpu"], 4);
-
-        let _ = std::fs::remove_dir_all(temp_dir);
     }
 
     #[test]

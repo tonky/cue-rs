@@ -22,59 +22,147 @@ pub enum TypeKind {
     Bottom,
     Null,
     Bool,
-    Int,
-    Uint,
-    Uint8,
-    Uint16,
-    Uint32,
-    Uint64,
-    Int8,
-    Int16,
-    Int32,
-    Int64,
-    Float,
-    Float32,
-    Float64,
-    Number,
+    Number(NumberKind),
     String,
     Bytes,
     List,
     Struct,
 }
 
-impl TypeKind {
-    pub fn is_integer(&self) -> bool {
+/// The numeric lattice: `number` above the int and float families, `int`
+/// above every integer, `uint` above the unsigned integers, `float` above the
+/// float widths, and each width accepting only itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum NumberKind {
+    Number,
+    Int,
+    Uint,
+    Int8,
+    Int16,
+    Int32,
+    Int64,
+    Uint8,
+    Uint16,
+    Uint32,
+    Uint64,
+    Float,
+    Float32,
+    Float64,
+}
+
+impl NumberKind {
+    /// Integer family: `int`, `uint` and every width. Plain `number` is not
+    /// one — it is their parent, accepting floats too.
+    pub fn is_integer(self) -> bool {
         matches!(
             self,
-            TypeKind::Int
-                | TypeKind::Uint
-                | TypeKind::Uint8
-                | TypeKind::Uint16
-                | TypeKind::Uint32
-                | TypeKind::Uint64
-                | TypeKind::Int8
-                | TypeKind::Int16
-                | TypeKind::Int32
-                | TypeKind::Int64
+            NumberKind::Int
+                | NumberKind::Uint
+                | NumberKind::Uint8
+                | NumberKind::Uint16
+                | NumberKind::Uint32
+                | NumberKind::Uint64
+                | NumberKind::Int8
+                | NumberKind::Int16
+                | NumberKind::Int32
+                | NumberKind::Int64
         )
+    }
+
+    pub fn is_unsigned(self) -> bool {
+        matches!(
+            self,
+            NumberKind::Uint
+                | NumberKind::Uint8
+                | NumberKind::Uint16
+                | NumberKind::Uint32
+                | NumberKind::Uint64
+        )
+    }
+
+    pub fn is_float(self) -> bool {
+        matches!(
+            self,
+            NumberKind::Float | NumberKind::Float32 | NumberKind::Float64
+        )
+    }
+
+    /// Whether this kind accepts every value `other` accepts: the Type-vs-Type
+    /// meet rule. The narrower side wins; unrelated kinds do not subsume.
+    pub fn subsumes(self, other: Self) -> bool {
+        self == other
+            || matches!(self, NumberKind::Number)
+            || matches!(self, NumberKind::Int) && other.is_integer()
+            || matches!(self, NumberKind::Uint) && other.is_unsigned()
+            || matches!(self, NumberKind::Float) && other.is_float()
+    }
+
+    /// Whether an integer value is in this kind's range. Float kinds accept
+    /// no integer.
+    pub fn contains_int(self, i: &BigInt) -> bool {
+        use num_traits::ToPrimitive;
+        match self {
+            NumberKind::Number | NumberKind::Int => true,
+            NumberKind::Uint => i.sign() != num_bigint::Sign::Minus,
+            NumberKind::Uint8 => matches!(i.to_i64(), Some(n) if (0..=255).contains(&n)),
+            NumberKind::Uint16 => matches!(i.to_i64(), Some(n) if (0..=65535).contains(&n)),
+            NumberKind::Uint32 => {
+                matches!(i.to_i64(), Some(n) if (0..=4294967295).contains(&n))
+            }
+            NumberKind::Uint64 => i.sign() != num_bigint::Sign::Minus && i.to_u64().is_some(),
+            NumberKind::Int8 => matches!(i.to_i64(), Some(n) if (-128..=127).contains(&n)),
+            NumberKind::Int16 => {
+                matches!(i.to_i64(), Some(n) if (-32768..=32767).contains(&n))
+            }
+            NumberKind::Int32 => {
+                matches!(i.to_i64(), Some(n) if (-2147483648..=2147483647).contains(&n))
+            }
+            NumberKind::Int64 => i.to_i64().is_some(),
+            NumberKind::Float | NumberKind::Float32 | NumberKind::Float64 => false,
+        }
+    }
+}
+
+impl TypeKind {
+    pub fn is_integer(&self) -> bool {
+        matches!(self, TypeKind::Number(kind) if kind.is_integer())
     }
 
     pub fn is_unsigned_integer(&self) -> bool {
-        matches!(
-            self,
-            TypeKind::Uint
-                | TypeKind::Uint8
-                | TypeKind::Uint16
-                | TypeKind::Uint32
-                | TypeKind::Uint64
-        )
+        matches!(self, TypeKind::Number(kind) if kind.is_unsigned())
     }
 
     pub fn is_float(&self) -> bool {
-        matches!(
-            self,
-            TypeKind::Float | TypeKind::Float32 | TypeKind::Float64
-        )
+        matches!(self, TypeKind::Number(kind) if kind.is_float())
+    }
+
+    /// The numeric kind, if this type is a numeric one.
+    pub fn number_kind(&self) -> Option<NumberKind> {
+        match self {
+            TypeKind::Number(kind) => Some(*kind),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for NumberKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NumberKind::Number => write!(f, "number"),
+            NumberKind::Int => write!(f, "int"),
+            NumberKind::Uint => write!(f, "uint"),
+            NumberKind::Uint8 => write!(f, "uint8"),
+            NumberKind::Uint16 => write!(f, "uint16"),
+            NumberKind::Uint32 => write!(f, "uint32"),
+            NumberKind::Uint64 => write!(f, "uint64"),
+            NumberKind::Int8 => write!(f, "int8"),
+            NumberKind::Int16 => write!(f, "int16"),
+            NumberKind::Int32 => write!(f, "int32"),
+            NumberKind::Int64 => write!(f, "int64"),
+            NumberKind::Float => write!(f, "float"),
+            NumberKind::Float32 => write!(f, "float32"),
+            NumberKind::Float64 => write!(f, "float64"),
+        }
     }
 }
 
@@ -85,20 +173,7 @@ impl fmt::Display for TypeKind {
             TypeKind::Bottom => write!(f, "_|_"),
             TypeKind::Null => write!(f, "null"),
             TypeKind::Bool => write!(f, "bool"),
-            TypeKind::Int => write!(f, "int"),
-            TypeKind::Uint => write!(f, "uint"),
-            TypeKind::Uint8 => write!(f, "uint8"),
-            TypeKind::Uint16 => write!(f, "uint16"),
-            TypeKind::Uint32 => write!(f, "uint32"),
-            TypeKind::Uint64 => write!(f, "uint64"),
-            TypeKind::Int8 => write!(f, "int8"),
-            TypeKind::Int16 => write!(f, "int16"),
-            TypeKind::Int32 => write!(f, "int32"),
-            TypeKind::Int64 => write!(f, "int64"),
-            TypeKind::Float => write!(f, "float"),
-            TypeKind::Float32 => write!(f, "float32"),
-            TypeKind::Float64 => write!(f, "float64"),
-            TypeKind::Number => write!(f, "number"),
+            TypeKind::Number(kind) => write!(f, "{kind}"),
             TypeKind::String => write!(f, "string"),
             TypeKind::Bytes => write!(f, "bytes"),
             TypeKind::List => write!(f, "list"),
@@ -107,30 +182,9 @@ impl fmt::Display for TypeKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum BoundOp {
-    Less,
-    LessEqual,
-    Greater,
-    GreaterEqual,
-    NotEqual,
-    RegexMatch,
-    RegexNotMatch,
-}
-
-impl fmt::Display for BoundOp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BoundOp::Less => write!(f, "<"),
-            BoundOp::LessEqual => write!(f, "<="),
-            BoundOp::Greater => write!(f, ">"),
-            BoundOp::GreaterEqual => write!(f, ">="),
-            BoundOp::NotEqual => write!(f, "!="),
-            BoundOp::RegexMatch => write!(f, "=~"),
-            BoundOp::RegexNotMatch => write!(f, "!~"),
-        }
-    }
-}
+/// Bound operators on evaluated values. The single definition lives in
+/// `cue-syntax` beside the syntax positions that convert into it.
+pub use cue_syntax::Bound;
 
 /// Why a value is bottom, kept beside the message rather than recovered from it.
 ///
@@ -212,7 +266,7 @@ pub enum Value {
     Type(TypeKind),
     Bounds {
         base_type: Option<TypeKind>,
-        constraints: Vec<(BoundOp, ValueId)>,
+        constraints: Vec<(Bound, ValueId)>,
     },
     List {
         elements: Vec<ValueId>,
@@ -707,5 +761,84 @@ impl ValueArena {
 
     pub fn type_kind(&mut self, k: TypeKind) -> ValueId {
         self.alloc(Value::Type(k))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use num_bigint::BigInt;
+
+    #[test]
+    fn display_strings_preserved() {
+        let cases = [
+            (NumberKind::Number, "number"),
+            (NumberKind::Int, "int"),
+            (NumberKind::Uint, "uint"),
+            (NumberKind::Uint8, "uint8"),
+            (NumberKind::Uint16, "uint16"),
+            (NumberKind::Uint32, "uint32"),
+            (NumberKind::Uint64, "uint64"),
+            (NumberKind::Int8, "int8"),
+            (NumberKind::Int16, "int16"),
+            (NumberKind::Int32, "int32"),
+            (NumberKind::Int64, "int64"),
+            (NumberKind::Float, "float"),
+            (NumberKind::Float32, "float32"),
+            (NumberKind::Float64, "float64"),
+        ];
+        for (kind, text) in cases {
+            assert_eq!(kind.to_string(), text);
+            assert_eq!(TypeKind::Number(kind).to_string(), text);
+        }
+    }
+
+    #[test]
+    fn subsumption_is_asymmetric() {
+        use NumberKind::*;
+        // Parents subsume children, never the reverse.
+        assert!(Number.subsumes(Int));
+        assert!(!Int.subsumes(Number));
+        assert!(Int.subsumes(Uint8));
+        assert!(!Uint8.subsumes(Int));
+        assert!(Uint.subsumes(Uint64));
+        assert!(!Uint64.subsumes(Uint));
+        assert!(Float.subsumes(Float32));
+        assert!(!Float32.subsumes(Float));
+        // Families do not cross.
+        assert!(!Uint.subsumes(Int8));
+        assert!(!Int8.subsumes(Uint));
+        assert!(!Int.subsumes(Float));
+        assert!(!Float.subsumes(Int));
+        assert!(!Float32.subsumes(Float64));
+        // Plain number is neither family's member but subsumes all.
+        assert!(!Number.is_integer() && !Number.is_float());
+        assert!(Number.subsumes(Float64));
+    }
+
+    #[test]
+    fn int_ranges() {
+        use NumberKind::*;
+        let hopefully = |n: i64| BigInt::from(n);
+        assert!(Int.contains_int(&hopefully(-1)));
+        assert!(Number.contains_int(&hopefully(-1)));
+        assert!(!Uint.contains_int(&hopefully(-1)));
+        assert!(Uint.contains_int(&hopefully(0)));
+        assert!(Uint8.contains_int(&hopefully(255)));
+        assert!(!Uint8.contains_int(&hopefully(256)));
+        assert!(!Uint8.contains_int(&hopefully(-1)));
+        assert!(Int8.contains_int(&hopefully(-128)));
+        assert!(!Int8.contains_int(&hopefully(-129)));
+        assert!(Int8.contains_int(&hopefully(127)));
+        assert!(!Int8.contains_int(&hopefully(128)));
+        // Beyond i64: unbounded kinds hold, widths do not.
+        let huge = BigInt::from(1) << 100;
+        assert!(Int.contains_int(&huge));
+        assert!(Uint.contains_int(&huge));
+        assert!(!Uint8.contains_int(&huge));
+        assert!(!Int64.contains_int(&huge));
+        // Float kinds accept no integer.
+        assert!(!Float.contains_int(&hopefully(1)));
+        assert!(!Float32.contains_int(&hopefully(1)));
     }
 }

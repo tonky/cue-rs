@@ -1,5 +1,5 @@
 //! Concrete operand selection and scalar operations, independent of lexical evaluation.
-use crate::value::{BottomKind, Value, ValueArena, ValueId};
+use crate::value::{BottomKind, NumberKind, Value, ValueArena, ValueId};
 use cue_syntax::ast::{BinaryOp, UnaryOp};
 use num_bigint::BigInt;
 use num_traits::{FromPrimitive, Signed, ToPrimitive, Zero};
@@ -168,7 +168,7 @@ pub(crate) fn integer_division(arena: &mut ValueArena, name: &str, args: &[Value
     }
     let incomplete_integer = |id| {
         matches!(arena.get(id), Some(Value::Top | Value::Bounds { .. }))
-            || matches!(arena.get(id), Some(Value::Type(t)) if t.is_integer() || *t == crate::value::TypeKind::Number)
+            || matches!(arena.get(id), Some(Value::Type(t)) if t.is_integer() || *t == crate::value::TypeKind::Number(NumberKind::Number))
     };
     let integer_candidate =
         |id| incomplete_integer(id) || matches!(arena.get(id), Some(Value::Int(_)));
@@ -348,7 +348,7 @@ fn kind(value: &Value) -> OperandKind {
             TypeKind::List => OperandKind::List,
             TypeKind::Struct => OperandKind::Struct,
             TypeKind::Null => OperandKind::Null,
-            TypeKind::Number => OperandKind::Number,
+            TypeKind::Number(NumberKind::Number) => OperandKind::Number,
             t if t.is_integer() || t.is_float() => OperandKind::Number,
             _ => OperandKind::Any,
         },
