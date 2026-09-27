@@ -299,16 +299,15 @@ pub fn call_list(
                 && let Some(Value::List { elements, .. }) = arena.get(arg0)
             {
                 let elems = elements.clone();
-                let mut l1 = Vec::new();
-                let mut l2 = Vec::new();
-                for &pair_id in &elems {
-                    if let Some(Value::List { elements: pair, .. }) = arena.get(pair_id)
-                        && pair.len() >= 2
-                    {
-                        l1.push(pair[0]);
-                        l2.push(pair[1]);
-                    }
-                }
+                let (l1, l2): (Vec<ValueId>, Vec<ValueId>) = elems
+                    .iter()
+                    .filter_map(|&pair_id| match arena.get(pair_id) {
+                        Some(Value::List { elements: pair, .. }) if pair.len() >= 2 => {
+                            Some((pair[0], pair[1]))
+                        }
+                        _ => None,
+                    })
+                    .unzip();
                 let l1_id = arena.alloc(Value::List {
                     elements: l1,
                     ellipsis: None,

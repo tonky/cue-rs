@@ -116,10 +116,10 @@ pub(crate) const SECTIONS: [Section; 3] = [Section::Field, Section::Definition, 
 /// comes from an enclosing scope, which a merge here cannot change. Recipes
 /// that read each other have no such order, and are left to the sweep loop.
 pub(crate) fn derivation_order(s: &StructValue) -> Vec<(Section, String)> {
-    let mut nodes: Vec<(Section, String)> = Vec::new();
-    for section in SECTIONS {
-        nodes.extend(section.map(s).keys().map(|name| (section, name.clone())));
-    }
+    let nodes: Vec<(Section, String)> = SECTIONS
+        .iter()
+        .flat_map(|section| section.map(s).keys().map(|name| (*section, name.clone())))
+        .collect();
     let held: HashSet<&str> = nodes.iter().map(|(_, name)| name.as_str()).collect();
 
     // Fields that read this one, and how many of a field's reads are still

@@ -337,22 +337,19 @@ fn unify_metadata(
     if !matches!(arena.get(fields), Some(Value::Struct(_))) {
         return fields;
     }
-    let mut conjuncts = Vec::new();
-    for (id, metadata) in [(left, left_meta), (right, right_meta)] {
-        match metadata {
+    let conjuncts: Vec<Conjunct> = [(left, left_meta), (right, right_meta)]
+        .into_iter()
+        .flat_map(|(id, metadata)| match metadata {
             Some(metadata) if matches!(metadata.source, MetadataSource::Closed { .. }) => {
-                conjuncts.push(Conjunct::Value(id))
+                vec![Conjunct::Value(id)]
             }
-            Some(metadata) => conjuncts.extend(
-                metadata
-                    .conjuncts()
-                    .expect("embedded metadata has conjuncts")
-                    .iter()
-                    .cloned(),
-            ),
-            None => conjuncts.push(Conjunct::Value(id)),
-        }
-    }
+            Some(metadata) => metadata
+                .conjuncts()
+                .expect("embedded metadata has conjuncts")
+                .to_vec(),
+            None => vec![Conjunct::Value(id)],
+        })
+        .collect();
     let left = crate::metadata::payload(arena, left);
     let right = crate::metadata::payload(arena, right);
     let value = unify_internal(arena, left, right, ctx);
@@ -626,23 +623,19 @@ pub fn field_matches_pattern(arena: &ValueArena, pattern_val: ValueId, field_nam
     match arena.get(pattern_val) {
         Some(Value::Type(TypeKind::String | TypeKind::Top)) => true,
         Some(Value::String(s)) => s == field_name,
-        Some(Value::Bounds { constraints, .. }) => {
-            for (op, target_id) in constraints {
-                if let Some(Value::String(pat)) = arena.get(*target_id)
-                    && let Ok(re) = Regex::new(pat)
-                {
-                    let matched = match op {
-                        Bound::RegexMatch => re.is_match(field_name),
-                        Bound::RegexNotMatch => !re.is_match(field_name),
-                        _ => false,
-                    };
-                    if !matched {
-                        return false;
-                    }
+        Some(Value::Bounds { constraints, .. }) => constraints.iter().all(|(op, target_id)| {
+            if let Some(Value::String(pat)) = arena.get(*target_id)
+                && let Ok(re) = Regex::new(pat)
+            {
+                match op {
+                    Bound::RegexMatch => re.is_match(field_name),
+                    Bound::RegexNotMatch => !re.is_match(field_name),
+                    _ => false,
                 }
+            } else {
+                true
             }
-            true
-        }
+        }),
         _ => false,
     }
 }
@@ -1365,15 +1358,10 @@ fn is_valid_uuid_str(s: &str) -> bool {
     if bytes[8] != b'-' || bytes[13] != b'-' || bytes[18] != b'-' || bytes[23] != b'-' {
         return false;
     }
-    for (i, &b) in bytes.iter().enumerate() {
-        if i == 8 || i == 13 || i == 18 || i == 23 {
-            continue;
-        }
-        if !b.is_ascii_hexdigit() {
-            return false;
-        }
-    }
-    true
+    bytes
+        .iter()
+        .enumerate()
+        .all(|(i, &b)| matches!(i, 8 | 13 | 18 | 23) || b.is_ascii_hexdigit())
 }
 
 /// Comparison budget for [`compare_values`], in node pairs. The walk is over a
@@ -1498,18 +1486,25 @@ fn equivalent_payload(
                 (&left.definitions, &right.definitions),
                 (&left.hidden, &right.hidden),
             ];
-            for (left, right) in sections {
-                if left.len() != right.len() {
-                    return false;
-                }
-                for ((left_name, left_entry), (right_name, right_entry)) in left.iter().zip(right) {
-                    if left_name != right_name
-                        || left_entry.optional != right_entry.optional
-                        || !equivalent(arena, left_entry.val, right_entry.val, active, budget)
-                    {
-                        return false;
-                    }
-                }
+            // An `if` + `return`, not a bare statement: the sections check
+            // is an early exit, and a bare `.all()` would discard it.
+            if !sections.into_iter().all(|(left, right)| {
+                left.len() == right.len()
+                    && left.iter().zip(right).all(
+                        |((left_name, left_entry), (right_name, right_entry))| {
+                            left_name == right_name
+                                && left_entry.optional == right_entry.optional
+                                && equivalent(
+                                    arena,
+                                    left_entry.val,
+                                    right_entry.val,
+                                    active,
+                                    budget,
+                                )
+                        },
+                    )
+            }) {
+                return false;
             }
             left.pattern_constraints
                 .iter()

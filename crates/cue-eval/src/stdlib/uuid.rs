@@ -8,15 +8,10 @@ pub fn is_valid_uuid(s: &str) -> bool {
     if bytes[8] != b'-' || bytes[13] != b'-' || bytes[18] != b'-' || bytes[23] != b'-' {
         return false;
     }
-    for (i, &b) in bytes.iter().enumerate() {
-        if i == 8 || i == 13 || i == 18 || i == 23 {
-            continue;
-        }
-        if !b.is_ascii_hexdigit() {
-            return false;
-        }
-    }
-    true
+    bytes
+        .iter()
+        .enumerate()
+        .all(|(i, &b)| matches!(i, 8 | 13 | 18 | 23) || b.is_ascii_hexdigit())
 }
 
 pub fn call_uuid(

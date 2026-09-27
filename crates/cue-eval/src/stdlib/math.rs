@@ -956,10 +956,11 @@ fn gamma_approx(z: f64) -> f64 {
             9.984_369_578_019_572e-6,
             1.505_632_735_149_311_6e-7,
         ];
-        let mut x = p[0];
-        for (i, &p_val) in p.iter().enumerate().skip(1) {
-            x += p_val / (z + i as f64);
-        }
+        let x = p
+            .iter()
+            .enumerate()
+            .skip(1)
+            .fold(p[0], |x, (i, &p_val)| x + p_val / (z + i as f64));
         let t = z + 7.5;
         (2.0 * std::f64::consts::PI).sqrt() * t.powf(z + 0.5) * (-t).exp() * x
     }

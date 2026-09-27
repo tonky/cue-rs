@@ -78,10 +78,7 @@ pub(crate) fn binary(
             Value::Int(b),
         ) => {
             if let Some(count) = b.to_usize() {
-                let mut repeated = Vec::new();
-                for _ in 0..count {
-                    repeated.extend(e1.clone());
-                }
+                let repeated: Vec<_> = (0..count).flat_map(|_| e1.clone()).collect();
                 arena.alloc(Value::List {
                     elements: repeated,
                     ellipsis,
@@ -161,10 +158,12 @@ pub(crate) fn integer_division(arena: &mut ValueArena, name: &str, args: &[Value
             format!("{name} requires two integer arguments"),
         );
     };
-    for &id in args {
-        if matches!(arena.get(id), Some(Value::Bottom(_))) {
-            return id;
-        }
+    if let Some(id) = args
+        .iter()
+        .copied()
+        .find(|id| matches!(arena.get(*id), Some(Value::Bottom(_))))
+    {
+        return id;
     }
     let incomplete_integer = |id| {
         matches!(arena.get(id), Some(Value::Top | Value::Bounds { .. }))

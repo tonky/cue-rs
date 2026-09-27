@@ -111,34 +111,29 @@ impl TxtarArchive {
 
     /// Find all .txtar files in a directory.
     pub fn find_fixtures_in_dir<P: AsRef<Path>>(dir: P) -> Vec<PathBuf> {
-        let mut fixtures = Vec::new();
-        if !dir.as_ref().exists() {
-            return fixtures;
-        }
-        for entry in walkdir::WalkDir::new(dir)
+        let mut fixtures: Vec<PathBuf> = walkdir::WalkDir::new(dir)
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file())
-        {
-            if entry.path().extension().and_then(|s| s.to_str()) == Some("txtar") {
-                fixtures.push(entry.path().to_path_buf());
-            }
-        }
+            .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("txtar"))
+            .map(|e| e.path().to_path_buf())
+            .collect();
         fixtures.sort();
         fixtures
     }
 
     /// Discover fixtures without silently ignoring unreadable directories.
     pub fn discover(dir: &Path) -> Result<Vec<PathBuf>, TxtarError> {
-        let mut fixtures = Vec::new();
-        for entry in walkdir::WalkDir::new(dir) {
-            let entry = entry.map_err(|e| TxtarError::Io(e.into()))?;
-            if entry.file_type().is_file()
-                && entry.path().extension().and_then(|s| s.to_str()) == Some("txtar")
-            {
-                fixtures.push(entry.into_path());
-            }
-        }
+        let entries = walkdir::WalkDir::new(dir)
+            .into_iter()
+            .map(|entry| entry.map_err(|e| TxtarError::Io(e.into())))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut fixtures: Vec<PathBuf> = entries
+            .into_iter()
+            .filter(|e| e.file_type().is_file())
+            .map(|e| e.into_path())
+            .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("txtar"))
+            .collect();
         fixtures.sort();
         Ok(fixtures)
     }

@@ -119,36 +119,42 @@ fn decode(text: &str) -> Result<NumberValue, NumberError> {
     let invalid = || NumberError::Invalid {
         text: text.to_string(),
     };
-    for (prefix, radix) in [("0x", 16), ("0b", 2), ("0o", 8)] {
-        if let Some(digits) = cleaned.strip_prefix(prefix) {
-            return BigInt::parse_bytes(digits.as_bytes(), radix)
-                .map(NumberValue::Int)
-                .ok_or_else(invalid);
-        }
+    let prefixed = [("0x", 16), ("0b", 2), ("0o", 8)]
+        .into_iter()
+        .find_map(|(prefix, radix)| cleaned.strip_prefix(prefix).map(|digits| (digits, radix)));
+    if let Some((digits, radix)) = prefixed {
+        return BigInt::parse_bytes(digits.as_bytes(), radix)
+            .map(NumberValue::Int)
+            .ok_or_else(invalid);
     }
-    for (suffix, exponent) in [("K", 1), ("M", 2), ("G", 3), ("T", 4), ("P", 5)] {
-        let binary_suffix = format!("{suffix}i");
-        let scaled = cleaned
-            .strip_suffix(&binary_suffix)
-            .map(|base| (base, 1024u32))
-            .or_else(|| cleaned.strip_suffix(suffix).map(|base| (base, 1000u32)));
-        if let Some((base, scale)) = scaled {
-            let (whole, fraction) = base.split_once('.').unwrap_or((base, ""));
-            let digits = format!("{whole}{fraction}");
-            if !digits.bytes().all(|b| b.is_ascii_digit()) {
-                return Err(invalid());
-            }
-            let coefficient = BigInt::parse_bytes(digits.as_bytes(), 10).ok_or_else(invalid)?;
-            let divisor =
-                BigInt::from(10u8).pow(u32::try_from(fraction.len()).map_err(|_| invalid())?);
-            let scaled = coefficient * BigInt::from(scale).pow(exponent);
-            if !(&scaled % &divisor).is_zero() {
-                return Err(NumberError::NotRepresentable {
-                    text: text.to_string(),
-                });
-            }
-            return Ok(NumberValue::Int(scaled / divisor));
+    let scaled = [("K", 1), ("M", 2), ("G", 3), ("T", 4), ("P", 5)]
+        .into_iter()
+        .find_map(|(suffix, exponent)| {
+            let binary_suffix = format!("{suffix}i");
+            cleaned
+                .strip_suffix(&binary_suffix)
+                .map(|base| (base, 1024u32, exponent))
+                .or_else(|| {
+                    cleaned
+                        .strip_suffix(suffix)
+                        .map(|base| (base, 1000u32, exponent))
+                })
+        });
+    if let Some((base, scale, exponent)) = scaled {
+        let (whole, fraction) = base.split_once('.').unwrap_or((base, ""));
+        let digits = format!("{whole}{fraction}");
+        if !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(invalid());
         }
+        let coefficient = BigInt::parse_bytes(digits.as_bytes(), 10).ok_or_else(invalid)?;
+        let divisor = BigInt::from(10u8).pow(u32::try_from(fraction.len()).map_err(|_| invalid())?);
+        let scaled = coefficient * BigInt::from(scale).pow(exponent);
+        if !(&scaled % &divisor).is_zero() {
+            return Err(NumberError::NotRepresentable {
+                text: text.to_string(),
+            });
+        }
+        return Ok(NumberValue::Int(scaled / divisor));
     }
     if cleaned.contains(['.', 'e', 'E']) {
         let number: f64 = cleaned.parse().map_err(|_| invalid())?;

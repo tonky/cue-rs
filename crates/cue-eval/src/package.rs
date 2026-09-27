@@ -396,11 +396,9 @@ impl PackageLoader {
             .read_dir(dir.as_ref())
             .map_err(|e| EvalError::Evaluation(format!("Failed to read dir: {e}")))?;
 
-        for path in read_dir {
-            if fs.is_file(&path) && path.extension().and_then(|s| s.to_str()) == Some("cue") {
-                files.push(path);
-            }
-        }
+        files.extend(read_dir.into_iter().filter(|path| {
+            fs.is_file(path) && path.extension().and_then(|s| s.to_str()) == Some("cue")
+        }));
 
         files.sort();
         Ok(files)

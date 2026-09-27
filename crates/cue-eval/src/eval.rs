@@ -145,12 +145,10 @@ impl Evaluator {
     }
 
     pub fn lookup_binding(&self, name: &str) -> Option<ValueId> {
-        for scope in self.scopes.iter().rev() {
-            if let Some(&val) = scope.get(name) {
-                return Some(val);
-            }
-        }
-        None
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name).copied())
     }
 
     /// Evaluate an entire CUE source file.
@@ -765,11 +763,13 @@ impl Evaluator {
         func_expr: &Expr,
         arg_exprs: &[Expr],
     ) -> Result<ValueId, EvalError> {
-        let mut evaluated_args = Vec::new();
-        for arg in arg_exprs {
-            let arg_id = self.eval_expr(arg)?;
-            evaluated_args.push(crate::operators::operand(&mut self.arena, arg_id));
-        }
+        let evaluated_args = arg_exprs
+            .iter()
+            .map(|arg| {
+                let arg_id = self.eval_expr(arg)?;
+                Ok(crate::operators::operand(&mut self.arena, arg_id))
+            })
+            .collect::<Result<Vec<_>, EvalError>>()?;
         Ok(crate::builtins::call(
             &mut self.arena,
             &self.imports,

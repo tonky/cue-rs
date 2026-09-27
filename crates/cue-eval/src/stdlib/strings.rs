@@ -312,14 +312,10 @@ pub fn call_strings(
             {
                 let s_clone = s.clone();
                 let elems = elements.clone();
-                for &elem in &elems {
-                    if let Some(Value::String(pfx)) = arena.get(elem)
-                        && s_clone.starts_with(pfx.as_str())
-                    {
-                        return Ok(arena.bool(true));
-                    }
-                }
-                return Ok(arena.bool(false));
+                let matched = elems.iter().any(|&elem| {
+                    matches!(arena.get(elem), Some(Value::String(pfx)) if s_clone.starts_with(pfx.as_str()))
+                });
+                return Ok(arena.bool(matched));
             }
             Err("strings.HasPrefixAny requires (string, list_of_prefixes) arguments".to_string())
         }
@@ -330,14 +326,10 @@ pub fn call_strings(
             {
                 let s_clone = s.clone();
                 let elems = elements.clone();
-                for &elem in &elems {
-                    if let Some(Value::String(sfx)) = arena.get(elem)
-                        && s_clone.ends_with(sfx.as_str())
-                    {
-                        return Ok(arena.bool(true));
-                    }
-                }
-                return Ok(arena.bool(false));
+                let matched = elems.iter().any(|&elem| {
+                    matches!(arena.get(elem), Some(Value::String(sfx)) if s_clone.ends_with(sfx.as_str()))
+                });
+                return Ok(arena.bool(matched));
             }
             Err("strings.HasSuffixAny requires (string, list_of_suffixes) arguments".to_string())
         }

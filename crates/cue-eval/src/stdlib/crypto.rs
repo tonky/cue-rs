@@ -291,11 +291,7 @@ fn sha256_bytes(input: &[u8]) -> Vec<u8> {
         h[7] = h[7].wrapping_add(h_var);
     }
 
-    let mut out = Vec::with_capacity(32);
-    for val in h {
-        out.extend_from_slice(&val.to_be_bytes());
-    }
-    out
+    h.iter().flat_map(|val| val.to_be_bytes()).collect()
 }
 
 fn hmac_bytes(key: &[u8], msg: &[u8], hash_fn: fn(&[u8]) -> Vec<u8>, block_size: usize) -> Vec<u8> {
@@ -400,13 +396,10 @@ fn md5_bytes(input: &[u8]) -> Vec<u8> {
         d = d.wrapping_add(dd);
     }
 
-    let mut out = Vec::with_capacity(16);
-    for word in [a, b, c, d] {
-        for byte in word.to_le_bytes() {
-            out.push(byte);
-        }
-    }
-    out
+    [a, b, c, d]
+        .iter()
+        .flat_map(|word| word.to_le_bytes())
+        .collect()
 }
 
 fn md5_digest(input: &[u8]) -> String {
@@ -476,11 +469,10 @@ fn sha1_bytes(input: &[u8]) -> Vec<u8> {
         h4 = h4.wrapping_add(e);
     }
 
-    let mut out = Vec::with_capacity(20);
-    for word in [h0, h1, h2, h3, h4] {
-        out.extend_from_slice(&word.to_be_bytes());
-    }
-    out
+    [h0, h1, h2, h3, h4]
+        .iter()
+        .flat_map(|word| word.to_be_bytes())
+        .collect()
 }
 
 fn sha1_digest(input: &[u8]) -> String {
@@ -646,11 +638,7 @@ fn sha512_bytes(input: &[u8]) -> Vec<u8> {
         h[7] = h[7].wrapping_add(hh);
     }
 
-    let mut out = Vec::with_capacity(64);
-    for word in h {
-        out.extend_from_slice(&word.to_be_bytes());
-    }
-    out
+    h.iter().flat_map(|word| word.to_be_bytes()).collect()
 }
 
 fn sha512_digest(input: &[u8]) -> String {

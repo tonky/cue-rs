@@ -73,18 +73,18 @@ fn schema_val_to_cue(val: &Value, indent_level: usize) -> Result<String, String>
         .or_else(|| val.get("anyOf"))
         .and_then(|v| v.as_array())
     {
-        let mut branches = Vec::new();
-        for branch in one_of {
-            branches.push(schema_val_to_cue(branch, indent_level)?);
-        }
+        let branches = one_of
+            .iter()
+            .map(|branch| schema_val_to_cue(branch, indent_level))
+            .collect::<Result<Vec<_>, _>>()?;
         return Ok(branches.join(" | "));
     }
 
     if let Some(all_of) = val.get("allOf").and_then(|v| v.as_array()) {
-        let mut conjuncts = Vec::new();
-        for conjunct in all_of {
-            conjuncts.push(schema_val_to_cue(conjunct, indent_level)?);
-        }
+        let conjuncts = all_of
+            .iter()
+            .map(|conjunct| schema_val_to_cue(conjunct, indent_level))
+            .collect::<Result<Vec<_>, _>>()?;
         return Ok(conjuncts.join(" & "));
     }
 

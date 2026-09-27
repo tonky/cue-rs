@@ -682,6 +682,8 @@ impl ValueArena {
         {
             return true;
         }
+        // A `for` loop, not `Iterator::any`: the erased `dyn Iterator`
+        // is not `Sized`, so combinators are unavailable here.
         let any = |ids: &mut dyn Iterator<Item = ValueId>| -> bool {
             for id in ids {
                 if self.is_unresolved_within(id, depth) {

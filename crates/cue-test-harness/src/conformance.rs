@@ -313,8 +313,8 @@ impl Runner {
             Ok(output) => {
                 let response: Response = serde_json::from_slice(&output)
                     .map_err(|e| (Status::Crash, format!("invalid worker protocol: {e}")))?;
-                for check in &request.checks {
-                    let outcome = match response.observations.get(&check.id) {
+                case.checks.extend(request.checks.iter().map(|check| {
+                    match response.observations.get(&check.id) {
                         Some(Observation::Value(value))
                             if json_values_equal(value, &check.expected) =>
                         {
@@ -332,15 +332,16 @@ impl Runner {
                             result(check, Status::Unsupported, reason.clone())
                         }
                         None => result(check, Status::Crash, "worker omitted observation".into()),
-                    };
-                    case.checks.push(outcome);
-                }
+                    }
+                }));
             }
             Err((status, detail)) => {
-                for check in &request.checks {
-                    case.checks
-                        .push(result(check, status.clone(), detail.clone()));
-                }
+                case.checks.extend(
+                    request
+                        .checks
+                        .iter()
+                        .map(|check| result(check, status.clone(), detail.clone())),
+                );
             }
         }
         case.checks.sort_by(|a, b| a.id.cmp(&b.id));
