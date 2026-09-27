@@ -149,7 +149,26 @@ analysis), arithmetic-circularity classification (`E: {a: c-b, ...}` wants
 `incomplete`, non-structural direct cycles want `eval` — semantic work),
 nested closedness propagation (§5).
 
-## 7. Proposed order (usecase-first)
+## 7. Progress 2026-09-27 (cont.): strict slice bounds (done)
+
+`resolve_018_slice` expects `eval` for negative, out-of-range, and mistyped
+bounds; `slice()` in `crates/cue-eval/src/operators.rs` clamped them
+(`to_usize().unwrap_or(default).min(len)`, non-int fell back to the end).
+Now an omitted bound still defaults, but a present bound must be an integer
+in `[0, len]` — low reported before high, messages mirroring upstream
+("index {n} out of range", "cannot convert negative number to uint64",
+"cannot use {s:?} (type string) as type int in slice index",
+"invalid slice index: {start} > {end}"). All slice bottoms are `Conflict`,
+not `Other` (the `arena.bottom()` constructor makes `Other`, which observes
+as unsupported — first run fixed the values but scored unsupported).
+
+Tests: extended the unit test to `slice_rejects_bad_bounds_and_reversed_ranges`
+(kept valid-slice + bound-at-`len` positives). Conformance: +6 fixes (all of
+e1/e2/e4/e6/e7 plus e3/e5 moving from unsupported).
+
+Session tally: 31 fixes, 2 known regressions (issue318 nested-close, §5).
+
+## 8. Proposed order (usecase-first)
 
 1. Error-code translation layer (`BottomReason`/`BottomKind` → categories +
    positions): fixes usecase diagnostics AND the largest mismatch bucket.

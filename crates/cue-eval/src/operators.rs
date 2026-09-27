@@ -489,7 +489,9 @@ pub(crate) fn index(arena: &mut ValueArena, target_id: ValueId, index_id: ValueI
 }
 
 /// Slice an already-evaluated list between already-evaluated bounds:
-/// total function of the arena. A non-integer bound falls back to its end.
+/// total function of the arena. An omitted bound falls back to its end;
+/// a present bound must be an integer in `[0, len]`. Upstream rejects
+/// negative, out-of-range, and mistyped bounds instead of clamping them.
 pub(crate) fn slice(
     arena: &mut ValueArena,
     target_id: ValueId,
@@ -497,15 +499,32 @@ pub(crate) fn slice(
     high_id: Option<ValueId>,
 ) -> ValueId {
     let Some(Value::List { elements, ellipsis }) = arena.get(target_id).cloned() else {
-        return arena.bottom("slice unsupported on non-list");
+        return arena.bottom_of(BottomKind::Conflict, "slice unsupported on non-list");
     };
     let len = elements.len();
-    let bound = |id: Option<ValueId>, default: usize| match id.and_then(|id| arena.get(id)) {
-        Some(Value::Int(i)) => i.to_usize().unwrap_or(default).min(len),
-        _ => default,
+    let resolve =
+        |arena: &ValueArena, id: Option<ValueId>, default: usize| -> Result<usize, String> {
+            let Some(id) = id else {
+                return Ok(default);
+            };
+            match arena.get(id) {
+                Some(Value::Int(i)) => match i.to_usize() {
+                    Some(n) if n <= len => Ok(n),
+                    Some(n) => Err(format!("index {n} out of range (len: {len})")),
+                    None => Err("cannot convert negative number to uint64".to_string()),
+                },
+                Some(Value::String(s)) => Err(format!(
+                    "cannot use {s:?} (type string) as type int in slice index"
+                )),
+                _ => Err("invalid slice bound".to_string()),
+            }
+        };
+    let (start, end) = match (resolve(arena, low_id, 0), resolve(arena, high_id, len)) {
+        (Ok(start), Ok(end)) => (start, end),
+        (Err(message), _) | (_, Err(message)) => {
+            return arena.bottom_of(BottomKind::Conflict, message);
+        }
     };
-    let start = bound(low_id, 0);
-    let end = bound(high_id, len);
 
     if start <= end {
         let sliced = elements[start..end].to_vec();
@@ -514,7 +533,10 @@ pub(crate) fn slice(
             ellipsis,
         })
     } else {
-        arena.bottom(format!("invalid slice range: [{start}:{end}]"))
+        arena.bottom_of(
+            BottomKind::Conflict,
+            format!("invalid slice index: {start} > {end}"),
+        )
     }
 }
 
@@ -550,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    fn slice_clamps_and_rejects_reversed_ranges() {
+    fn slice_rejects_bad_bounds_and_reversed_ranges() {
         let mut arena = ValueArena::new();
         let list = list_of(&mut arena, 4);
         let one = arena.int(1);
@@ -562,7 +584,29 @@ mod tests {
             other => panic!("expected sliced list, got {other:?}"),
         }
 
+        // Bounds at exactly `len` are valid (`[0][1:1] == []` upstream).
+        let singleton = list_of(&mut arena, 1);
+        let id = slice(&mut arena, singleton, Some(one), Some(one));
+        match arena.get(id) {
+            Some(Value::List { elements, .. }) => assert!(elements.is_empty()),
+            other => panic!("expected empty slice, got {other:?}"),
+        }
+
         let id = slice(&mut arena, list, Some(three), Some(one));
+        assert!(matches!(arena.get(id), Some(Value::Bottom(_))));
+
+        // Upstream rejects rather than clamps: negative, out-of-range,
+        // and mistyped bounds are all `eval` errors.
+        let neg = arena.int(-1);
+        let id = slice(&mut arena, list, Some(neg), None);
+        assert!(matches!(arena.get(id), Some(Value::Bottom(_))));
+
+        let nine = arena.int(9);
+        let id = slice(&mut arena, list, Some(one), Some(nine));
+        assert!(matches!(arena.get(id), Some(Value::Bottom(_))));
+
+        let s = arena.string("");
+        let id = slice(&mut arena, list, Some(s), None);
         assert!(matches!(arena.get(id), Some(Value::Bottom(_))));
 
         let not_list = arena.int(1);
