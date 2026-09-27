@@ -10,7 +10,7 @@ use crate::declaration::DeclarationValue;
 use crate::eval::{EvalError, Evaluator};
 use crate::schedule::{
     SECTIONS, Section, Sweep, collect_field_declarations, collect_field_names, derivation_order,
-    merge_generated, pending_binding_name, refined_any,
+    merge_generated, pending_binding_name, refined_any, seed_moved, waits_only_on_external,
 };
 use crate::unify::{Equivalence, compare_values, push_branch, unify};
 use crate::value::{
@@ -97,13 +97,14 @@ impl<'a> RelaxationLoop<'a> {
     ) -> Result<(), EvalError> {
         // A reference must see every declaration of a static field, including
         // declarations appearing after the reference in source order.
-        let decls = collect_field_declarations(decls);
+        let collected = collect_field_declarations(decls);
+        let decls: &[Decl] = &collected;
         // Captured once per literal and shared by its thunks: every field of this
         // struct was written in the same lexical scope.
         let env = Rc::new(ThunkEnv::new(
             self.eval.scopes.clone(),
-            self.collect_let_declarations(&decls),
-            collect_field_names(&decls),
+            self.collect_let_declarations(decls),
+            collect_field_names(decls),
             self.eval.imports.clone(),
         ));
         self.eval.current_env = Some(env.clone());
@@ -112,7 +113,7 @@ impl<'a> RelaxationLoop<'a> {
         // Without an outer binding a missing lookup already waits, so it needs
         // no placeholder. All reservations can share one pending value.
         let mut pending = None;
-        for decl in &decls {
+        for decl in decls {
             if let Decl::Field(field) = decl
                 && !field.label.is_definition()
                 && let Some(name) = field.label.name()
@@ -144,7 +145,7 @@ impl<'a> RelaxationLoop<'a> {
             })
             .then(|| (target.clone(), self.eval.scopes.clone()));
         // Pass 1: Pre-register definition placeholders for recursive and forward references
-        for decl in &decls {
+        for decl in decls {
             if let Decl::Field(f) = decl
                 && let Some(name) = f.label.name()
                 && f.label.is_definition()
@@ -193,6 +194,33 @@ impl<'a> RelaxationLoop<'a> {
                     &pending_decls,
                     &before,
                 );
+                // Refinement credit earned only by waits its own passes cannot
+                // settle is illusory: re-running the same declarations with
+                // the same inputs derives the same stuck values. Skip that
+                // pass and go straight to the final below — which still runs,
+                // since final-mode derivation heals spurious partial-meet
+                // errors that correctness relies on — without consuming the
+                // allowance a genuinely growing value needs.
+                if refining && !next_pending.is_empty() {
+                    let lets = self.collect_let_declarations(decls);
+                    let mut internal: HashSet<String> = collect_field_names(decls);
+                    internal.extend(lets.iter().map(|(name, _)| name.clone()));
+                    if next_pending.iter().all(|decl| {
+                        waits_only_on_external(
+                            &self.eval.arena,
+                            &|name| self.eval.lookup_binding(name),
+                            decl,
+                            &internal,
+                            &lets,
+                        )
+                    }) {
+                        // Fall through to the final pass.
+                        for &decl in &next_pending {
+                            self.eval_single_decl(decl, target, &env, true)?;
+                        }
+                        break;
+                    }
+                }
                 if refining && refinements < MAX_REFINEMENT_PASSES {
                     refinements += 1;
                     // Cumulative only; the allowance above stays per-literal.
@@ -225,7 +253,7 @@ impl<'a> RelaxationLoop<'a> {
         // static fields and evaluate references again from the original scope.
         // Otherwise an earlier reference can retain a pre-merge snapshot.
         if let Some((base_struct, base_scopes)) = dynamic_base {
-            let mut named_decls = decls.clone();
+            let mut named_decls = decls.to_vec();
             for decl in &mut named_decls {
                 if let Decl::Field(field) = decl
                     && let Label::Dynamic(expr) = &field.label
@@ -908,24 +936,11 @@ impl<'a> RelaxationLoop<'a> {
         // which no merge can change.
         // A field the merge gave a second recipe to is one whose value it may
         // have moved; everything else in the struct is exactly what it was.
-        let mut moved: HashSet<String> = SECTIONS
-            .iter()
-            .flat_map(|section| section.map(s))
-            .filter(|(_, entry)| entry.conjuncts.len() > 1)
-            .map(|(name, _)| name.clone())
-            .collect();
+        // Pattern-matched fields join them (a pattern applies without
+        // appearing among conjuncts); unmatched fields cannot have changed.
+        let mut moved: HashSet<String> = seed_moved(&self.eval.arena, s);
         if moved.is_empty() {
             return Ok(false);
-        }
-        // A pattern constraint applies to a field without appearing among its
-        // conjuncts, so once the merge brought one in, treat every field as
-        // moved rather than reason about which labels it matches.
-        if !s.pattern_constraints.is_empty() {
-            moved = SECTIONS
-                .iter()
-                .flat_map(|section| section.map(s))
-                .map(|(name, _)| name.clone())
-                .collect();
         }
 
         let order = derivation_order(s);

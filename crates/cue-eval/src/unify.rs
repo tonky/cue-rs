@@ -1,7 +1,37 @@
 use crate::value::*;
 use num_traits::ToPrimitive;
 use regex::Regex;
-use std::collections::BTreeSet;
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap};
+
+// Compiled patterns by source text. A pattern meets every field of every
+// literal it can see, so recompiling the same expression per field is pure
+// waste; the cache pays once per distinct pattern. Thread-local because
+// evaluation is single-threaded (`Rc` throughout), which also keeps the hot
+// path lock-free. Past the cap patterns recompute instead of retaining an
+// unbounded table from generated sources.
+thread_local! {
+    static REGEX_CACHE: RefCell<HashMap<String, Regex>> = RefCell::new(HashMap::new());
+}
+
+/// How many distinct patterns the cache retains.
+const MAX_CACHED_PATTERNS: usize = 4096;
+
+/// A compiled pattern, or `None` when it does not compile. Callers keep
+/// their existing fallback for the `None` case.
+fn cached_regex(pattern: &str) -> Option<Regex> {
+    REGEX_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(compiled) = cache.get(pattern) {
+            return Some(compiled.clone());
+        }
+        let compiled = Regex::new(pattern).ok()?;
+        if cache.len() < MAX_CACHED_PATTERNS {
+            cache.insert(pattern.to_owned(), compiled.clone());
+        }
+        Some(compiled)
+    })
+}
 
 /// Maximum nesting depth for struct unification before failing with a cycle error.
 pub const MAX_STRUCT_DEPTH: usize = 64;
@@ -860,7 +890,7 @@ fn unify_bounds(
                             }
                         }
                         Bound::RegexMatch => {
-                            if let Ok(re) = Regex::new(pattern) {
+                            if let Some(re) = cached_regex(pattern) {
                                 if !re.is_match(s_val) {
                                     return conflict(
                                         arena,
@@ -874,7 +904,7 @@ fn unify_bounds(
                             }
                         }
                         Bound::RegexNotMatch => {
-                            if let Ok(re) = Regex::new(pattern) {
+                            if let Some(re) = cached_regex(pattern) {
                                 if re.is_match(s_val) {
                                     return conflict(
                                         arena,
@@ -968,7 +998,7 @@ pub fn field_matches_pattern(arena: &ValueArena, pattern_val: ValueId, field_nam
         Some(Value::String(s)) => s == field_name,
         Some(Value::Bounds { constraints, .. }) => constraints.iter().all(|(op, target_id)| {
             if let Some(Value::String(pat)) = arena.get(*target_id)
-                && let Ok(re) = Regex::new(pat)
+                && let Some(re) = cached_regex(pat)
             {
                 match op {
                     Bound::RegexMatch => re.is_match(field_name),
@@ -1360,7 +1390,7 @@ fn unify_disjunction_inner(
         let mut branch_errors = Vec::new();
         for b1 in branches {
             for b2 in &other_branches {
-                let cp = arena.checkpoint();
+                let cp = arena.speculate();
                 let u = unify_internal(arena, b1.val, b2.val, ctx);
                 if !arena.has_embedded_recipe(u)
                     && let Some(Value::Bottom(b)) = arena.get(u)
@@ -1380,6 +1410,7 @@ fn unify_disjunction_inner(
                     &mut valid_branches,
                     DisjunctionBranch { default, val: u },
                 );
+                arena.commit_speculation();
             }
         }
         return settle_disjunction(arena, valid_branches, &branch_errors);
@@ -1389,7 +1420,7 @@ fn unify_disjunction_inner(
     let mut branch_errors = Vec::new();
 
     for branch in branches {
-        let cp = arena.checkpoint();
+        let cp = arena.speculate();
         let u = unify_internal(arena, branch.val, other_id, ctx);
         if !arena.has_embedded_recipe(u)
             && let Some(Value::Bottom(b)) = arena.get(u)
@@ -1407,6 +1438,7 @@ fn unify_disjunction_inner(
                 val: u,
             },
         );
+        arena.commit_speculation();
     }
 
     settle_disjunction(arena, valid_branches, &branch_errors)
@@ -1578,7 +1610,7 @@ fn unify_validator(
                     }
                 }
             } else if name == "time.Time"
-                && let Ok(re) = regex::Regex::new(
+                && let Some(re) = cached_regex(
                     r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$",
                 )
             {

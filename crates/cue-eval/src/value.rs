@@ -568,6 +568,12 @@ pub struct ValueArena {
     /// same lifetime as its owning node, including speculative rollback.
     metadata: HashMap<ValueId, ValueMetadata>,
     trail: Vec<ValueId>,
+    /// Live `speculate` scopes (disjunction branches). The trail is positional:
+    /// entries below the oldest live scope can never roll back, so the last
+    /// scope to close truncates them. Checkpoints never escape the call that
+    /// takes them, so between top-level evaluations the trail stays empty
+    /// instead of retaining every node id ever allocated.
+    speculation_depth: usize,
     /// Weak IDs: rollback may remove them, and public graph mutation may
     /// replace their payload. Validate each hit before sharing it again.
     booleans: [Option<ValueId>; 2],
@@ -621,6 +627,7 @@ impl ValueArena {
             nodes: SlotMap::with_key(),
             metadata: HashMap::new(),
             trail: Vec::new(),
+            speculation_depth: 0,
             booleans: [None; 2],
             strings: HashMap::new(),
         }
@@ -783,6 +790,28 @@ impl ValueArena {
         }
     }
 
+    /// Open a speculation scope (a disjunction branch attempt): the matching
+    /// [`Self::commit_speculation`] or [`Self::rollback`] must run on every
+    /// path through the attempt, success or failure.
+    pub fn speculate(&mut self) -> ArenaCheckpoint {
+        self.speculation_depth += 1;
+        self.checkpoint()
+    }
+
+    /// Close a speculation scope whose nodes stay live. With no scope left,
+    /// no checkpoint can roll back, so the whole trail — positional dead
+    /// weight from here on — is released. Small buffers keep their capacity
+    /// (disjunctions speculate constantly); only a runaway buffer shrinks.
+    pub fn commit_speculation(&mut self) {
+        self.speculation_depth = self.speculation_depth.saturating_sub(1);
+        if self.speculation_depth == 0 {
+            self.trail.clear();
+            if self.trail.capacity() > 1_000_000 {
+                self.trail.shrink_to_fit();
+            }
+        }
+    }
+
     pub fn rollback(&mut self, checkpoint: ArenaCheckpoint) {
         while self.trail.len() > checkpoint.trail_len {
             if let Some(id) = self.trail.pop() {
@@ -794,6 +823,7 @@ impl ValueArena {
                 self.metadata.remove(&id);
             }
         }
+        self.commit_speculation();
     }
 
     pub fn bottom<S: Into<String>>(&mut self, msg: S) -> ValueId {
@@ -879,6 +909,33 @@ mod tests {
         });
         assert!(arena.is_placeholder(placeholder));
         assert!(!arena.is_unresolved(placeholder));
+    }
+
+    #[test]
+    fn speculation_releases_the_trail() {
+        let mut arena = ValueArena::new();
+        let kept = arena.int(1);
+        // A failed attempt removes its nodes; a kept one keeps them.
+        let failed = arena.speculate();
+        let _temp = arena.int(2);
+        arena.rollback(failed);
+        assert!(arena.get(kept).is_some());
+        // Closing the last scope releases the whole trail: nothing below
+        // can roll back any more.
+        let _scope = arena.speculate();
+        let _temp = arena.int(3);
+        arena.commit_speculation();
+        assert!(arena.get(kept).is_some());
+        assert!(arena.trail.is_empty());
+        // Nesting only releases at the outermost close.
+        let outer = arena.speculate();
+        let _temp = arena.int(4);
+        let _inner = arena.speculate();
+        let _temp = arena.int(5);
+        arena.commit_speculation();
+        assert!(!arena.trail.is_empty());
+        arena.rollback(outer);
+        assert!(arena.get(kept).is_some());
     }
 
     #[test]

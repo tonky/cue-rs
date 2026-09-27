@@ -477,3 +477,59 @@ mid-slice — `#ServiceSpec & {port}` lost its openness and rejected
 `database`; model B in §15 fixed it. The repro is the backstop that
 caught it.) The `original/` reject-path gap (early cycle detection
 before sweeping 662 components) stays future work per §12.2.
+
+## 17. Progress 2026-09-27 (cont.): reject-path profiling + allocation wins (done, partially)
+
+`/usr/bin/time` on the release binary (`cue` oracle for comparison):
+
+| variant | cue-rs | upstream Go | verdict |
+|---|---|---|---|
+| `literal/` | 0.38 s, 141 MB | 0.51 s, 144 MB | faster, same memory, semantic-equal output |
+| `refs/` | 0.59 s, 189 MB | 0.79 s, 194 MB | faster, same memory, semantic-equal output |
+| `original/` | ~2.2 s, 788 MB, correctly rejects (cycle) | 1.56 s, 248 MB, rejects | correct verdict, 1.4x time, 3.2x memory |
+
+Valid-path outputs are semantic-equal to `cue export` (key order differs:
+export walks `BTreeMap`; pre-existing, untouched). `literal/` and `refs/`
+outputs are mutually md5-identical. Conformance rerun: migration baseline
+matched (zero drift). Suite: 46 suites green, clippy `-D warnings` clean,
+fmt clean.
+
+Banked (all in `cue-eval`):
+- `collect_field_declarations` returns `Cow<[Decl]>`: borrowed when no
+  name repeats (nearly every literal), owned fold only on repeats; fold
+  keys borrow labels instead of allocating `String`s. Valid-path time
+  -25%, reject path -0.4 s. Test: `unrepeated_fields_borrow_without_cloning`.
+- Thread-local compiled-regex cache (`cached_regex`, cap 4096) for the
+  four `Regex::new`-per-call sites (unify bounds, `field_matches_pattern`,
+  `time.Time`). Behavior-neutral; regex-heavy files stop recompiling.
+- Pre-existing stack kept: precise `seed_moved` (refinements 4648 → 14),
+  cycle-bottom earns no refinement credit, `speculate`/`commit_speculation`
+  (trail cleared at outermost close), disjunction sites converted.
+
+Tried and reverted (measured nil or negative on `original/`):
+- Ordered-pair unify memo in the arena (generation-guarded): pairs never
+  repeat — every re-derivation rebuilds the world with fresh ids.
+- Tail Equal-guard on pattern writeback: pure overhead (deep compare per
+  application), no id stability to exploit (see above).
+- Scope-map freelist: most maps end up captured by recipes (retained, not
+  churn).
+- Narrow tail seeds (seed = tail-touched only): narrow tails derive zero
+  recipes, but wall time flat — the cost is nested-merge settling below
+  touched fields, which needs path-granular (not name-granular) deps.
+- Settle-check hoist above the rederive clone: seeds are broad, rarely empty.
+
+Profiling notes: samply blocked (`perf_event_paranoid=2`, no sudo);
+`pprof` signal sampling yields zero samples in this sandbox; DHAT heap
+(`dhat` feature, since reverted) + phase-timer probes carried the analysis.
+Phase split of the 2.2 s wall: declaration loop + re-derivation ~all;
+pattern application 0.01 s (noise); recipe evaluation dominates merges
+60:1; 330k literal evals, 202k struct merges (~32% reproduce an input
+exactly — first-sight no-ops no memo can catch), 48k re-derivations
+(~4 writes).
+
+Structural remainder (future project, not patches): the arena never frees,
+so every per-pass struct node and every discarded Equal-merge orphan is
+retained (~540 MB over upstream — needs GC or compacting arena); the
+fixpoint re-evaluates recipes from scratch with fresh ids (needs id-stable
+fixpoint or hash-consing for memoization to bite); sub-field-insensitive
+readers re-derive on whole-name moves (needs path-granular deps).
