@@ -364,6 +364,16 @@ fn narrows_number_base(base: &TypeKind, other: &TypeKind) -> bool {
         && matches!(other, TypeKind::Number(NumberKind::Int | NumberKind::Float))
 }
 
+/// Whether two base kinds demanded by bound targets are incompatible:
+/// number against string. Other pairs (bool, null, top) demand nothing
+/// and never conflict here.
+fn bound_kinds_conflict(a: &TypeKind, b: &TypeKind) -> bool {
+    matches!(
+        (a, b),
+        (TypeKind::Number(_), TypeKind::String) | (TypeKind::String, TypeKind::Number(_))
+    )
+}
+
 fn unify_bounds(
     arena: &mut ValueArena,
     base_type: Option<TypeKind>,
@@ -429,6 +439,40 @@ fn unify_bounds(
                 (None, None) => None,
             };
             constraints.extend(other_constraints);
+            // A concrete target demands its base kind: `!="a" & <5` meets
+            // string against number, which upstream rejects as eval-bottom.
+            // Non-concrete targets (null, references, disjunctions) demand
+            // nothing yet.
+            let mut demanded: Option<TypeKind> = None;
+            for (_, target) in &constraints {
+                let demand = match arena.get(*target) {
+                    Some(Value::Int(_)) | Some(Value::Float(_)) => {
+                        Some(TypeKind::Number(NumberKind::Number))
+                    }
+                    Some(Value::String(_)) => Some(TypeKind::String),
+                    _ => None,
+                };
+                let Some(demand) = demand else {
+                    continue;
+                };
+                if let Some(base) = &merged_base
+                    && bound_kinds_conflict(&demand, base)
+                {
+                    return conflict(
+                        arena,
+                        format!("conflicting bound base types: {demand} and {base}"),
+                    );
+                }
+                if let Some(seen) = &demanded
+                    && bound_kinds_conflict(&demand, seen)
+                {
+                    return conflict(
+                        arena,
+                        format!("conflicting bound base types: {seen} and {demand}"),
+                    );
+                }
+                demanded = Some(demand);
+            }
             arena.alloc(Value::Bounds {
                 base_type: merged_base,
                 constraints,
@@ -554,6 +598,21 @@ fn unify_bounds(
                 return conflict(arena, format!("type mismatch: expected {bt}, found string"));
             }
             for (op, target_id) in constraints {
+                // A concrete non-string target constrains the value to its
+                // own kind (upstream: `"foo" & !=5` conflicts). Null and
+                // not-yet-concrete targets demand nothing here.
+                match arena.get(target_id) {
+                    Some(Value::Int(_)) => {
+                        return conflict(arena, "type mismatch: expected string, found int");
+                    }
+                    Some(Value::Float(_)) => {
+                        return conflict(arena, "type mismatch: expected string, found float");
+                    }
+                    Some(Value::Bool(_)) => {
+                        return conflict(arena, "type mismatch: expected string, found bool");
+                    }
+                    _ => {}
+                }
                 if let Some(Value::String(pattern)) = arena.get(target_id) {
                     match op {
                         Bound::NotEqual => {

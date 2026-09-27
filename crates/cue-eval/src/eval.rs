@@ -482,6 +482,11 @@ impl Evaluator {
                     Err(EvalError::Unresolved(message)) => {
                         Ok(self.arena.bottom_of(BottomKind::Unresolved, message))
                     }
+                    // A definite nested error bottoms its own struct instead
+                    // of aborting the enclosing file: siblings still evaluate.
+                    Err(EvalError::Evaluation(message)) => {
+                        Ok(self.arena.bottom_of(BottomKind::Conflict, message))
+                    }
                     Err(error) => Err(error),
                 }
             }
@@ -600,12 +605,12 @@ impl Evaluator {
                     if let Some(package) = imports.package_of(pkg_name)
                         && let Some(s) = self.arena.fields(package)
                     {
-                        // A loaded package is complete: a name it lacks is the
-                        // field's error, not the alias's.
+                        // A loaded package is complete: a name it lacks is a
+                        // definite error, not a field a later pass may supply.
                         let Some(f) = s.fields.get(field).or_else(|| s.definitions.get(field))
                         else {
                             return Ok(self.arena.bottom_of(
-                                BottomKind::UndefinedField,
+                                BottomKind::Conflict,
                                 format!("undefined field: {field}"),
                             ));
                         };

@@ -111,3 +111,33 @@ fn string_not_equal_package_exports() {
         }
     }
 }
+
+/// Bound targets constrain the base kind, including `!=`: upstream rejects
+/// `!="a" & <5` (string meets number) and `"foo" & !=5` / `"foo" & >5`
+/// (string meets a numeric target) instead of keeping an unsatisfiable
+/// constraint or silently accepting.
+#[test]
+fn bound_targets_constrain_base_kind() {
+    for (expression, diagnostic) in [
+        (r#"!="a" & <5"#, "conflicting bound base types"),
+        (
+            r#""foo" & !=5"#,
+            "type mismatch: expected string, found int",
+        ),
+        (r#""foo" & >5"#, "type mismatch: expected string, found int"),
+        (r#"string & !="a" & <5"#, "conflicting bound base types"),
+    ] {
+        let error = eval_to_json(&format!("value: {expression}"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(diagnostic), "{expression}: {error}");
+    }
+    for (expression, expected) in [
+        (r#"!="a" & "b""#, serde_json::json!("b")),
+        (r#">5 & <10 & 7"#, serde_json::json!(7)),
+        (r#"!="a" & !="b" & "c""#, serde_json::json!("c")),
+    ] {
+        let json = eval_to_json(&format!("value: {expression}")).unwrap();
+        assert_eq!(json["value"], expected, "{expression}");
+    }
+}

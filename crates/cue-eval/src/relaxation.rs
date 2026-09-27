@@ -233,6 +233,13 @@ impl<'a> RelaxationLoop<'a> {
                     let label = self.eval.eval_expr(expr)?;
                     match self.eval.arena.get(label) {
                         Some(Value::String(name)) => field.label = Label::String(name.clone()),
+                        // A concrete integer label is definitely wrong, not
+                        // merely unresolved: upstream reports `eval`.
+                        Some(Value::Int(_)) => {
+                            return Err(EvalError::Evaluation(
+                                "integer fields not supported".to_string(),
+                            ));
+                        }
                         _ => {
                             return Err(EvalError::Unresolved(
                                 "unresolved reference or non-string dynamic field label"

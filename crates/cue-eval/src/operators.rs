@@ -420,6 +420,10 @@ pub(crate) fn select(
         {
             let val = f.val;
             crate::closedness::read_definition(arena, closed, reading_root_embedding, field, val)
+        } else if s.is_closed {
+            // A closed base (notably under a definition) gains no fields
+            // later: definite error, which upstream reports as `eval`.
+            arena.bottom_of(BottomKind::Conflict, format!("undefined field: {field}"))
         } else {
             // The base resolved and has no such field. It may still
             // gain one on a later pass, which is why this kind is
@@ -429,6 +433,10 @@ pub(crate) fn select(
                 format!("undefined field: {field}"),
             )
         }
+    } else if matches!(arena.get(base_id), Some(Value::List { .. })) {
+        // A list has no fields to gain later: definite error, like an
+        // out-of-bounds index. Other non-struct bases stay untyped.
+        arena.bottom_of(BottomKind::Conflict, format!("undefined field: {field}"))
     } else {
         arena.bottom("selector on non-struct")
     }
@@ -463,6 +471,8 @@ pub(crate) fn index(arena: &mut ValueArena, target_id: ValueId, index_id: ValueI
         (Some(Value::Struct(s)), Some(Value::String(key))) => {
             if let Some(f) = s.fields.get(key).or_else(|| s.definitions.get(key)) {
                 f.val
+            } else if s.is_closed {
+                arena.bottom_of(BottomKind::Conflict, format!("undefined field: {key}"))
             } else {
                 arena.bottom_of(
                     BottomKind::UndefinedField,
@@ -470,6 +480,10 @@ pub(crate) fn index(arena: &mut ValueArena, target_id: ValueId, index_id: ValueI
                 )
             }
         }
+        (Some(Value::Struct(_)), Some(Value::Int(i))) => arena.bottom_of(
+            BottomKind::Conflict,
+            format!("invalid index {i} (found struct, want list)"),
+        ),
         _ => arena.bottom("indexing unsupported on target"),
     }
 }

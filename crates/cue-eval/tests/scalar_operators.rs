@@ -163,3 +163,41 @@ b: {input: 7} & #Schema
         json!({"a":{"input":5,"output":6},"b":{"input":7,"output":8}})
     );
 }
+
+/// Selecting a missing field from a struct that may gain it later is
+/// `UndefinedField` (upstream reports `incomplete`); selecting off a list
+/// or indexing a struct is a definite `Conflict` (upstream `eval`).
+#[test]
+fn missing_field_kind_depends_on_base_shape() {
+    let mut eval = Evaluator::new();
+    let root = eval
+        .eval_file(
+            &cue_syntax::parse_file(
+                r#"
+struct_select: {a: 1}.b
+struct_index: {a: 1}["b"]
+list_select: [3].b
+struct_int_index: {a: 1}[4]
+closed_select: #a.b
+#a: {}
+"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let Value::Struct(root) = eval.arena.get(root).unwrap() else {
+        panic!()
+    };
+    for name in ["struct_select", "struct_index"] {
+        assert!(
+            matches!(eval.arena.get(root.fields[name].val), Some(Value::Bottom(reason)) if reason.kind == BottomKind::UndefinedField),
+            "{name}"
+        );
+    }
+    for name in ["list_select", "struct_int_index", "closed_select"] {
+        assert!(
+            matches!(eval.arena.get(root.fields[name].val), Some(Value::Bottom(reason)) if reason.kind == BottomKind::Conflict),
+            "{name}"
+        );
+    }
+}

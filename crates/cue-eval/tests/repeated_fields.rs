@@ -249,3 +249,22 @@ fn generated_repeated_fields_reach_earlier_service_references() {
     assert_eq!(result["service"], expected);
     assert_eq!(result["services"]["worker"], result["service"]);
 }
+
+/// A concrete integer label is definitely wrong, not merely unresolved:
+/// upstream reports `eval` ("integer fields not supported"). String labels
+/// computed from references keep working.
+#[test]
+fn concrete_integer_labels_are_definite_errors() {
+    let error = eval_to_json("value: {(2): string}")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("integer fields not supported"), "{error}");
+    let result = eval_to_json(
+        r#"
+        name: "worker"
+        services: {(name): {command: "sleep 60"}}
+    "#,
+    )
+    .unwrap();
+    assert_eq!(result["services"]["worker"], json!({"command": "sleep 60"}));
+}

@@ -56,10 +56,11 @@ fn observe(evaluator: &Evaluator, root: ValueId, check: &Check) -> Observation {
             match evaluator.arena.get(current) {
                 Some(Value::Bottom(reason)) => {
                     let code = match reason.kind {
-                        BottomKind::Conflict
-                        | BottomKind::ReferenceNotFound
-                        | BottomKind::UndefinedField => "eval",
-                        BottomKind::Incomplete => "incomplete",
+                        BottomKind::Conflict | BottomKind::ReferenceNotFound => "eval",
+                        // A resolved struct missing a field may gain it on a
+                        // later pass — the relaxation loop retries this kind
+                        // for the same reason. Upstream reports `incomplete`.
+                        BottomKind::UndefinedField | BottomKind::Incomplete => "incomplete",
                         BottomKind::Cycle | BottomKind::Unresolved => "cycle",
                         BottomKind::StructuralCycle => "structural_cycle",
                         BottomKind::Other => {
