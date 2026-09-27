@@ -101,19 +101,44 @@ Why plain moves stop working here: both thread `&mut self` through arena,
 scopes, imports, closed-copies, origin and deferring flags on nearly every
 line. The next step is not another extraction but owner types:
 
-- `RelaxationLoop`: owns sweep state (`moved`/`wrote`, pass budgets
-  `MAX_REDERIVE_SWEEPS`/`MAX_REFINEMENT_PASSES`), borrows arena + scopes.
-  The `schedule` module already holds its pure pieces (`Sweep`,
-  `derivation_order`, `refined_any`); the loop driver
-  (`eval_decls_into`/`eval_decls_scoped`/`eval_decl_pass`) moves last.
-- `BuiltinRegistry`: owns `eval_call` dispatch plus the `TYPE_BUILTINS`
-  table seed in `builtins.rs`. Needs a narrow interface to arg evaluation
-  (`eval_expr` on sub-expressions) rather than full `&mut Evaluator`.
+- `RelaxationLoop` (done): `cue-eval::relaxation::RelaxationLoop<'a>`
+  borrows the evaluator and owns the driver — `eval_root_decls`,
+  `eval_decls`, `eval_decls_into`, `eval_decls_scoped`, `eval_single_decl`,
+  `eval_decl_pass`, `finish_decls`, `eval_nested_decls`,
+  `collect_let_declarations`, plus the `MAX_REFINEMENT_PASSES` policy.
+  Public `Evaluator::eval_root_decls` delegates, so `package.rs` and all
+  callers are unchanged. Crate-internal session operations the driver
+  needs are `pub(crate)`; the characterization tests pass unchanged,
+  including exact refinement counts. `eval.rs` 2167 → 1674 lines.
+  Follow-up done: `is_placeholder` / `is_unresolved` / the depth-budgeted
+  walk moved to `ValueArena` (with `MAX_UNRESOLVED_DEPTH`), called as
+  `arena.*` from 15+ sites; `eval.rs` → 1519 lines.
+  Selector/Index/Slice arms split evaluate-then-apply: `operators::select`
+  / `index` / `slice` are total arena functions (definition closing via a
+  `closedness::read_definition` free function); `eval.rs` → ~1350 lines.
+  Rederivation moved onto `RelaxationLoop` (12 methods +
+  `MAX_REDERIVE_SWEEPS`); `merge_generated` is a `schedule` free function
+  over the arena; struct and list comprehension reunited on the owner.
+  Public `unify_and_rederive` delegates. `eval.rs` → 803 lines
+  (from 2398): what remains is expression evaluation plus session state,
+  which is the evaluator's actual job — further splitting would be veils,
+  not boundaries.
+- `BuiltinRegistry` (done): `eval_call` split at the narrow interface —
+  `Evaluator::eval_call` evaluates and default-resolves arguments, and the
+  total `builtins::call(arena, imports, func, args)` applies them
+  (`div`/`mod`/`quo`/`rem`, `len`, `or`, `close`, stdlib dispatch, bottom
+  fallback). The `imports.clone()` is gone: disjoint field borrows pass
+  `&Imports` directly. `eval.rs` 1674 → 1590 lines. Unit tests pin
+  `len`/`or`/unknown-call behavior without an evaluator.
 
-Resume rule: each move must keep the full workspace suite green; the
-relaxation loop has no dedicated unit tests today, so write
-characterization tests for `eval_decls_scoped` pass counts (`derivations`/
-`unsettled` counters exist for this) before moving the driver.
+Resume rule: each move must keep the full workspace suite green.
+Characterization now exists and must keep passing unchanged:
+`crates/cue-eval/tests/relaxation_loop.rs` pins the driver's pass counts
+and outcomes (forward/backward order-independence with zero refinement, a
+nested forward reference settling after exactly 4 refinements, three cycle
+shapes terminating with bottom at export after 1/18/19 refinements),
+observed through the new cumulative `Evaluator::refinements` counter
+(per-literal allowance semantics untouched).
 - Phase 5 (done): `FileProvider` trait in `cue-eval::fs` with `StdFs` and
   `MemFs`; all six internal loader functions take `&dyn FileProvider`.
   Public API unchanged (delegates to `StdFs`); new `*_with_fs` overloads

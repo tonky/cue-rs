@@ -16,6 +16,11 @@ new_key_type! {
     pub struct ValueId;
 }
 
+/// How deep the unresolved-reference walk descends. The value graph it walks
+/// can be cyclic, and the walk carries no visited set because it runs on every
+/// declaration of every relaxation pass.
+pub(crate) const MAX_UNRESOLVED_DEPTH: usize = 64;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TypeKind {
     Top,
@@ -643,6 +648,71 @@ impl ValueArena {
         self.metadata.get(&id)
     }
 
+    /// Whether a value is the placeholder of a definition not evaluated yet.
+    pub fn is_placeholder(&self, val_id: ValueId) -> bool {
+        matches!(
+            self.get(val_id),
+            Some(Value::RecursiveRef { target: None, .. })
+        )
+    }
+
+    /// Whether a value carries a reference nothing has resolved yet.
+    ///
+    /// Two callers, one meaning: the relaxation loop retries a declaration that
+    /// answers yes, and a re-derived recipe that answers yes keeps the value it
+    /// had rather than replacing it with a reference the merge cannot satisfy.
+    ///
+    /// Every composite is walked, not only the ones that hold a field. A
+    /// disjunction is the one that bites: `string | *"\(pkg.name)"` deriving to
+    /// a default branch of bottom exports as `_|_`, so judging it resolved
+    /// overwrites a good value with a broken one.
+    pub fn is_unresolved(&self, val_id: ValueId) -> bool {
+        self.is_unresolved_within(val_id, MAX_UNRESOLVED_DEPTH)
+    }
+
+    fn is_unresolved_within(&self, val_id: ValueId, depth: usize) -> bool {
+        // A value graph can be cyclic. Past the budget, answer as this walk did
+        // before it descended into composites at all: resolved, and written.
+        let Some(depth) = depth.checked_sub(1) else {
+            return false;
+        };
+        if self
+            .metadata(val_id)
+            .is_some_and(|metadata| self.is_unresolved_within(metadata.fields, depth))
+        {
+            return true;
+        }
+        let any = |ids: &mut dyn Iterator<Item = ValueId>| -> bool {
+            for id in ids {
+                if self.is_unresolved_within(id, depth) {
+                    return true;
+                }
+            }
+            false
+        };
+        match self.get(val_id) {
+            Some(Value::Bottom(reason)) => reason.kind.may_resolve_later(),
+            Some(Value::Struct(s)) => any(&mut s
+                .fields
+                .values()
+                .chain(s.definitions.values())
+                .chain(s.hidden.values())
+                .map(|f| f.val)),
+            Some(Value::List { elements, ellipsis }) => {
+                any(&mut elements.iter().copied().chain(*ellipsis))
+            }
+            Some(Value::Disjunction { branches }) => any(&mut branches.iter().map(|b| b.val)),
+            Some(Value::Bounds { constraints, .. }) => {
+                any(&mut constraints.iter().map(|(_, id)| *id))
+            }
+            Some(Value::Validators(targets)) => any(&mut targets.iter().copied()),
+            Some(Value::BuiltinValidator { target, .. }) => {
+                self.is_unresolved_within(*target, depth)
+            }
+            _ => false,
+        }
+    }
+
     pub(crate) fn embedded_metadata(&self, id: ValueId) -> Option<&ValueMetadata> {
         self.metadata(id)
             .filter(|metadata| metadata.conjuncts().is_some())
@@ -768,6 +838,26 @@ impl ValueArena {
 mod tests {
     use super::*;
     use num_bigint::BigInt;
+
+    #[test]
+    fn placeholder_and_unresolved_queries() {
+        let mut arena = ValueArena::new();
+        let top = arena.top();
+        assert!(!arena.is_placeholder(top));
+        assert!(!arena.is_unresolved(top));
+
+        let pending = arena.bottom_of(BottomKind::Unresolved, "x");
+        assert!(arena.is_unresolved(pending));
+        let conflict = arena.bottom_of(BottomKind::Conflict, "y");
+        assert!(!arena.is_unresolved(conflict));
+
+        let placeholder = arena.alloc(Value::RecursiveRef {
+            name: "D".to_string(),
+            target: None,
+        });
+        assert!(arena.is_placeholder(placeholder));
+        assert!(!arena.is_unresolved(placeholder));
+    }
 
     #[test]
     fn display_strings_preserved() {

@@ -390,3 +390,186 @@ fn abstract_value(value: &Value) -> bool {
         Value::Top | Value::Type(_) | Value::Bounds { .. } | Value::RecursiveRef { .. }
     )
 }
+
+/// Resolve an already-evaluated selector base: total function of the arena.
+/// A definition read before its declaration was evaluated has no fields
+/// *yet*; the relaxation loop retries those.
+pub(crate) fn select(
+    arena: &mut ValueArena,
+    closed: &mut crate::closedness::ClosedCopies,
+    reading_root_embedding: bool,
+    base_id: ValueId,
+    field: &str,
+) -> ValueId {
+    if arena.fields(base_id).is_none()
+        && let Some(Value::Bottom(_)) = arena.get(base_id)
+    {
+        return base_id;
+    }
+    // A definition read before its declaration was evaluated has no
+    // fields *yet*.
+    if let Some(Value::RecursiveRef { name, target: None }) = arena.get(base_id) {
+        let message = format!("{name} not evaluated yet");
+        return arena.bottom_of(BottomKind::Unresolved, message);
+    }
+    if let Some(s) = arena.fields(base_id) {
+        if let Some(f) = s
+            .fields
+            .get(field)
+            .or_else(|| s.definitions.get(field))
+            .or_else(|| s.hidden.get(field))
+        {
+            let val = f.val;
+            crate::closedness::read_definition(arena, closed, reading_root_embedding, field, val)
+        } else {
+            // The base resolved and has no such field. It may still
+            // gain one on a later pass, which is why this kind is
+            // one the relaxation loop retries.
+            arena.bottom_of(
+                BottomKind::UndefinedField,
+                format!("undefined field: {field}"),
+            )
+        }
+    } else {
+        arena.bottom("selector on non-struct")
+    }
+}
+
+/// Resolve already-evaluated index operands: total function of the arena.
+/// Bottom operands pass through; anything else out of shape is a conflict.
+pub(crate) fn index(arena: &mut ValueArena, target_id: ValueId, index_id: ValueId) -> ValueId {
+    if let Some(Value::Bottom(_)) = arena.get(target_id) {
+        return target_id;
+    }
+    if let Some(Value::Bottom(_)) = arena.get(index_id) {
+        return index_id;
+    }
+
+    match (arena.get(target_id), arena.get(index_id)) {
+        (Some(Value::List { elements, .. }), Some(Value::Int(i))) => {
+            if let Some(idx) = i.to_usize() {
+                if let Some(&elem) = elements.get(idx) {
+                    elem
+                } else {
+                    let len = elements.len();
+                    arena.bottom_of(
+                        BottomKind::Conflict,
+                        format!("list index {idx} out of bounds (len: {len})"),
+                    )
+                }
+            } else {
+                arena.bottom_of(BottomKind::Conflict, "invalid list index")
+            }
+        }
+        (Some(Value::Struct(s)), Some(Value::String(key))) => {
+            if let Some(f) = s.fields.get(key).or_else(|| s.definitions.get(key)) {
+                f.val
+            } else {
+                arena.bottom_of(
+                    BottomKind::UndefinedField,
+                    format!("undefined field: {key}"),
+                )
+            }
+        }
+        _ => arena.bottom("indexing unsupported on target"),
+    }
+}
+
+/// Slice an already-evaluated list between already-evaluated bounds:
+/// total function of the arena. A non-integer bound falls back to its end.
+pub(crate) fn slice(
+    arena: &mut ValueArena,
+    target_id: ValueId,
+    low_id: Option<ValueId>,
+    high_id: Option<ValueId>,
+) -> ValueId {
+    let Some(Value::List { elements, ellipsis }) = arena.get(target_id).cloned() else {
+        return arena.bottom("slice unsupported on non-list");
+    };
+    let len = elements.len();
+    let bound = |id: Option<ValueId>, default: usize| match id.and_then(|id| arena.get(id)) {
+        Some(Value::Int(i)) => i.to_usize().unwrap_or(default).min(len),
+        _ => default,
+    };
+    let start = bound(low_id, 0);
+    let end = bound(high_id, len);
+
+    if start <= end {
+        let sliced = elements[start..end].to_vec();
+        arena.alloc(Value::List {
+            elements: sliced,
+            ellipsis,
+        })
+    } else {
+        arena.bottom(format!("invalid slice range: [{start}:{end}]"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::closedness::ClosedCopies;
+    use crate::value::StructValue;
+
+    fn list_of(arena: &mut ValueArena, n: i64) -> ValueId {
+        let elements: Vec<ValueId> = (0..n).map(|i| arena.int(i)).collect();
+        arena.alloc(Value::List {
+            elements,
+            ellipsis: None,
+        })
+    }
+
+    #[test]
+    fn index_resolves_and_reports_bounds() {
+        let mut arena = ValueArena::new();
+        let list = list_of(&mut arena, 3);
+        let two = arena.int(2);
+        let id = index(&mut arena, list, two);
+        assert_eq!(arena.get(id), arena.get(two));
+
+        let nine = arena.int(9);
+        let id = index(&mut arena, list, nine);
+        assert!(matches!(arena.get(id), Some(Value::Bottom(_))));
+
+        let s = arena.string("x");
+        let id = index(&mut arena, list, s);
+        assert!(matches!(arena.get(id), Some(Value::Bottom(_))));
+    }
+
+    #[test]
+    fn slice_clamps_and_rejects_reversed_ranges() {
+        let mut arena = ValueArena::new();
+        let list = list_of(&mut arena, 4);
+        let one = arena.int(1);
+        let three = arena.int(3);
+
+        let id = slice(&mut arena, list, Some(one), Some(three));
+        match arena.get(id) {
+            Some(Value::List { elements, .. }) => assert_eq!(elements.len(), 2),
+            other => panic!("expected sliced list, got {other:?}"),
+        }
+
+        let id = slice(&mut arena, list, Some(three), Some(one));
+        assert!(matches!(arena.get(id), Some(Value::Bottom(_))));
+
+        let not_list = arena.int(1);
+        let id = slice(&mut arena, not_list, None, None);
+        assert!(matches!(arena.get(id), Some(Value::Bottom(_))));
+    }
+
+    #[test]
+    fn select_finds_fields_and_reports_missing() {
+        let mut arena = ValueArena::new();
+        let mut closed = ClosedCopies::default();
+        let val = arena.int(7);
+        let mut s = StructValue::new(false);
+        s.insert_field("a".to_string(), val, false);
+        let base = arena.alloc(Value::Struct(s));
+
+        let id = select(&mut arena, &mut closed, false, base, "a");
+        assert_eq!(id, val);
+
+        let id = select(&mut arena, &mut closed, false, base, "missing");
+        assert!(matches!(arena.get(id), Some(Value::Bottom(_))));
+    }
+}

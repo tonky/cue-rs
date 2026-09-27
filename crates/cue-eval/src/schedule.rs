@@ -4,7 +4,7 @@
 //! literal's fields, and tracking what one re-derivation sweep did. The loop
 //! itself stays in `eval.rs`; this module owns the shapes it reasons about.
 
-use crate::unify::{Equivalence, compare_values};
+use crate::unify::{Equivalence, compare_values, unify};
 use crate::value::{FieldEntry, StructValue, ValueArena, ValueId};
 use cue_syntax::ast::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -202,6 +202,45 @@ pub(crate) fn refined_any(
             _ => false,
         }
     })
+}
+
+/// Merge what one iteration of a comprehension generated into the struct
+/// it generates into, keeping each field's recipes for re-derivation.
+pub(crate) fn merge_generated(
+    arena: &mut ValueArena,
+    target: &mut StructValue,
+    generated: StructValue,
+) {
+    let StructValue {
+        fields,
+        definitions,
+        hidden,
+        pattern_constraints,
+        is_open,
+        ..
+    } = generated;
+    for (section, entries) in [
+        (Section::Field, fields),
+        (Section::Definition, definitions),
+        (Section::Hidden, hidden),
+    ] {
+        let map = section.map_mut(target);
+        for (name, entry) in entries {
+            match map.entry(name) {
+                std::collections::btree_map::Entry::Occupied(mut slot) => {
+                    let existing = slot.get_mut();
+                    existing.val = unify(&mut *arena, existing.val, entry.val);
+                    existing.optional &= entry.optional;
+                    existing.extend_conjuncts(entry.conjuncts.iter().cloned());
+                }
+                std::collections::btree_map::Entry::Vacant(slot) => {
+                    slot.insert(entry);
+                }
+            }
+        }
+    }
+    target.pattern_constraints.extend(pattern_constraints);
+    target.is_open |= is_open;
 }
 
 #[cfg(test)]

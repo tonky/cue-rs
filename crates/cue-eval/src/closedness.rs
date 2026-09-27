@@ -46,6 +46,22 @@ pub struct ClosedCopies {
     copies: HashMap<ValueId, ValueId>,
 }
 
+/// What reading `name` yields: a definition's closed copy, anything else as
+/// it is. Embeddings at the file root read definitions open.
+pub(crate) fn read_definition(
+    arena: &mut ValueArena,
+    closed: &mut ClosedCopies,
+    reading_root_embedding: bool,
+    name: &str,
+    val: ValueId,
+) -> ValueId {
+    if !reading_root_embedding && (name.starts_with('#') || name.starts_with("_#")) {
+        closed.close(arena, val)
+    } else {
+        val
+    }
+}
+
 impl ClosedCopies {
     pub fn close(&mut self, arena: &mut ValueArena, id: ValueId) -> ValueId {
         if let Some(&copy) = self.copies.get(&id)
