@@ -47,33 +47,31 @@ fn observe(evaluator: &Evaluator, root: ValueId, check: &Check) -> Observation {
         current = next;
     }
     match check.operation.as_str() {
-        "error_present" => Observation::Value(json!(matches!(
-            evaluator.arena.get(current),
-            Some(Value::Bottom(_))
-        ))),
-        "error_code" => {
-            use cue_eval::BottomKind;
-            match evaluator.arena.get(current) {
-                Some(Value::Bottom(reason)) => {
-                    let code = match reason.kind {
-                        BottomKind::Conflict | BottomKind::ReferenceNotFound => "eval",
-                        // A resolved struct missing a field may gain it on a
-                        // later pass — the relaxation loop retries this kind
-                        // for the same reason. Upstream reports `incomplete`.
-                        BottomKind::UndefinedField | BottomKind::Incomplete => "incomplete",
-                        BottomKind::Cycle | BottomKind::Unresolved => "cycle",
-                        BottomKind::StructuralCycle => "structural_cycle",
-                        BottomKind::Other => {
-                            return Observation::Unsupported(
-                                "error cause is not typed precisely enough".into(),
-                            );
-                        }
-                    };
-                    Observation::Value(json!(code))
-                }
-                _ => Observation::Value(serde_json::Value::Null),
+        // A struct standing over an error field is erroneous upstream, even
+        // though only the leaf is bottom (`issue3778/full` observes `full`,
+        // not `z.b`). The subtree search only fires when the value itself
+        // is not bottom, so no passing check can flip.
+        "error_present" => Observation::Value(json!(
+            matches!(evaluator.arena.get(current), Some(Value::Bottom(_)))
+                || subtree_error_code(evaluator, current).is_some()
+        )),
+        "error_code" => match evaluator.arena.get(current) {
+            Some(Value::Bottom(reason)) => {
+                let code = match bottom_code(&reason.kind) {
+                    Some(code) => code,
+                    None => {
+                        return Observation::Unsupported(
+                            "error cause is not typed precisely enough".into(),
+                        );
+                    }
+                };
+                Observation::Value(json!(code))
             }
-        }
+            _ => match subtree_error_code(evaluator, current) {
+                Some(code) => Observation::Value(json!(code)),
+                None => Observation::Value(serde_json::Value::Null),
+            },
+        },
         "error_paths" => Observation::Unsupported(
             "absolute diagnostic paths and diagnostic sets are not yet available".into(),
         ),
@@ -96,6 +94,90 @@ fn observe(evaluator: &Evaluator, root: ValueId, check: &Check) -> Observation {
         },
         other => Observation::Unsupported(format!("operation {other}")),
     }
+}
+
+/// The oracle code for one bottom cause; `None` is not typed precisely
+/// enough to report.
+fn bottom_code(kind: &cue_eval::BottomKind) -> Option<&'static str> {
+    use cue_eval::BottomKind;
+    Some(match kind {
+        BottomKind::Conflict
+        | BottomKind::ReferenceNotFound
+        | BottomKind::UndefinedFieldDefinite => "eval",
+        // A resolved struct missing a field may gain it on a later pass —
+        // the relaxation loop retries this kind for the same reason.
+        // Upstream reports `incomplete`.
+        BottomKind::UndefinedField | BottomKind::Incomplete => "incomplete",
+        // A lone custom error settles as definite; inside a disjunction
+        // the settle adopts a real code.
+        BottomKind::Custom => "eval",
+        BottomKind::Cycle | BottomKind::Unresolved => "cycle",
+        BottomKind::StructuralCycle => "structural_cycle",
+        BottomKind::Other => return None,
+    })
+}
+
+/// The severest oracle code among the bottoms in a value's subtree, if any.
+/// Disjunction interiors are not descended into: a failed alternative is
+/// normal settling, not an error surfacing. Cycles in the arena are cut by
+/// the visited set.
+fn subtree_error_code(evaluator: &Evaluator, id: ValueId) -> Option<&'static str> {
+    fn severity(code: &str) -> u8 {
+        match code {
+            "eval" => 4,
+            "incomplete" => 3,
+            "cycle" => 2,
+            "structural_cycle" => 1,
+            _ => 0,
+        }
+    }
+    fn walk(
+        evaluator: &Evaluator,
+        id: ValueId,
+        visited: &mut std::collections::HashSet<ValueId>,
+        best: &mut Option<&'static str>,
+    ) {
+        if !visited.insert(id) {
+            return;
+        }
+        let current_best = best.map(severity).unwrap_or(0);
+        if current_best >= 4 {
+            return;
+        }
+        match evaluator.arena.get(id) {
+            Some(Value::Bottom(reason)) => {
+                if let Some(code) = bottom_code(&reason.kind)
+                    && severity(code) > current_best
+                {
+                    *best = Some(code);
+                }
+            }
+            Some(Value::Struct(s)) => {
+                for entry in s
+                    .fields
+                    .values()
+                    .chain(s.definitions.values())
+                    .chain(s.hidden.values())
+                {
+                    walk(evaluator, entry.val, visited, best);
+                }
+            }
+            Some(Value::List { elements, .. }) => {
+                for &element in elements {
+                    walk(evaluator, element, visited, best);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut best = None;
+    walk(
+        evaluator,
+        id,
+        &mut std::collections::HashSet::new(),
+        &mut best,
+    );
+    best
 }
 
 fn snapshot(e: &Evaluator, id: ValueId, depth: usize) -> Result<serde_json::Value, String> {

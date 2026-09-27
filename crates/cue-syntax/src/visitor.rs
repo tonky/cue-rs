@@ -129,6 +129,9 @@ pub fn walk_expr<V: Visitor>(visitor: &mut V, expr: &Expr) {
                 visitor.visit_expr(a);
             }
         }
+        Expr::Spread { expr } => {
+            visitor.visit_expr(expr);
+        }
         Expr::Interpolation { parts, .. } => {
             for p in parts {
                 if let InterpolationPart::Expr(e) = p {
@@ -322,6 +325,9 @@ pub fn fold_expr<F: Folder>(folder: &mut F, expr: Expr) -> Expr {
         Expr::Call { func, args } => Expr::Call {
             func: Box::new(folder.fold_expr(*func)),
             args: args.into_iter().map(|a| folder.fold_expr(a)).collect(),
+        },
+        Expr::Spread { expr } => Expr::Spread {
+            expr: Box::new(folder.fold_expr(*expr)),
         },
         Expr::Interpolation { parts, form } => Expr::Interpolation {
             form,

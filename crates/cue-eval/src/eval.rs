@@ -69,6 +69,10 @@ pub struct Evaluator {
     /// that has not resolved yet is then not an answer: an existence check or a
     /// comprehension's condition stays pending instead of deciding on it.
     pub(crate) deferring: bool,
+    /// Set while evaluating a definition's body, including nested literals.
+    /// A select whose base lacks the field is then decided, not pending: a
+    /// template cannot grow the field the way an open value may.
+    pub(crate) in_definition: bool,
 }
 
 const MAX_EXPR_DEPTH: usize = 64;
@@ -109,6 +113,7 @@ impl Evaluator {
             reading_root_embedding: false,
             origin: None,
             deferring: false,
+            in_definition: false,
         };
         evaluator.register_builtins();
         evaluator
@@ -141,6 +146,98 @@ impl Evaluator {
     pub(crate) fn remove_binding(&mut self, name: &str) {
         if let Some(scope) = self.scopes.last_mut() {
             scope.remove(name);
+        }
+    }
+
+    /// Build a bound constraint over an evaluated target. The target must
+    /// be a concrete value of a kind the operator accepts; anything else is
+    /// decided now. Retryable bottoms stay lazy so forward references keep
+    /// working; settled failures propagate as the bound's own failure; bool
+    /// is not an ordered type; and a bound, basic type, or top is never a
+    /// concrete value to bound (upstream: `incomplete`).
+    fn eval_bound(&mut self, bound: Bound, target_id: ValueId) -> Result<ValueId, EvalError> {
+        let lazy = || Value::Bounds {
+            base_type: None,
+            constraints: vec![(bound, target_id)],
+        };
+        let target_ok = match (bound, self.arena.get(target_id)) {
+            (
+                Bound::Less | Bound::LessEqual | Bound::Greater | Bound::GreaterEqual,
+                Some(Value::Int(_) | Value::Float(_) | Value::String(_) | Value::Bytes(_)),
+            )
+            | (
+                Bound::Equal | Bound::NotEqual,
+                Some(
+                    Value::Int(_)
+                    | Value::Float(_)
+                    | Value::String(_)
+                    | Value::Bool(_)
+                    | Value::List { .. }
+                    | Value::Struct(_),
+                ),
+            )
+            | (Bound::RegexMatch | Bound::RegexNotMatch, Some(Value::String(_))) => true,
+            // `!=null` (and `==null`) filter nulls downstream, so they
+            // stay lazy. Null is not orderable.
+            (
+                Bound::Equal | Bound::NotEqual | Bound::RegexMatch | Bound::RegexNotMatch,
+                Some(Value::Null),
+            ) => true,
+            // Any value that may still resolve stays lazy: the declaration
+            // is re-derived once it does.
+            (_, Some(Value::Bottom(reason))) if reason.kind.may_resolve_later() => true,
+            _ => false,
+        };
+        if target_ok {
+            return Ok(self.arena.alloc(lazy()));
+        }
+        match self.arena.get(target_id) {
+            // A settled failure is the bound's own failure.
+            Some(Value::Bottom(_)) => Ok(target_id),
+            // Bool is not an ordered type.
+            Some(Value::Bool(_)) => Ok(self.arena.bottom_of(
+                BottomKind::Conflict,
+                format!("cannot use bool for bound {bound}"),
+            )),
+            // Null is not orderable either.
+            Some(Value::Null) => Ok(self.arena.bottom_of(
+                BottomKind::Conflict,
+                format!("cannot use null for bound {bound}"),
+            )),
+            _ => {
+                let description = Self::describe_bound_target(&self.arena, target_id);
+                Ok(self.arena.bottom_of(
+                    BottomKind::Incomplete,
+                    format!("non-concrete value {description} for bound {bound}"),
+                ))
+            }
+        }
+    }
+
+    /// How a bound target reads inside a "non-concrete value" diagnosis:
+    /// `<3`, `!=3`, `int`. Message cosmetics only — the oracle compares codes.
+    fn describe_bound_target(arena: &ValueArena, target_id: ValueId) -> String {
+        let scalar = |id: ValueId| -> Option<String> {
+            match arena.get(id) {
+                Some(Value::Int(i)) => Some(i.to_string()),
+                Some(Value::Float(f)) => Some(format!("{f:?}")),
+                Some(Value::String(s)) => Some(format!("{s:?}")),
+                Some(Value::Bool(b)) => Some(b.to_string()),
+                Some(Value::Bytes(_)) => Some("bytes".to_string()),
+                _ => None,
+            }
+        };
+        match arena.get(target_id) {
+            Some(Value::Bounds { constraints, .. }) => match constraints.as_slice() {
+                [(op, inner)] => match scalar(*inner) {
+                    Some(text) => format!("{op}{text}"),
+                    None => format!("{op}…"),
+                },
+                _ => "bound".to_string(),
+            },
+            Some(Value::Type(kind)) => kind.to_string(),
+            Some(Value::Top) => "top".to_string(),
+            _ => scalar(target_id).unwrap_or_else(|| "value".to_string()),
         }
     }
 
@@ -574,10 +671,7 @@ impl Evaluator {
                     // Bounds convert from their syntax position; the default
                     // marker (`*v`) is not a bound and passes through.
                     op => match Bound::try_from(*op) {
-                        Ok(bound) => Ok(self.arena.alloc(Value::Bounds {
-                            base_type: None,
-                            constraints: vec![(bound, target_id)],
-                        })),
+                        Ok(bound) => self.eval_bound(bound, target_id),
                         Err(_) => Ok(target_id),
                     },
                 }
@@ -595,9 +689,58 @@ impl Evaluator {
                         },
                     );
                 }
-                Ok(self.arena.alloc(Value::Disjunction {
-                    branches: eval_branches,
-                }))
+                // A custom error branch is definite: settle it the way the
+                // rederive loop would, so the disjunction neither waits on
+                // it nor keeps it beside a surviving value. Disjunctions
+                // without one allocate untouched.
+                let has_custom = eval_branches.iter().any(|branch| {
+                    matches!(self.arena.get(branch.val), Some(Value::Bottom(reason)) if reason.kind == BottomKind::Custom)
+                });
+                if !has_custom {
+                    return Ok(self.arena.alloc(Value::Disjunction {
+                        branches: eval_branches,
+                    }));
+                }
+                let mut kept = Vec::new();
+                let mut errors = Vec::new();
+                for branch in eval_branches {
+                    match self.arena.get(branch.val) {
+                        Some(Value::Bottom(reason))
+                            if !reason.kind.may_resolve_later()
+                                && reason.kind != BottomKind::Incomplete =>
+                        {
+                            errors.push(reason.clone());
+                        }
+                        _ => kept.push(branch),
+                    }
+                }
+                // Every kept branch already failed and a custom branch names
+                // the failure: fold the pending failures to one survivor so
+                // the disjunction reports instead of waiting forever. The
+                // survivor stays retryable, so a merge that supplies a
+                // succeeding branch still heals this on the next pass; only
+                // its code is decided now, most-decided failure first.
+                if !kept.is_empty()
+                    && kept
+                        .iter()
+                        .all(|branch| matches!(self.arena.get(branch.val), Some(Value::Bottom(_))))
+                {
+                    kept.sort_by_key(|branch| match self.arena.get(branch.val) {
+                        Some(Value::Bottom(reason)) => match reason.kind {
+                            BottomKind::UndefinedFieldDefinite => 0,
+                            BottomKind::Incomplete => 1,
+                            BottomKind::UndefinedField => 2,
+                            _ => 3,
+                        },
+                        _ => 4,
+                    });
+                    kept.truncate(1);
+                }
+                Ok(crate::unify::settle_disjunction(
+                    &mut self.arena,
+                    kept,
+                    &errors,
+                ))
             }
             Expr::Selector { expr, field } => {
                 if let Expr::Ident(pkg_name) = expr.as_ref() {
@@ -631,6 +774,7 @@ impl Evaluator {
                     &mut self.arena,
                     &mut self.closed,
                     self.reading_root_embedding,
+                    self.in_definition,
                     val_id,
                     field,
                 ))
@@ -640,6 +784,7 @@ impl Evaluator {
                 let index_id = self.eval_expr(index)?;
                 Ok(crate::operators::index(
                     &mut self.arena,
+                    self.in_definition,
                     target_id,
                     index_id,
                 ))
@@ -667,6 +812,21 @@ impl Evaluator {
                 ))
             }
             Expr::Call { func, args } => self.eval_call(func, args),
+            Expr::Spread { expr } => {
+                let val_id = self.eval_expr(expr)?;
+                // Explicit open: the struct allows new fields in the merge
+                // around it but stays closed itself, so the merged result is
+                // still closed. Anything else (including errors) passes
+                // through, which is also what `1...`-style tolerance needs.
+                if let Some(Value::Struct(s)) = self.arena.get(val_id).cloned() {
+                    let mut opened = s;
+                    opened.is_open = true;
+                    opened.spread_open = true;
+                    Ok(self.arena.alloc(Value::Struct(opened)))
+                } else {
+                    Ok(val_id)
+                }
+            }
             Expr::Interpolation { parts, .. } => {
                 let mut result_str = String::new();
                 for part in parts {

@@ -1,4 +1,4 @@
-//! The seven bound operators, shared by syntax positions and values.
+//! The eight bound operators, shared by syntax positions and values.
 //!
 //! `UnaryOp` and `BinaryOp` describe where an operator was written; [`Bound`]
 //! describes what it means as a constraint. Evaluated `Bounds` values store
@@ -15,6 +15,7 @@ pub enum Bound {
     LessEqual,
     Greater,
     GreaterEqual,
+    Equal,
     NotEqual,
     RegexMatch,
     RegexNotMatch,
@@ -27,6 +28,7 @@ impl fmt::Display for Bound {
             Self::LessEqual => write!(f, "<="),
             Self::Greater => write!(f, ">"),
             Self::GreaterEqual => write!(f, ">="),
+            Self::Equal => write!(f, "=="),
             Self::NotEqual => write!(f, "!="),
             Self::RegexMatch => write!(f, "=~"),
             Self::RegexNotMatch => write!(f, "!~"),
@@ -55,6 +57,7 @@ impl TryFrom<UnaryOp> for Bound {
             UnaryOp::LessEqual => Ok(Self::LessEqual),
             UnaryOp::Greater => Ok(Self::Greater),
             UnaryOp::GreaterEqual => Ok(Self::GreaterEqual),
+            UnaryOp::Equal => Ok(Self::Equal),
             UnaryOp::NotEqual => Ok(Self::NotEqual),
             UnaryOp::RegexMatch => Ok(Self::RegexMatch),
             UnaryOp::RegexNotMatch => Ok(Self::RegexNotMatch),
@@ -87,6 +90,7 @@ impl From<Bound> for UnaryOp {
             Bound::LessEqual => Self::LessEqual,
             Bound::Greater => Self::Greater,
             Bound::GreaterEqual => Self::GreaterEqual,
+            Bound::Equal => Self::Equal,
             Bound::NotEqual => Self::NotEqual,
             Bound::RegexMatch => Self::RegexMatch,
             Bound::RegexNotMatch => Self::RegexNotMatch,
@@ -101,6 +105,7 @@ impl From<Bound> for BinaryOp {
             Bound::LessEqual => Self::LessEqual,
             Bound::Greater => Self::Greater,
             Bound::GreaterEqual => Self::GreaterEqual,
+            Bound::Equal => Self::Equal,
             Bound::NotEqual => Self::NotEqual,
             Bound::RegexMatch => Self::RegexMatch,
             Bound::RegexNotMatch => Self::RegexNotMatch,
@@ -119,12 +124,19 @@ mod tests {
             Bound::LessEqual,
             Bound::Greater,
             Bound::GreaterEqual,
+            Bound::Equal,
             Bound::NotEqual,
             Bound::RegexMatch,
             Bound::RegexNotMatch,
         ] {
             assert_eq!(Bound::try_from(UnaryOp::from(bound)), Ok(bound));
-            assert_eq!(Bound::try_from(BinaryOp::from(bound)), Ok(bound));
+            // `==` is a bound only in unary position; binary `==` stays
+            // an ordinary comparison operator (see `non_bounds_rejected`).
+            if bound == Bound::Equal {
+                assert_eq!(Bound::try_from(BinaryOp::from(bound)), Err(NotABound));
+            } else {
+                assert_eq!(Bound::try_from(BinaryOp::from(bound)), Ok(bound));
+            }
         }
     }
 

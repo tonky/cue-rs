@@ -203,6 +203,12 @@ pub enum BottomKind {
     ReferenceNotFound,
     /// The base resolves; it has no such field.
     UndefinedField,
+    /// The base resolves, it has no such field, and the base is decided: a
+    /// closed copy (read through a definition) or a select evaluated under a
+    /// definition. Still retried while passes run, because a merge may yet
+    /// supply the field; a survivor past the fixpoint is `eval`, where the
+    /// open-world [`Self::UndefinedField`] stays `incomplete`.
+    UndefinedFieldDefinite,
     /// Not resolved *yet*. The relaxation loop may resolve it on a later pass,
     /// and one that survives the final pass is a cycle.
     Unresolved,
@@ -218,6 +224,11 @@ pub enum BottomKind {
     Cycle,
     /// Two values that cannot both hold.
     Conflict,
+    /// A user-supplied `error("message")` branch. It loses to any
+    /// succeeding sibling at settle time and lends its message to a
+    /// lone surviving failure, adopting that failure's code. Never
+    /// retried: the message is final, only its code is contextual.
+    Custom,
     /// A failure that is none of the above - a depth limit, a failed validator,
     /// an operation on the wrong type. These differ in wording, not in what the
     /// evaluator does with them.
@@ -227,7 +238,7 @@ pub enum BottomKind {
 impl BottomKind {
     /// Whether another pass of the relaxation loop might still resolve this.
     ///
-    /// All three reference failures qualify, including the two upstream reports
+    /// All four reference failures qualify, including the two upstream reports
     /// as final. cue-rs decides the wording where the bottom is built, and at
     /// that moment a name the enclosing literal has not reached yet looks
     /// exactly like a name that does not exist; only the pass that finds no new
@@ -236,7 +247,10 @@ impl BottomKind {
     pub fn may_resolve_later(self) -> bool {
         matches!(
             self,
-            BottomKind::Unresolved | BottomKind::ReferenceNotFound | BottomKind::UndefinedField
+            BottomKind::Unresolved
+                | BottomKind::ReferenceNotFound
+                | BottomKind::UndefinedField
+                | BottomKind::UndefinedFieldDefinite
         )
     }
 }
@@ -315,6 +329,11 @@ pub struct StructValue {
     /// Written with `...`: closing the definition it belongs to leaves this
     /// struct open, though the structs inside it are closed as usual.
     pub is_open: bool,
+    /// A postfix `...` spread explicitly reopened this value: unifications
+    /// may add fields it does not declare. Unlike `is_open` (which an open
+    /// literal also carries, and which only blocks auto-closing), this is
+    /// the merge permission — and it survives `&`, per the oracle.
+    pub spread_open: bool,
 }
 
 /// The packages one file imported.
@@ -511,6 +530,7 @@ impl StructValue {
             pattern_constraints: Vec::new(),
             is_closed,
             is_open: false,
+            spread_open: false,
         }
     }
 

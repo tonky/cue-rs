@@ -134,8 +134,21 @@ fn close_deep(
     }
     let closed = match arena.get(id).cloned() {
         Some(Value::Struct(mut s)) => {
+            // A marker survives only outside merges: a literal embedding a
+            // closed value and then naming `...` (`{Old1, ...}`) still
+            // mixes, while a merge already consumed its marker. Spread
+            // permission outlives the marker but not a definition read of
+            // a marker-less merge. All three shapes are oracle-verified.
             let mut changed = s.is_closed != !s.is_open;
             s.is_closed = !s.is_open;
+            if s.is_closed && !s.is_open && s.spread_open {
+                // Reading a definition closes over spread permission: with
+                // `#S: #Def... & {b: 2}` a later `& {c}` is rejected, while
+                // the bare `#S: #Def...` still shows the marker and stays
+                // mixable. Both shapes are oracle-verified.
+                s.spread_open = false;
+                changed = true;
+            }
             for entry in s.fields.values_mut() {
                 let val = close_deep(arena, entry.val, in_progress);
                 changed |= val != entry.val;

@@ -170,6 +170,21 @@ fn scan_trivia(gap: &str, after_token: bool) -> Vec<Trivia> {
     out
 }
 
+/// A keyword standing where an identifier belongs names the field spelled the
+/// same way: `in.b`, `a.in`, `for import in x`. Only the six structural
+/// keywords qualify; `null`, `true`, and `false` stay literals.
+fn keyword_ident_name(token: &Token) -> Option<&'static str> {
+    match token {
+        Token::KwPackage => Some("package"),
+        Token::KwImport => Some("import"),
+        Token::KwFor => Some("for"),
+        Token::KwIn => Some("in"),
+        Token::KwIf => Some("if"),
+        Token::KwLet => Some("let"),
+        _ => None,
+    }
+}
+
 impl<'a> Parser<'a> {
     /// Whether the composite just opened keeps its elements on the delimiter's line.
     ///
@@ -287,6 +302,14 @@ impl<'a> Parser<'a> {
         self.take_trivia(&mut header);
         while header.first() == Some(&Decl::BlankLine) {
             header.remove(0);
+        }
+
+        // File-level attributes (`@experiment(...)`) may stand above
+        // `package`; they join the header with the licence comments. A
+        // newline after one leaves a synthetic separator comma behind.
+        while let Some((Token::Attribute(_), _)) = self.tokens.get(self.pos) {
+            header.push(self.parse_decl()?);
+            while self.match_token(&Token::Comma) {}
         }
 
         let package = self.parse_package_opt()?;
@@ -636,7 +659,7 @@ impl<'a> Parser<'a> {
                 }
             }
             if idx < self.tokens.len() {
-                if self.tokens[idx].0 == Token::Question {
+                if matches!(self.tokens[idx].0, Token::Question | Token::Bang) {
                     idx += 1;
                 }
                 return idx < self.tokens.len() && self.tokens[idx].0 == Token::Colon;
@@ -675,7 +698,7 @@ impl<'a> Parser<'a> {
                 }
             }
             if idx < self.tokens.len() {
-                if self.tokens[idx].0 == Token::Question {
+                if matches!(self.tokens[idx].0, Token::Question | Token::Bang) {
                     idx += 1;
                 }
                 return idx < self.tokens.len() && self.tokens[idx].0 == Token::Colon;
@@ -853,6 +876,7 @@ impl<'a> Parser<'a> {
         let (first_tok, span) = self.advance()?;
         let k_or_v = match first_tok {
             Token::Ident(s) | Token::DefIdent(s) | Token::HiddenIdent(s) => s,
+            tok if keyword_ident_name(&tok).is_some() => tok.to_string(),
             Token::Top => "_".to_string(),
             _ => {
                 return Err(ParseError::UnexpectedToken {
@@ -867,6 +891,7 @@ impl<'a> Parser<'a> {
             let (val_tok, val_span) = self.advance()?;
             let v = match val_tok {
                 Token::Ident(s) | Token::DefIdent(s) | Token::HiddenIdent(s) => s,
+                tok if keyword_ident_name(&tok).is_some() => tok.to_string(),
                 Token::Top => "_".to_string(),
                 _ => {
                     return Err(ParseError::UnexpectedToken {
@@ -997,7 +1022,16 @@ impl<'a> Parser<'a> {
 
         let open = self.peek_token().map(|(_, span)| span).unwrap_or_default();
         let expr = if self.match_token(&Token::LBrace) {
-            if self.is_label_ahead() {
+            if self.peek() == Some(&Token::RBrace) {
+                // An empty struct body: `[for y in src {}]`.
+                self.expect(Token::RBrace)?;
+                Expr::Struct(StructLit {
+                    decls: Vec::new(),
+                    form: self.struct_form(&open),
+                })
+            } else if self.is_label_ahead() || self.peek() == Some(&Token::KwLet) {
+                // A `let` opens declarations too, but `name = ...` has no
+                // colon for `is_label_ahead` to find.
                 let form = self.struct_form(&open);
                 let decls = self.parse_decls_until(|p| p.peek() == Some(&Token::RBrace))?;
                 self.expect(Token::RBrace)?;
@@ -1183,6 +1217,7 @@ impl<'a> Parser<'a> {
                 Token::LessEqual => Some(UnaryOp::LessEqual),
                 Token::Greater => Some(UnaryOp::Greater),
                 Token::GreaterEqual => Some(UnaryOp::GreaterEqual),
+                Token::EqualEqual => Some(UnaryOp::Equal),
                 Token::NotEqual => Some(UnaryOp::NotEqual),
                 Token::RegexMatch => Some(UnaryOp::RegexMatch),
                 Token::RegexNotMatch => Some(UnaryOp::RegexNotMatch),
@@ -1223,6 +1258,12 @@ impl<'a> Parser<'a> {
                         expr = Expr::Selector {
                             expr: Box::new(expr),
                             field: decode_string(field, span)?,
+                        };
+                    }
+                    tok if keyword_ident_name(&tok).is_some() => {
+                        expr = Expr::Selector {
+                            expr: Box::new(expr),
+                            field: tok.to_string(),
                         };
                     }
                     _ => {
@@ -1271,6 +1312,27 @@ impl<'a> Parser<'a> {
                     func: Box::new(expr),
                     args,
                 };
+            } else if self.peek() == Some(&Token::Ellipsis) {
+                // Postfix spread `expr...`. Only inline: an `...` on its own
+                // line is the struct openness marker, parsed as a Decl.
+                let inline = match (
+                    self.tokens.get(self.pos.saturating_sub(1)),
+                    self.peek_token(),
+                ) {
+                    (Some((_, prev)), Ok((_, span))) => !self
+                        .source
+                        .get(prev.end..span.start)
+                        .unwrap_or_default()
+                        .contains('\n'),
+                    _ => true,
+                };
+                if !inline {
+                    break;
+                }
+                self.pos += 1;
+                expr = Expr::Spread {
+                    expr: Box::new(expr),
+                };
             } else {
                 break;
             }
@@ -1309,6 +1371,7 @@ impl<'a> Parser<'a> {
             Token::DefIdent(id) => Ok(Expr::DefIdent(id)),
             Token::HiddenIdent(id) => Ok(Expr::HiddenIdent(id)),
             Token::HiddenDefIdent(id) => Ok(Expr::HiddenDefIdent(id)),
+            tok if keyword_ident_name(&tok).is_some() => Ok(Expr::Ident(tok.to_string())),
             Token::LBrace => {
                 let form = self.struct_form(&span);
                 let decls = self.parse_decls_until(|p| p.peek() == Some(&Token::RBrace))?;

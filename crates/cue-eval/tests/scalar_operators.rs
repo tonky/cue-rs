@@ -164,9 +164,41 @@ b: {input: 7} & #Schema
     );
 }
 
+/// Equality bounds meet the value: `==v` keeps a value equivalent to `v`
+/// and rejects anything else, over scalars, bools, lists, and structs.
+#[test]
+fn equality_bounds_meet_values() {
+    for (expression, expected) in [
+        ("==1 & 1", json!(1)),
+        ("==true & true", json!(true)),
+        ("true & !=false", json!(true)),
+        ("==[1, 2] & [1, 2]", json!([1, 2])),
+        ("[1, 2] & !=[3]", json!([1, 2])),
+        ("=={a: 1} & {a: 1}", json!({"a": 1})),
+    ] {
+        let json = eval_to_json(&format!("value: {expression}")).unwrap();
+        assert_eq!(json["value"], expected, "{expression}");
+    }
+    for expression in [
+        "==1 & 2",
+        "==true & false",
+        "true & !=true",
+        "==[1, 2] & [1, 3]",
+        "[1, 2] & !=[1, 2]",
+        "=={} & {a: 1}",
+    ] {
+        assert!(
+            eval_to_json(&format!("value: {expression}")).is_err(),
+            "{expression}"
+        );
+    }
+}
+
 /// Selecting a missing field from a struct that may gain it later is
 /// `UndefinedField` (upstream reports `incomplete`); selecting off a list
 /// or indexing a struct is a definite `Conflict` (upstream `eval`).
+/// Missing fields under definitions are `UndefinedField` too until the
+/// close-timing follow-up teaches the lookup what `close()` already knows.
 #[test]
 fn missing_field_kind_depends_on_base_shape() {
     let mut eval = Evaluator::new();
@@ -194,7 +226,13 @@ closed_select: #a.b
             "{name}"
         );
     }
-    for name in ["list_select", "struct_int_index", "closed_select"] {
+    // A select through a definition is decided, not pending: upstream
+    // `references_errors` reports `#a.b` on `#a: {}` as `eval`.
+    assert!(
+        matches!(eval.arena.get(root.fields["closed_select"].val), Some(Value::Bottom(reason)) if reason.kind == BottomKind::UndefinedFieldDefinite),
+        "closed_select"
+    );
+    for name in ["list_select", "struct_int_index"] {
         assert!(
             matches!(eval.arena.get(root.fields[name].val), Some(Value::Bottom(reason)) if reason.kind == BottomKind::Conflict),
             "{name}"

@@ -173,17 +173,33 @@ fn unify_logic(
     }
 
     // 6. Recursive Reference Resolution
-    if let Value::RecursiveRef { target, .. } = &val1 {
-        if let Some(t_id) = target {
-            return unify_internal(arena, *t_id, v2_id, ctx);
-        }
-        return v1_id;
+    //
+    // A reference with no target yet is a definition read before its
+    // declaration was evaluated. Meeting it must stay pending (so the
+    // relaxation loop derives the meet again once the target binds),
+    // never cache the bare reference (the meet would be lost when the
+    // target fills). This matches `select` on the same shape.
+    if let Value::RecursiveRef { name, target } = &val1
+        && target.is_none()
+    {
+        return arena.bottom_of(BottomKind::Unresolved, format!("{name} not evaluated yet"));
     }
-    if let Value::RecursiveRef { target, .. } = &val2 {
-        if let Some(t_id) = target {
-            return unify_internal(arena, v1_id, *t_id, ctx);
-        }
-        return v2_id;
+    if let Value::RecursiveRef { name, target } = &val2
+        && target.is_none()
+    {
+        return arena.bottom_of(BottomKind::Unresolved, format!("{name} not evaluated yet"));
+    }
+    if let Value::RecursiveRef {
+        target: Some(t_id), ..
+    } = &val1
+    {
+        return unify_internal(arena, *t_id, v2_id, ctx);
+    }
+    if let Value::RecursiveRef {
+        target: Some(t_id), ..
+    } = &val2
+    {
+        return unify_internal(arena, v1_id, *t_id, ctx);
     }
 
     // 7. Types & Concrete Values
@@ -374,6 +390,181 @@ fn bound_kinds_conflict(a: &TypeKind, b: &TypeKind) -> bool {
     )
 }
 
+/// The incompatibility between merged range constraints, if any:
+/// `<1 & >2` and `<"a" & >"b"` are both eval-bottom upstream. Each group
+/// (numbers, strings, bytes) keeps its strongest lower and upper bound —
+/// exclusive wins ties, equality contributes both — and conflicts when
+/// the lower passes the upper or touches it exclusively. An integer base
+/// snaps both sides to integers first (`>1 & <2` admits no integer).
+/// Bounds of different groups never meet here; the demand check rejects
+/// those first.
+fn incompatible_range(
+    arena: &ValueArena,
+    constraints: &[(Bound, ValueId)],
+    base: Option<&TypeKind>,
+) -> Option<String> {
+    // (value, inclusive, rendering like `<1`).
+    let mut lower_num: Vec<(f64, bool, String)> = Vec::new();
+    let mut upper_num: Vec<(f64, bool, String)> = Vec::new();
+    let mut lower_text: Vec<(Vec<u8>, bool, String)> = Vec::new();
+    let mut upper_text: Vec<(Vec<u8>, bool, String)> = Vec::new();
+    for (op, target) in constraints {
+        let rendered = |text: String| format!("{op}{text}");
+        match arena.get(*target) {
+            Some(Value::Int(i)) => {
+                let text = rendered(i.to_string());
+                let value = i.to_f64().unwrap_or(f64::INFINITY);
+                match op {
+                    Bound::Greater => lower_num.push((value, false, text)),
+                    Bound::GreaterEqual => lower_num.push((value, true, text)),
+                    Bound::Less => upper_num.push((value, false, text)),
+                    Bound::LessEqual => upper_num.push((value, true, text)),
+                    Bound::Equal => {
+                        lower_num.push((value, true, text.clone()));
+                        upper_num.push((value, true, text));
+                    }
+                    _ => {}
+                }
+            }
+            Some(Value::Float(f)) => {
+                let text = rendered(format!("{f:?}"));
+                match op {
+                    Bound::Greater => lower_num.push((*f, false, text)),
+                    Bound::GreaterEqual => lower_num.push((*f, true, text)),
+                    Bound::Less => upper_num.push((*f, false, text)),
+                    Bound::LessEqual => upper_num.push((*f, true, text)),
+                    Bound::Equal => {
+                        lower_num.push((*f, true, text.clone()));
+                        upper_num.push((*f, true, text));
+                    }
+                    _ => {}
+                }
+            }
+            Some(Value::String(s)) => {
+                let text = rendered(format!("{s:?}"));
+                match op {
+                    Bound::Greater => lower_text.push((s.clone().into_bytes(), false, text)),
+                    Bound::GreaterEqual => lower_text.push((s.clone().into_bytes(), true, text)),
+                    Bound::Less => upper_text.push((s.clone().into_bytes(), false, text)),
+                    Bound::LessEqual => upper_text.push((s.clone().into_bytes(), true, text)),
+                    Bound::Equal => {
+                        lower_text.push((s.clone().into_bytes(), true, text.clone()));
+                        upper_text.push((s.clone().into_bytes(), true, text));
+                    }
+                    _ => {}
+                }
+            }
+            Some(Value::Bytes(b)) => {
+                let text = rendered(format!("'{}'", String::from_utf8_lossy(b)));
+                match op {
+                    Bound::Greater => lower_text.push((b.clone(), false, text)),
+                    Bound::GreaterEqual => lower_text.push((b.clone(), true, text)),
+                    Bound::Less => upper_text.push((b.clone(), false, text)),
+                    Bound::LessEqual => upper_text.push((b.clone(), true, text)),
+                    Bound::Equal => {
+                        lower_text.push((b.clone(), true, text.clone()));
+                        upper_text.push((b.clone(), true, text));
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+    use std::cmp::Ordering;
+    // Strongest lower: largest value, exclusive winning ties. Strongest
+    // upper: smallest value, exclusive winning ties.
+    let best_lower_num = lower_num
+        .iter()
+        .filter(|(value, _, _)| value.is_finite())
+        .max_by(|a, b| {
+            a.0.partial_cmp(&b.0)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| b.1.cmp(&a.1))
+        });
+    let best_upper_num = upper_num
+        .iter()
+        .filter(|(value, _, _)| value.is_finite())
+        .min_by(|a, b| {
+            a.0.partial_cmp(&b.0)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| a.1.cmp(&b.1))
+        });
+    // An integer base snaps both sides to integers first: `>1 & <2`
+    // admits no integer even though rationals fit between.
+    let integer_base = matches!(base, Some(TypeKind::Number(NumberKind::Int)));
+    let kind_name = if integer_base { "integer" } else { "number" };
+    if let (
+        Some((lower_value, lower_inclusive, lower_text)),
+        Some((upper_value, upper_inclusive, upper_text)),
+    ) = (best_lower_num, best_upper_num)
+    {
+        let admissible = if integer_base {
+            let lower = if *lower_inclusive {
+                lower_value.ceil()
+            } else {
+                lower_value.floor() + 1.0
+            };
+            let upper = if *upper_inclusive {
+                upper_value.floor()
+            } else {
+                upper_value.ceil() - 1.0
+            };
+            lower <= upper
+        } else {
+            lower_value < upper_value
+                || (lower_value == upper_value && *lower_inclusive && *upper_inclusive)
+        };
+        if !admissible {
+            return Some(format!(
+                "incompatible {kind_name} bounds {upper_text} and {lower_text}"
+            ));
+        }
+    }
+    let best_lower_text = lower_text
+        .iter()
+        .max_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)));
+    let best_upper_text = upper_text
+        .iter()
+        .min_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    if let (
+        Some((lower_value, lower_inclusive, lower_text)),
+        Some((upper_value, upper_inclusive, upper_text)),
+    ) = (best_lower_text, best_upper_text)
+        && (lower_value > upper_value
+            || (lower_value == upper_value && !(*lower_inclusive && *upper_inclusive)))
+    {
+        // Bytes literals render the same way; the oracle names the group
+        // after them when any endpoint is bytes.
+        let has_bytes = constraints
+            .iter()
+            .any(|(_, target)| matches!(arena.get(*target), Some(Value::Bytes(_))));
+        let kind_name = if has_bytes { "bytes" } else { "string" };
+        return Some(format!(
+            "incompatible {kind_name} bounds {upper_text} and {lower_text}"
+        ));
+    }
+    None
+}
+
+/// The first constraint target whose demanded base kind is incompatible
+/// with `base`, if any. Non-concrete targets demand nothing.
+fn conflicting_demand(
+    arena: &ValueArena,
+    constraints: &[(Bound, ValueId)],
+    base: Option<&TypeKind>,
+) -> Option<(TypeKind, TypeKind)> {
+    let base = *base?;
+    constraints.iter().find_map(|(_, target)| {
+        let demand = match arena.get(*target) {
+            Some(Value::Int(_) | Value::Float(_)) => TypeKind::Number(NumberKind::Number),
+            Some(Value::String(_)) => TypeKind::String,
+            _ => return None,
+        };
+        bound_kinds_conflict(&demand, &base).then_some((demand, base))
+    })
+}
+
 fn unify_bounds(
     arena: &mut ValueArena,
     base_type: Option<TypeKind>,
@@ -443,6 +634,18 @@ fn unify_bounds(
             // string against number, which upstream rejects as eval-bottom.
             // Non-concrete targets (null, references, disjunctions) demand
             // nothing yet.
+            if let Some((demand, base)) =
+                conflicting_demand(arena, &constraints, merged_base.as_ref())
+            {
+                return conflict(
+                    arena,
+                    format!("conflicting bound base types: {demand} and {base}"),
+                );
+            }
+            // Ranges must overlap: `<1 & >2` is eval-bottom upstream.
+            if let Some(message) = incompatible_range(arena, &constraints, merged_base.as_ref()) {
+                return conflict(arena, message);
+            }
             let mut demanded: Option<TypeKind> = None;
             for (_, target) in &constraints {
                 let demand = match arena.get(*target) {
@@ -455,14 +658,6 @@ fn unify_bounds(
                 let Some(demand) = demand else {
                     continue;
                 };
-                if let Some(base) = &merged_base
-                    && bound_kinds_conflict(&demand, base)
-                {
-                    return conflict(
-                        arena,
-                        format!("conflicting bound base types: {demand} and {base}"),
-                    );
-                }
                 if let Some(seen) = &demanded
                     && bound_kinds_conflict(&demand, seen)
                 {
@@ -498,6 +693,21 @@ fn unify_bounds(
                 }
                 None => Some(t),
             };
+            // Concrete targets must agree with the enforced base, just as
+            // when two bound sets meet: `=="foo" & int` is eval-bottom.
+            if let Some((demand, base)) =
+                conflicting_demand(arena, &constraints, merged_base.as_ref())
+            {
+                return conflict(
+                    arena,
+                    format!("conflicting bound base types: {demand} and {base}"),
+                );
+            }
+            // Ranges must overlap under the enforced base too: an integer
+            // base admits no value between `>1` and `<2`.
+            if let Some(message) = incompatible_range(arena, &constraints, merged_base.as_ref()) {
+                return conflict(arena, message);
+            }
             arena.alloc(Value::Bounds {
                 base_type: merged_base,
                 constraints,
@@ -520,6 +730,7 @@ fn unify_bounds(
                             Bound::LessEqual => i_val <= t_val,
                             Bound::Greater => i_val > t_val,
                             Bound::GreaterEqual => i_val >= t_val,
+                            Bound::Equal => i_val == t_val,
                             Bound::NotEqual => i_val != t_val,
                             _ => false,
                         };
@@ -537,6 +748,7 @@ fn unify_bounds(
                             Bound::LessEqual => i_f <= *t_val,
                             Bound::Greater => i_f > *t_val,
                             Bound::GreaterEqual => i_f >= *t_val,
+                            Bound::Equal => (i_f - *t_val).abs() <= f64::EPSILON,
                             Bound::NotEqual => (i_f - *t_val).abs() > f64::EPSILON,
                             _ => false,
                         };
@@ -575,6 +787,7 @@ fn unify_bounds(
                         Bound::LessEqual => f_val <= t_val,
                         Bound::Greater => f_val > t_val,
                         Bound::GreaterEqual => f_val >= t_val,
+                        Bound::Equal => (f_val - t_val).abs() <= f64::EPSILON,
                         Bound::NotEqual => (f_val - t_val).abs() > f64::EPSILON,
                         _ => false,
                     };
@@ -615,6 +828,27 @@ fn unify_bounds(
                 }
                 if let Some(Value::String(pattern)) = arena.get(target_id) {
                     match op {
+                        Bound::Less
+                        | Bound::LessEqual
+                        | Bound::Greater
+                        | Bound::GreaterEqual
+                        | Bound::Equal => {
+                            let ok = match op {
+                                Bound::Less => s_val < pattern,
+                                Bound::LessEqual => s_val <= pattern,
+                                Bound::Greater => s_val > pattern,
+                                Bound::GreaterEqual => s_val >= pattern,
+                                _ => s_val == pattern,
+                            };
+                            if !ok {
+                                return conflict(
+                                    arena,
+                                    format!(
+                                        "string {s_val:?} does not satisfy bound {op} {pattern:?}"
+                                    ),
+                                );
+                            }
+                        }
                         Bound::NotEqual => {
                             if s_val == pattern {
                                 return conflict(
@@ -651,8 +885,54 @@ fn unify_bounds(
                                 return conflict(arena, format!("invalid regex: \"{pattern}\""));
                             }
                         }
-                        _ => return conflict(arena, "unsupported bound op on string"),
                     }
+                }
+            }
+            other_id
+        }
+
+        Value::Bool(ref b_val) => {
+            for (op, target_id) in constraints {
+                match arena.get(target_id) {
+                    Some(Value::Bool(t_val)) => {
+                        let ok = match op {
+                            Bound::Equal => b_val == t_val,
+                            Bound::NotEqual => b_val != t_val,
+                            _ => false,
+                        };
+                        if !ok {
+                            return conflict(
+                                arena,
+                                format!("value {b_val} does not satisfy bound {op} {t_val}"),
+                            );
+                        }
+                    }
+                    _ => {
+                        return conflict(arena, "bound target type mismatch for bool");
+                    }
+                }
+            }
+            other_id
+        }
+
+        Value::List { .. } | Value::Struct(_) => {
+            for (op, target_id) in constraints {
+                if !matches!(
+                    arena.get(target_id),
+                    Some(Value::List { .. } | Value::Struct(_))
+                ) {
+                    return conflict(arena, "bound target type mismatch for composite");
+                }
+                let mut active = std::collections::BTreeSet::new();
+                let mut budget = MAX_EQUIVALENCE_NODES;
+                let same = equivalent(&*arena, target_id, other_id, &mut active, &mut budget);
+                let ok = match op {
+                    Bound::Equal => same,
+                    Bound::NotEqual => !same,
+                    _ => false,
+                };
+                if !ok {
+                    return conflict(arena, format!("value does not satisfy bound {op}"));
                 }
             }
             other_id
@@ -680,6 +960,10 @@ fn unify_bounds(
 
 pub fn field_matches_pattern(arena: &ValueArena, pattern_val: ValueId, field_name: &str) -> bool {
     match arena.get(pattern_val) {
+        // `[_]` evaluates to bare Top, which the declaration-site check (a
+        // plain unification against the field name) already accepts: every
+        // name matches it there, so every name matches it here too.
+        Some(Value::Top) => true,
         Some(Value::Type(TypeKind::String | TypeKind::Top)) => true,
         Some(Value::String(s)) => s == field_name,
         Some(Value::Bounds { constraints, .. }) => constraints.iter().all(|(op, target_id)| {
@@ -767,7 +1051,11 @@ fn disallowed_field<'a>(
     closed: &StructValue,
     other: &'a StructValue,
 ) -> Option<&'a str> {
-    if !closed.is_closed {
+    // Only a postfix spread reopens: an open literal unified with a closed
+    // struct leaves it closed (`#x & {...}` still rejects new fields), while
+    // a spread value keeps accepting them (`#Def... & {a, b}` accepts `b`,
+    // and so does a later `& {c}`). `is_open` alone only blocks auto-closing.
+    if !closed.is_closed || closed.spread_open {
         return None;
     }
     other
@@ -797,7 +1085,13 @@ fn unify_structs_inner(
     }
 
     let mut merged = StructValue::new(s1.is_closed || s2.is_closed);
-    merged.is_open = s1.is_open || s2.is_open;
+    // A closed result carries no open marker: `#x & {...}` stays closed
+    // (the marker is consumed by the merge), while an open result keeps it
+    // (`#ServiceSpec & {port}` stays open through a definition boundary).
+    // Spread permission is disjunctive instead: it survives `&`, and only a
+    // definition read of a marker-less merge revokes it (see `close_deep`).
+    merged.is_open = (s1.is_open || s2.is_open) && !merged.is_closed;
+    merged.spread_open = s1.spread_open || s2.spread_open;
 
     // Merge pattern constraints
     merged
@@ -831,9 +1125,19 @@ fn unify_structs_inner(
         let mut cur_val = entry.val;
         for pc in &merged.pattern_constraints {
             if field_matches_pattern(arena, pc.pattern_val, &key) {
+                // A field that already failed keeps its own error: meeting it
+                // with the pattern again would widen the failure to the whole
+                // struct and hide the path the error belongs to.
+                if collapses_struct(arena, cur_val) {
+                    continue;
+                }
                 cur_val = unify_internal(arena, cur_val, pc.target_val, ctx);
-                if collapses_struct(arena, cur_val) && !entry.optional {
-                    return cur_val;
+                // A pattern-induced failure stays on the field: the error
+                // belongs to this path, and collapsing would hide it from
+                // the walk that reports it. A retryable bottom keeps meeting
+                // later patterns; a settled one is left alone above.
+                if collapses_struct(arena, cur_val) {
+                    break;
                 }
             }
         }
@@ -1122,20 +1426,44 @@ pub(crate) fn settle_disjunction(
 ) -> ValueId {
     match valid_branches.len() {
         0 => {
+            let custom = branch_errors.iter().find(|e| e.kind == BottomKind::Custom);
             let kind = if branch_errors.iter().any(|e| e.kind.may_resolve_later()) {
                 BottomKind::Unresolved
             } else {
                 BottomKind::Conflict
             };
-            let message = if branch_errors.is_empty() {
-                "no matching disjunction branch".to_string()
-            } else {
-                let errors: Vec<String> = branch_errors.iter().map(ToString::to_string).collect();
-                format!("no matching disjunction branch: [{}]", errors.join("; "))
+            let message = match custom {
+                // A custom error names the failure: it wins over the
+                // generated summary once nothing can still resolve.
+                Some(reason) if kind != BottomKind::Unresolved => reason.message.clone(),
+                _ => {
+                    if branch_errors.is_empty() {
+                        "no matching disjunction branch".to_string()
+                    } else {
+                        let errors: Vec<String> =
+                            branch_errors.iter().map(ToString::to_string).collect();
+                        format!("no matching disjunction branch: [{}]", errors.join("; "))
+                    }
+                }
             };
             arena.bottom_of(kind, message)
         }
-        1 => valid_branches.pop().unwrap().val,
+        1 => {
+            let branch = valid_branches.pop().unwrap().val;
+            match arena.get(branch) {
+                // One surviving failure adopts a custom message but keeps
+                // its own code: `x+1 | error(m)` is incomplete, not eval.
+                // A surviving value drops the custom branches entirely.
+                Some(Value::Bottom(reason)) => {
+                    let kind = reason.kind;
+                    match branch_errors.iter().find(|e| e.kind == BottomKind::Custom) {
+                        Some(custom) => arena.bottom_of(kind, custom.message.clone()),
+                        None => branch,
+                    }
+                }
+                _ => branch,
+            }
+        }
         _ => arena.alloc(Value::Disjunction {
             branches: valid_branches,
         }),
@@ -1536,6 +1864,7 @@ fn equivalent_payload(
         (Value::Struct(left), Value::Struct(right)) => {
             if left.is_closed != right.is_closed
                 || left.is_open != right.is_open
+                || left.spread_open != right.spread_open
                 || left.pattern_constraints.len() != right.pattern_constraints.len()
             {
                 return false;

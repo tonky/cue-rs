@@ -142,6 +142,19 @@ out: base & {p: 9}
     assert_eq!(out["out"]["c"], json!("outer"));
 }
 
+/// A pattern target that carries its own pattern constrains through the merge:
+/// `[_]` matches every name at declaration and at merge time alike.
+#[test]
+fn a_nested_pattern_target_applies_through_a_merge() {
+    let error = eval_to_json("x: {[_]: [_]: int, e: {p: \"s\"}}\n")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("expected int"), "unexpected: {error}");
+
+    let out = eval_to_json("x: {[_]: [_]: int, e: {p: 1}}\n").unwrap();
+    assert_eq!(out["x"]["e"]["p"], json!(1));
+}
+
 /// Same for a name a comprehension generated: unifying `{p: 9}` has no business
 /// changing `c`.
 #[test]

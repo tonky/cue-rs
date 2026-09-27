@@ -17,6 +17,30 @@ use cue_eval::{LoadOptions, OriginAnnotation, PackageLoader, eval_to_json};
 use serde_json::json;
 use std::path::Path;
 
+/// A definition read before its declaration was evaluated stays pending
+/// instead of caching the bare reference (which would lose the meet when
+/// the target binds): the retry derives the meet again and reports it.
+#[test]
+fn meet_with_a_forward_definition_resolves_on_retry() {
+    let source = "t1: err: #Old2 & {c: 3}\n#A: a: 1\n#Old2: {{#A, b: 1}}\n";
+    let error = eval_to_json(source).unwrap_err().to_string();
+    assert!(error.contains("field not allowed"), "{error}");
+}
+
+/// Postfix `...` reopens a closed struct for the merge around it, while the
+/// same merge without it is rejected.
+#[test]
+fn spread_reopens_a_closed_struct_for_its_merge() {
+    assert_eq!(
+        eval_to_json("#A: {a: 1}\nopen: #A... & {b: 2}\n").unwrap()["open"],
+        json!({"a": 1, "b": 2})
+    );
+    let error = eval_to_json("#A: {a: 1}\nshut: #A & {b: 2}\n")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("field not allowed"), "{error}");
+}
+
 /// Each source is rejected, naming the field that is not allowed.
 #[test]
 fn a_field_a_closed_struct_does_not_declare_is_rejected() {
@@ -361,6 +385,25 @@ fn a_broken_import_is_reported_as_the_import() {
     };
     assert!(error.contains("import \"example.com/m/lib\""), "{error}");
     assert!(!error.contains("not found"), "{error}");
+}
+
+/// An open literal does not reopen a closed struct it unifies with
+/// (upstream issue3778): `#x & {...}` stays closed and rejects new fields,
+/// while a postfix spread keeps accepting them — in its own merge and later
+/// ones (upstream accepts `w` below).
+#[test]
+fn only_a_spread_reopens_a_closed_struct() {
+    let error = eval_to_json("#x: {a?: string}\n#y: #x & {...}\nz: #y & {a: \"ok\", b: \"x\"}\n")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("b: field not allowed"), "{error}");
+    let value = eval_to_json("#Def: {a: int}\nx: #Def... & {a: 1, b: 2}\nw: x & {c: 3}\n").unwrap();
+    assert_eq!(value["w"], json!({"a": 1, "b": 2, "c": 3}));
+    // Reading the same merge through a definition revokes the permission.
+    let error = eval_to_json("#Def: {a: int}\n#S: #Def... & {b: 2}\nv: #S & {c: 3}\n")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("c: field not allowed"), "{error}");
 }
 
 /// A name a loaded package lacks is that field's error, as upstream reports it

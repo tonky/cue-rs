@@ -141,3 +141,71 @@ fn bound_targets_constrain_base_kind() {
         assert_eq!(json["value"], expected, "{expression}");
     }
 }
+
+/// A bound over a value that can never satisfy it is decided at
+/// construction: bool is not an ordered type, and a bound, basic type, or
+/// top is never a concrete value to bound (upstream: `incomplete`).
+/// Retryable targets and `!=null` stay lazy.
+#[test]
+fn non_concrete_bound_targets_decided_at_construction() {
+    for (expression, diagnostic) in [
+        (r#"<(<3)"#, "non-concrete value <3 for bound <"),
+        (r#"!=(!=3)"#, "non-concrete value !=3 for bound !="),
+        (r#"<(int)"#, "non-concrete value int for bound <"),
+        (r#">true"#, "cannot use bool for bound >"),
+    ] {
+        let error = eval_to_json(&format!("value: {expression}"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(diagnostic), "{expression}: {error}");
+    }
+    // `!=null` still filters downstream instead of deciding eagerly.
+    let json = eval_to_json(r#"value: !=null & <5 & 3"#).unwrap();
+    assert_eq!(json["value"], 3);
+}
+
+/// Merged ranges must overlap: a lower bound past the upper bound (or
+/// touching it exclusively) is eval-bottom, over numbers and strings.
+/// Compatible ranges stay constraints.
+#[test]
+fn incompatible_byte_ranges_conflict() {
+    for expression in ["<'a' & >'b'", ">'b' & <='a'", ">='b' & <'a'"] {
+        let error = eval_to_json(&format!("value: {expression}"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("incompatible bytes bounds"),
+            "{expression}: {error}"
+        );
+    }
+}
+
+#[test]
+fn incompatible_ranges_conflict() {
+    for (expression, diagnostic) in [
+        (r#"<1 & >2"#, "incompatible number bounds <1 and >2"),
+        (r#">2 & <=1"#, "incompatible number bounds"),
+        (r#">=2 & <2"#, "incompatible number bounds <2 and >=2"),
+        (r#"<"a" & >"b""#, "incompatible string bounds"),
+    ] {
+        let error = eval_to_json(&format!("value: {expression}"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(diagnostic), "{expression}: {error}");
+    }
+    // Compatible ranges stay bounds (JSON export cannot render a bare
+    // constraint, but the meet itself must not fail).
+    let error = eval_to_json(r#"value: >2 & <=3"#).unwrap_err().to_string();
+    assert!(error.contains("cannot export bound constraint"), "{error}");
+    let json = eval_to_json(r#"value: "b" & >"a" & <"c""#).unwrap();
+    assert_eq!(json["value"], "b");
+    // An integer base snaps both sides: no integer fits between `>1`
+    // and `<2`, but 2 fits between `>1` and `<3`.
+    let error = eval_to_json(r#"value: >1 & <2 & int"#)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("incompatible integer bounds"), "{error}");
+    // Null is not orderable.
+    let error = eval_to_json(r#"value: >(null)"#).unwrap_err().to_string();
+    assert!(error.contains("cannot use null for bound"), "{error}");
+}

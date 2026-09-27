@@ -101,6 +101,7 @@ fn walk_expr(expr: &Expr, names: &mut HashSet<String>) {
                 walk_expr(arg, names);
             }
         }
+        Expr::Spread { expr } => walk_expr(expr, names),
         Expr::Interpolation { parts, .. } => {
             for part in parts {
                 match part {

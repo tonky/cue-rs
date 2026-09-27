@@ -86,7 +86,8 @@ pub struct BytesLit {
 pub struct SourceFile {
     /// Comments and blank lines above `package` — a licence header, typically. They
     /// cannot live in `decls`, which comes after the imports, so they have their own
-    /// field. Only `Decl::Comment` and `Decl::BlankLine` ever appear here.
+    /// field, shared with file-level attributes (`@experiment(...)`) that also
+    /// stand above `package`.
     #[serde(default)]
     pub header: Vec<Decl>,
     pub package: Option<String>,
@@ -305,6 +306,11 @@ pub enum Expr {
         func: Box<Expr>,
         args: Vec<Expr>,
     },
+    /// Postfix `...` spread (explicit open): opens a closed struct for the
+    /// merge around it. Anything else passes through.
+    Spread {
+        expr: Box<Expr>,
+    },
     Interpolation {
         parts: Vec<InterpolationPart>,
         /// The spelling the interpolation was written in, so a `"""`-quoted one is not
@@ -337,6 +343,7 @@ pub enum UnaryOp {
     LessEqual,
     Greater,
     GreaterEqual,
+    Equal,
     NotEqual,
     RegexMatch,
     RegexNotMatch,

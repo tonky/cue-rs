@@ -397,6 +397,7 @@ pub(crate) fn select(
     arena: &mut ValueArena,
     closed: &mut crate::closedness::ClosedCopies,
     reading_root_embedding: bool,
+    in_definition: bool,
     base_id: ValueId,
     field: &str,
 ) -> ValueId {
@@ -420,18 +421,19 @@ pub(crate) fn select(
         {
             let val = f.val;
             crate::closedness::read_definition(arena, closed, reading_root_embedding, field, val)
-        } else if s.is_closed {
-            // A closed base (notably under a definition) gains no fields
-            // later: definite error, which upstream reports as `eval`.
-            arena.bottom_of(BottomKind::Conflict, format!("undefined field: {field}"))
         } else {
             // The base resolved and has no such field. It may still
-            // gain one on a later pass, which is why this kind is
-            // one the relaxation loop retries.
-            arena.bottom_of(
-                BottomKind::UndefinedField,
-                format!("undefined field: {field}"),
-            )
+            // gain one on a later pass, which is why both kinds below
+            // are ones the relaxation loop retries. A closed base (read
+            // through a definition) or a select under a definition is
+            // decided: survivors past the fixpoint observe as `eval`,
+            // where an open-world miss stays `incomplete`.
+            let kind = if s.is_closed || in_definition {
+                BottomKind::UndefinedFieldDefinite
+            } else {
+                BottomKind::UndefinedField
+            };
+            arena.bottom_of(kind, format!("undefined field: {field}"))
         }
     } else if matches!(arena.get(base_id), Some(Value::List { .. })) {
         // A list has no fields to gain later: definite error, like an
@@ -444,7 +446,12 @@ pub(crate) fn select(
 
 /// Resolve already-evaluated index operands: total function of the arena.
 /// Bottom operands pass through; anything else out of shape is a conflict.
-pub(crate) fn index(arena: &mut ValueArena, target_id: ValueId, index_id: ValueId) -> ValueId {
+pub(crate) fn index(
+    arena: &mut ValueArena,
+    in_definition: bool,
+    target_id: ValueId,
+    index_id: ValueId,
+) -> ValueId {
     if let Some(Value::Bottom(_)) = arena.get(target_id) {
         return target_id;
     }
@@ -471,13 +478,13 @@ pub(crate) fn index(arena: &mut ValueArena, target_id: ValueId, index_id: ValueI
         (Some(Value::Struct(s)), Some(Value::String(key))) => {
             if let Some(f) = s.fields.get(key).or_else(|| s.definitions.get(key)) {
                 f.val
-            } else if s.is_closed {
-                arena.bottom_of(BottomKind::Conflict, format!("undefined field: {key}"))
             } else {
-                arena.bottom_of(
-                    BottomKind::UndefinedField,
-                    format!("undefined field: {key}"),
-                )
+                let kind = if s.is_closed || in_definition {
+                    BottomKind::UndefinedFieldDefinite
+                } else {
+                    BottomKind::UndefinedField
+                };
+                arena.bottom_of(kind, format!("undefined field: {key}"))
             }
         }
         (Some(Value::Struct(_)), Some(Value::Int(i))) => arena.bottom_of(
@@ -559,15 +566,15 @@ mod tests {
         let mut arena = ValueArena::new();
         let list = list_of(&mut arena, 3);
         let two = arena.int(2);
-        let id = index(&mut arena, list, two);
+        let id = index(&mut arena, false, list, two);
         assert_eq!(arena.get(id), arena.get(two));
 
         let nine = arena.int(9);
-        let id = index(&mut arena, list, nine);
+        let id = index(&mut arena, false, list, nine);
         assert!(matches!(arena.get(id), Some(Value::Bottom(_))));
 
         let s = arena.string("x");
-        let id = index(&mut arena, list, s);
+        let id = index(&mut arena, false, list, s);
         assert!(matches!(arena.get(id), Some(Value::Bottom(_))));
     }
 
@@ -623,10 +630,23 @@ mod tests {
         s.insert_field("a".to_string(), val, false);
         let base = arena.alloc(Value::Struct(s));
 
-        let id = select(&mut arena, &mut closed, false, base, "a");
+        let id = select(&mut arena, &mut closed, false, false, base, "a");
         assert_eq!(id, val);
 
-        let id = select(&mut arena, &mut closed, false, base, "missing");
-        assert!(matches!(arena.get(id), Some(Value::Bottom(_))));
+        let id = select(&mut arena, &mut closed, false, false, base, "missing");
+        assert!(matches!(
+            arena.get(id),
+            Some(Value::Bottom(reason)) if reason.kind == BottomKind::UndefinedField
+        ));
+
+        // A closed base decides the miss, like a read through a definition.
+        let mut s = StructValue::new(true);
+        s.insert_field("a".to_string(), val, false);
+        let base = arena.alloc(Value::Struct(s));
+        let id = select(&mut arena, &mut closed, false, false, base, "missing");
+        assert!(matches!(
+            arena.get(id),
+            Some(Value::Bottom(reason)) if reason.kind == BottomKind::UndefinedFieldDefinite
+        ));
     }
 }

@@ -429,6 +429,7 @@ fn holds_composite(expr: &Expr) -> bool {
                 || high.as_deref().is_some_and(holds_composite)
         }
         Expr::Call { func, args } => holds_composite(func) || args.iter().any(holds_composite),
+        Expr::Spread { expr } => holds_composite(expr),
         Expr::Interpolation { parts, .. } => parts.iter().any(|part| match part {
             InterpolationPart::Expr(expr) => holds_composite(expr),
             InterpolationPart::Lit(_) => false,
@@ -507,6 +508,7 @@ fn format_expr(expr_node: &Expr, out: &mut String, indent: usize) {
                 UnaryOp::LessEqual => "<=",
                 UnaryOp::Greater => ">",
                 UnaryOp::GreaterEqual => ">=",
+                UnaryOp::Equal => "==",
                 UnaryOp::NotEqual => "!=",
                 UnaryOp::RegexMatch => "=~",
                 UnaryOp::RegexNotMatch => "!~",
@@ -564,6 +566,10 @@ fn format_expr(expr_node: &Expr, out: &mut String, indent: usize) {
                 format_expr(a, out, indent);
             }
             out.push(')');
+        }
+        Expr::Spread { expr } => {
+            format_expr(expr, out, indent);
+            out.push_str("...");
         }
         Expr::Interpolation { parts, form } => {
             let form = emittable_form(

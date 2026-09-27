@@ -15,7 +15,7 @@ use crate::schedule::{
 use crate::unify::{Equivalence, compare_values, push_branch, unify};
 use crate::value::{
     BottomKind, Conjunct, DisjunctionBranch as ValueBranch, FieldEntry, StructValue, Thunk,
-    ThunkEnv, Value, ValueId,
+    ThunkEnv, Value, ValueArena, ValueId,
 };
 use cue_syntax::ast::*;
 use std::collections::HashSet;
@@ -318,6 +318,34 @@ impl<'a> RelaxationLoop<'a> {
         result
     }
 
+    /// The first required field an embedding would smuggle into a literal
+    /// that is already closing: present in the embedded struct, declared
+    /// neither by the literal nor by one of its patterns. The first
+    /// embedding into an empty literal has nothing to violate.
+    fn embedded_foreign_field(
+        arena: &ValueArena,
+        current: &StructValue,
+        embedded_id: ValueId,
+    ) -> Option<String> {
+        if current.fields.is_empty() {
+            return None;
+        }
+        let embedded = arena.fields(embedded_id)?;
+        embedded
+            .fields
+            .iter()
+            .filter(|(_, entry)| !entry.optional)
+            .map(|(name, _)| name.as_str())
+            .find(|name| {
+                !current.fields.contains_key(*name)
+                    && !current
+                        .pattern_constraints
+                        .iter()
+                        .any(|pc| crate::unify::field_matches_pattern(arena, pc.pattern_val, name))
+            })
+            .map(str::to_string)
+    }
+
     fn eval_decl_pass(
         &mut self,
         decl: &Decl,
@@ -373,7 +401,16 @@ impl<'a> RelaxationLoop<'a> {
                     if let Some(name) = f.label.name() {
                         self.eval.current_field = Some(name.to_string());
                     }
+                    // A definition's body decides its selects: a template
+                    // cannot grow a field on a later pass the way an open
+                    // value may. Nested literals inherit the flag; the
+                    // save/restore keeps sibling fields unaffected.
+                    let saved_in_definition = self.eval.in_definition;
+                    if f.label.is_definition() {
+                        self.eval.in_definition = true;
+                    }
                     let res = self.eval.eval_field_value(&f.value, env);
+                    self.eval.in_definition = saved_in_definition;
                     self.eval.current_field = saved_field;
                     let (val_id, conjunct) = res?;
                     // A definition read before its declaration was evaluated
@@ -476,6 +513,33 @@ impl<'a> RelaxationLoop<'a> {
                     && !self.eval.arena.has_embedded_recipe(embedded_id)
                 {
                     target.has_struct_embedding = true;
+                    // Embedding into a literal that is already closing (closed
+                    // by an earlier embedding, or closing on finish) must not
+                    // smuggle in fields the literal does not declare:
+                    // upstream reports `field not allowed` at the foreign
+                    // field. Spread opens the literal, so neither it nor
+                    // anything after it is checked; the first embedding into
+                    // an empty literal has nothing to violate. A literal's
+                    // own field declarations are never checked here: the
+                    // single-file oracle accepts them after value embeddings
+                    // (`{Old1, c: 3}` exports); only package-boundary
+                    // unification rejects those, which cue-rs does not model.
+                    let embed_violation = if target.structure.is_closed || target.close_on_finish {
+                        let spread_open = target.structure.is_open
+                            || target.structure.spread_open
+                            || matches!(expr, Expr::Spread { .. });
+                        if spread_open {
+                            None
+                        } else {
+                            Self::embedded_foreign_field(
+                                &self.eval.arena,
+                                &target.structure,
+                                embedded_id,
+                            )
+                        }
+                    } else {
+                        None
+                    };
                     let current_id = self
                         .eval
                         .arena
@@ -485,6 +549,13 @@ impl<'a> RelaxationLoop<'a> {
                         reclose(&mut self.eval.arena, unified_id)
                     } else {
                         unified_id
+                    };
+                    let unified_id = match embed_violation {
+                        Some(name) => self
+                            .eval
+                            .arena
+                            .bottom_of(BottomKind::Conflict, format!("{name}: field not allowed")),
+                        None => unified_id,
                     };
                     if let Some(Value::Struct(s)) = self.eval.arena.get(unified_id) {
                         target.structure = s.clone();

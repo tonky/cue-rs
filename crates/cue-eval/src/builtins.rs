@@ -115,9 +115,34 @@ pub(crate) fn call(
                 {
                     let mut closed = s.clone();
                     closed.is_closed = true;
+                    // `close` keeps an already-open struct mixable: upstream
+                    // issue3572 has `close({...}) & {a: 5}` accept `a` while
+                    // staying closed. The marker's permission moves into the
+                    // spread flag, so a later definition read keeps it
+                    // closed (the marker alone would reopen it there).
+                    closed.spread_open = s.is_open || s.spread_open;
+                    closed.is_open = false;
                     return arena.alloc(Value::Struct(closed));
                 }
                 return arena.bottom("close requires 1 struct argument");
+            }
+            "error" => {
+                if let Some(&arg0) = evaluated_args.first() {
+                    match arena.get(arg0) {
+                        // Arguments arrive interpolated; a concrete message
+                        // is used as-is.
+                        Some(Value::String(message)) => {
+                            return arena.bottom_of(BottomKind::Custom, message.clone());
+                        }
+                        // A message that failed to interpolate still names
+                        // the failure with whatever diagnosis exists.
+                        Some(Value::Bottom(reason)) => {
+                            return arena.bottom_of(BottomKind::Custom, reason.message.clone());
+                        }
+                        _ => {}
+                    }
+                }
+                return arena.bottom("error requires 1 string argument");
             }
             _ => {}
         }
