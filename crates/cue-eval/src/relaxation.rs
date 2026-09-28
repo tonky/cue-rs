@@ -386,10 +386,15 @@ impl<'a> RelaxationLoop<'a> {
                 Label::Pattern(pattern_expr) => {
                     let pattern_val = self.eval.eval_expr(pattern_expr)?;
                     let target_val = self.eval.eval_expr(&f.value)?;
+                    let is_unresolved = self.eval.arena.is_unresolved(pattern_val)
+                        || self.eval.arena.is_unresolved(target_val);
+                    if is_unresolved && !final_pass {
+                        return Ok(false);
+                    }
                     target
                         .structure
                         .add_pattern_constraint(pattern_val, target_val);
-                    Ok(!self.eval.arena.is_unresolved(target_val))
+                    Ok(!is_unresolved)
                 }
                 Label::Dynamic(dyn_expr) => {
                     let label_val_id = self.eval.eval_expr(dyn_expr)?;

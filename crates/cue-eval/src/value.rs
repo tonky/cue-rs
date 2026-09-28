@@ -726,7 +726,12 @@ impl ValueArena {
                 .values()
                 .chain(s.definitions.values())
                 .chain(s.hidden.values())
-                .map(|f| f.val)),
+                .map(|f| f.val)
+                .chain(
+                    s.pattern_constraints
+                        .iter()
+                        .flat_map(|pc| [pc.pattern_val, pc.target_val]),
+                )),
             Some(Value::List { elements, ellipsis }) => {
                 any(&mut elements.iter().copied().chain(*ellipsis))
             }
