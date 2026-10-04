@@ -84,61 +84,22 @@ impl ModuleManifest {
         let mut manifest = ModuleManifest::default();
 
         for decl in &file.decls {
-            if let cue_syntax::ast::Decl::Field(f) = decl {
-                match f.label.name() {
-                    Some("module") => {
-                        if let cue_syntax::ast::Expr::String(s) = &f.value {
-                            manifest.module = s.value.clone();
-                        }
-                    }
-                    Some("language") => {
-                        if let cue_syntax::ast::Expr::Struct(st) = &f.value {
-                            for d in &st.decls {
-                                if let cue_syntax::ast::Decl::Field(inner) = d
-                                    && inner.label.name() == Some("version")
-                                    && let cue_syntax::ast::Expr::String(v) = &inner.value
-                                {
-                                    manifest.language_version = v.value.clone();
-                                }
-                            }
-                        }
-                    }
-                    Some("deps") => {
-                        if let cue_syntax::ast::Expr::Struct(st) = &f.value {
-                            for d in &st.decls {
-                                if let cue_syntax::ast::Decl::Field(dep_f) = d
-                                    && let Some(dep_name) = dep_f.label.name()
-                                    && let cue_syntax::ast::Expr::Struct(dep_st) = &dep_f.value
-                                {
-                                    let mut dep_info = DependencyInfo::default();
-                                    for dd in &dep_st.decls {
-                                        if let cue_syntax::ast::Decl::Field(df) = dd {
-                                            match df.label.name() {
-                                                Some("v") => {
-                                                    if let cue_syntax::ast::Expr::String(v) =
-                                                        &df.value
-                                                    {
-                                                        dep_info.version = v.value.clone();
-                                                    }
-                                                }
-                                                Some("source") => {
-                                                    if let cue_syntax::ast::Expr::String(s) =
-                                                        &df.value
-                                                    {
-                                                        dep_info.source = Some(s.value.clone());
-                                                    }
-                                                }
-                                                _ => {}
-                                            }
-                                        }
-                                    }
-                                    manifest.dependencies.insert(dep_name.to_string(), dep_info);
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
+            let cue_syntax::ast::Decl::Field(f) = decl else {
+                continue;
+            };
+            match (f.label.name(), &f.value) {
+                (Some("module"), cue_syntax::ast::Expr::String(s)) => {
+                    manifest.module = s.value.clone();
                 }
+                (Some("language"), cue_syntax::ast::Expr::Struct(st)) => {
+                    if let Some(ver) = parse_language_version(st) {
+                        manifest.language_version = ver;
+                    }
+                }
+                (Some("deps"), cue_syntax::ast::Expr::Struct(st)) => {
+                    manifest.dependencies = parse_dependencies(st);
+                }
+                _ => {}
             }
         }
 
@@ -148,6 +109,50 @@ impl ModuleManifest {
 
         Ok(manifest)
     }
+}
+
+fn parse_language_version(st: &cue_syntax::ast::StructLit) -> Option<String> {
+    st.decls.iter().find_map(|d| match d {
+        cue_syntax::ast::Decl::Field(f) if f.label.name() == Some("version") => match &f.value {
+            cue_syntax::ast::Expr::String(v) => Some(v.value.clone()),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+fn parse_dependencies(st: &cue_syntax::ast::StructLit) -> BTreeMap<String, DependencyInfo> {
+    let mut deps = BTreeMap::new();
+    for decl in &st.decls {
+        let cue_syntax::ast::Decl::Field(f) = decl else {
+            continue;
+        };
+        let Some(dep_name) = f.label.name() else {
+            continue;
+        };
+        let cue_syntax::ast::Expr::Struct(dep_st) = &f.value else {
+            continue;
+        };
+        deps.insert(dep_name.to_string(), parse_dependency_info(dep_st));
+    }
+    deps
+}
+
+fn parse_dependency_info(st: &cue_syntax::ast::StructLit) -> DependencyInfo {
+    let mut info = DependencyInfo::default();
+    for decl in &st.decls {
+        let cue_syntax::ast::Decl::Field(f) = decl else {
+            continue;
+        };
+        match (f.label.name(), &f.value) {
+            (Some("v"), cue_syntax::ast::Expr::String(v)) => info.version = v.value.clone(),
+            (Some("source"), cue_syntax::ast::Expr::String(s)) => {
+                info.source = Some(s.value.clone());
+            }
+            _ => {}
+        }
+    }
+    info
 }
 
 #[cfg(test)]

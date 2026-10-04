@@ -23,55 +23,17 @@ pub fn worker(path: &Path) -> anyhow::Result<()> {
 }
 
 fn observe(evaluator: &Evaluator, root: ValueId, check: &Check) -> Observation {
-    let mut current = root;
-    for selector in &check.path {
-        let next = match selector {
-            Selector::Field(name) => evaluator.arena.fields(current).and_then(|s| {
-                s.fields
-                    .get(name)
-                    .or_else(|| s.definitions.get(name))
-                    .or_else(|| s.hidden.get(name))
-                    .map(|f| f.val)
-            }),
-            Selector::Index(index) => {
-                if let Some(Value::List { elements, .. }) = evaluator.arena.get(current) {
-                    elements.get(*index).copied()
-                } else {
-                    None
-                }
-            }
-        };
-        let Some(next) = next else {
-            return Observation::Error(format!("assertion path missing at {selector:?}"));
-        };
-        current = next;
-    }
+    let current = match resolve_selector_path(evaluator, root, &check.path) {
+        Ok(id) => id,
+        Err(observation) => return observation,
+    };
+
     match check.operation.as_str() {
-        // A struct standing over an error field is erroneous upstream, even
-        // though only the leaf is bottom (`issue3778/full` observes `full`,
-        // not `z.b`). The subtree search only fires when the value itself
-        // is not bottom, so no passing check can flip.
         "error_present" => Observation::Value(json!(
             matches!(evaluator.arena.get(current), Some(Value::Bottom(_)))
                 || subtree_error_code(evaluator, current).is_some()
         )),
-        "error_code" => match evaluator.arena.get(current) {
-            Some(Value::Bottom(reason)) => {
-                let code = match bottom_code(&reason.kind) {
-                    Some(code) => code,
-                    None => {
-                        return Observation::Unsupported(
-                            "error cause is not typed precisely enough".into(),
-                        );
-                    }
-                };
-                Observation::Value(json!(code))
-            }
-            _ => match subtree_error_code(evaluator, current) {
-                Some(code) => Observation::Value(json!(code)),
-                None => Observation::Value(serde_json::Value::Null),
-            },
-        },
+        "error_code" => observe_error_code(evaluator, current),
         "error_paths" => Observation::Unsupported(
             "absolute diagnostic paths and diagnostic sets are not yet available".into(),
         ),
@@ -96,6 +58,49 @@ fn observe(evaluator: &Evaluator, root: ValueId, check: &Check) -> Observation {
     }
 }
 
+fn resolve_selector_path(
+    evaluator: &Evaluator,
+    root: ValueId,
+    path: &[Selector],
+) -> Result<ValueId, Observation> {
+    let mut current = root;
+    for selector in path {
+        let next = match selector {
+            Selector::Field(name) => evaluator.arena.fields(current).and_then(|s| {
+                s.fields
+                    .get(name)
+                    .or_else(|| s.definitions.get(name))
+                    .or_else(|| s.hidden.get(name))
+                    .map(|f| f.val)
+            }),
+            Selector::Index(index) => match evaluator.arena.get(current) {
+                Some(Value::List { elements, .. }) => elements.get(*index).copied(),
+                _ => None,
+            },
+        };
+        let Some(next) = next else {
+            return Err(Observation::Error(format!(
+                "assertion path missing at {selector:?}"
+            )));
+        };
+        current = next;
+    }
+    Ok(current)
+}
+
+fn observe_error_code(evaluator: &Evaluator, current: ValueId) -> Observation {
+    match evaluator.arena.get(current) {
+        Some(Value::Bottom(reason)) => match bottom_code(&reason.kind) {
+            Some(code) => Observation::Value(json!(code)),
+            None => Observation::Unsupported("error cause is not typed precisely enough".into()),
+        },
+        _ => match subtree_error_code(evaluator, current) {
+            Some(code) => Observation::Value(json!(code)),
+            None => Observation::Value(serde_json::Value::Null),
+        },
+    }
+}
+
 /// The oracle code for one bottom cause; `None` is not typed precisely
 /// enough to report.
 fn bottom_code(kind: &cue_eval::BottomKind) -> Option<&'static str> {
@@ -104,12 +109,7 @@ fn bottom_code(kind: &cue_eval::BottomKind) -> Option<&'static str> {
         BottomKind::Conflict
         | BottomKind::ReferenceNotFound
         | BottomKind::UndefinedFieldDefinite => "eval",
-        // A resolved struct missing a field may gain it on a later pass —
-        // the relaxation loop retries this kind for the same reason.
-        // Upstream reports `incomplete`.
         BottomKind::UndefinedField | BottomKind::Incomplete => "incomplete",
-        // A lone custom error settles as definite; inside a disjunction
-        // the settle adopts a real code.
         BottomKind::Custom => "eval",
         BottomKind::Cycle | BottomKind::Unresolved => "cycle",
         BottomKind::StructuralCycle => "structural_cycle",
@@ -117,61 +117,60 @@ fn bottom_code(kind: &cue_eval::BottomKind) -> Option<&'static str> {
     })
 }
 
+fn severity(code: &str) -> u8 {
+    match code {
+        "eval" => 4,
+        "incomplete" => 3,
+        "cycle" => 2,
+        "structural_cycle" => 1,
+        _ => 0,
+    }
+}
+
+fn walk_subtree(
+    evaluator: &Evaluator,
+    id: ValueId,
+    visited: &mut std::collections::HashSet<ValueId>,
+    best: &mut Option<&'static str>,
+) {
+    if !visited.insert(id) {
+        return;
+    }
+    let current_best = best.map(severity).unwrap_or(0);
+    if current_best >= 4 {
+        return;
+    }
+    match evaluator.arena.get(id) {
+        Some(Value::Bottom(reason)) => {
+            if let Some(code) = bottom_code(&reason.kind)
+                && severity(code) > current_best
+            {
+                *best = Some(code);
+            }
+        }
+        Some(Value::Struct(s)) => {
+            for entry in s
+                .fields
+                .values()
+                .chain(s.definitions.values())
+                .chain(s.hidden.values())
+            {
+                walk_subtree(evaluator, entry.val, visited, best);
+            }
+        }
+        Some(Value::List { elements, .. }) => {
+            for &element in elements {
+                walk_subtree(evaluator, element, visited, best);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// The severest oracle code among the bottoms in a value's subtree, if any.
-/// Disjunction interiors are not descended into: a failed alternative is
-/// normal settling, not an error surfacing. Cycles in the arena are cut by
-/// the visited set.
 fn subtree_error_code(evaluator: &Evaluator, id: ValueId) -> Option<&'static str> {
-    fn severity(code: &str) -> u8 {
-        match code {
-            "eval" => 4,
-            "incomplete" => 3,
-            "cycle" => 2,
-            "structural_cycle" => 1,
-            _ => 0,
-        }
-    }
-    fn walk(
-        evaluator: &Evaluator,
-        id: ValueId,
-        visited: &mut std::collections::HashSet<ValueId>,
-        best: &mut Option<&'static str>,
-    ) {
-        if !visited.insert(id) {
-            return;
-        }
-        let current_best = best.map(severity).unwrap_or(0);
-        if current_best >= 4 {
-            return;
-        }
-        match evaluator.arena.get(id) {
-            Some(Value::Bottom(reason)) => {
-                if let Some(code) = bottom_code(&reason.kind)
-                    && severity(code) > current_best
-                {
-                    *best = Some(code);
-                }
-            }
-            Some(Value::Struct(s)) => {
-                for entry in s
-                    .fields
-                    .values()
-                    .chain(s.definitions.values())
-                    .chain(s.hidden.values())
-                {
-                    walk(evaluator, entry.val, visited, best);
-                }
-            }
-            Some(Value::List { elements, .. }) => {
-                for &element in elements {
-                    walk(evaluator, element, visited, best);
-                }
-            }
-            _ => {}
-        }
-    }
     let mut best = None;
-    walk(
+    walk_subtree(
         evaluator,
         id,
         &mut std::collections::HashSet::new(),

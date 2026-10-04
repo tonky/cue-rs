@@ -233,7 +233,6 @@ out: pkg.#Pipeline & {
     );
 }
 
-
 #[test]
 fn test_enact_schema_direct() {
     let enact_schema = std::path::Path::new("/home/tonky/projects/enact/schema");
@@ -339,11 +338,9 @@ pipe: schema.#Pipeline & {
     .unwrap();
     let res = PackageLoader::load_file(&test_file);
     if let Ok((evaluator, root_id)) = res {
-        assert!(evaluator.to_json(root_id).is_err(), "should reject invalid job name");
+        assert!(
+            evaluator.to_json(root_id).is_err(),
+            "should reject invalid job name"
+        );
     }
 }
-
-
-
-
-
