@@ -37,7 +37,7 @@ fn annotate(
     done.insert(id, id);
 
     let annotated = match evaluator.arena.get(id).cloned() {
-        Some(Value::Struct(s)) => annotate_struct(evaluator, id, s, annotation, origin, done),
+        Some(Value::Struct(s)) => annotate_struct(evaluator, id, *s, annotation, origin, done),
         Some(Value::Disjunction { branches }) => {
             annotate_disjunction(evaluator, id, branches, annotation, origin, done)
         }
@@ -72,7 +72,7 @@ fn annotate_struct(
     }
 
     if changed {
-        evaluator.arena.alloc_like(id, Value::Struct(s))
+        evaluator.arena.alloc_like(id, Value::Struct(Box::new(s)))
     } else {
         id
     }

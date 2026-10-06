@@ -1,3 +1,4 @@
+mod arc_order;
 mod binary;
 mod builtins;
 pub mod closedness;
@@ -150,12 +151,12 @@ mod tests {
         let mut def = StructValue::new(true); // closed
         let str_t = evaluator.arena.alloc(Value::Type(TypeKind::String));
         def.insert_field("allowed".to_string(), str_t, false);
-        let def_id = evaluator.arena.alloc(Value::Struct(def));
+        let def_id = evaluator.arena.alloc(Value::Struct(Box::new(def)));
 
         let mut concrete = StructValue::new(false);
         let val_id = evaluator.arena.string("extra");
         concrete.insert_field("forbidden".to_string(), val_id, false);
-        let concrete_id = evaluator.arena.alloc(Value::Struct(concrete));
+        let concrete_id = evaluator.arena.alloc(Value::Struct(Box::new(concrete)));
 
         let unified = unify(&mut evaluator.arena, def_id, concrete_id);
         assert!(matches!(
@@ -344,8 +345,8 @@ mod tests {
     #[test]
     fn test_unify_struct_cycle_detection() {
         let mut arena = ValueArena::new();
-        let s1_id = arena.alloc(Value::Struct(StructValue::new(false)));
-        let s2_id = arena.alloc(Value::Struct(StructValue::new(false)));
+        let s1_id = arena.alloc(Value::Struct(Box::new(StructValue::new(false))));
+        let s2_id = arena.alloc(Value::Struct(Box::new(StructValue::new(false))));
 
         // Mutually recursive structs: s1.next = s2, s2.next = s1
         if let Some(Value::Struct(s1)) = arena.get_mut(s1_id) {
@@ -369,16 +370,16 @@ mod tests {
     fn test_unify_struct_recursion_depth_limit() {
         let mut arena = ValueArena::new();
         // Create twin chains of nested structs deeper than MAX_STRUCT_DEPTH (64)
-        let mut chain1 = arena.alloc(Value::Struct(StructValue::new(false)));
-        let mut chain2 = arena.alloc(Value::Struct(StructValue::new(false)));
+        let mut chain1 = arena.alloc(Value::Struct(Box::new(StructValue::new(false))));
+        let mut chain2 = arena.alloc(Value::Struct(Box::new(StructValue::new(false))));
         for i in 0..70 {
             let mut s1 = StructValue::new(false);
             s1.insert_field(format!("f{i}"), chain1, false);
-            chain1 = arena.alloc(Value::Struct(s1));
+            chain1 = arena.alloc(Value::Struct(Box::new(s1)));
 
             let mut s2 = StructValue::new(false);
             s2.insert_field(format!("f{i}"), chain2, false);
-            chain2 = arena.alloc(Value::Struct(s2));
+            chain2 = arena.alloc(Value::Struct(Box::new(s2)));
         }
 
         let res_id = unify(&mut arena, chain1, chain2);

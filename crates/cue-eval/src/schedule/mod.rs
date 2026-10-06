@@ -264,13 +264,13 @@ pub(crate) fn merge_generated(
         let map = section.map_mut(target);
         for (name, entry) in entries {
             match map.entry(name) {
-                std::collections::btree_map::Entry::Occupied(mut slot) => {
+                indexmap::map::Entry::Occupied(mut slot) => {
                     let existing = slot.get_mut();
                     existing.val = unify(&mut *arena, existing.val, entry.val);
                     existing.optional &= entry.optional;
                     existing.extend_conjuncts(entry.conjuncts.iter().cloned());
                 }
-                std::collections::btree_map::Entry::Vacant(slot) => {
+                indexmap::map::Entry::Vacant(slot) => {
                     slot.insert(entry);
                 }
             }

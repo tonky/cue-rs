@@ -1,0 +1,2 @@
+a: reference "undefinedRef" not found:
+    ./undefined_source.cue:1:17

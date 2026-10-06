@@ -334,6 +334,10 @@ pub enum Expr {
         /// re-emitted as a single line.
         form: StringForm,
     },
+    /// A comprehension element of a list literal (`[1, for x in s {x}]`). It
+    /// yields zero or more elements into the `Expr::List` that holds it and is
+    /// never a value of its own: `[for x in s {x}]` is a list with one such
+    /// element, so a nested `[[for x in s {x}]]` stays a list of lists.
     ListComp(ListComprehension),
 }
 

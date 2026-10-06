@@ -1,5 +1,5 @@
-use crate::value::{FieldEntry, StructValue};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use crate::value::{FieldMap, StructValue};
+use std::collections::{HashMap, HashSet};
 
 /// Which map of a struct a field lives in. Definitions and hidden fields keep
 /// their sigil in the name, so the three never collide.
@@ -11,7 +11,7 @@ pub(crate) enum Section {
 }
 
 impl Section {
-    pub(crate) fn map(self, s: &StructValue) -> &BTreeMap<String, FieldEntry> {
+    pub(crate) fn map(self, s: &StructValue) -> &FieldMap {
         match self {
             Section::Field => &s.fields,
             Section::Definition => &s.definitions,
@@ -19,7 +19,7 @@ impl Section {
         }
     }
 
-    pub(crate) fn map_mut(self, s: &mut StructValue) -> &mut BTreeMap<String, FieldEntry> {
+    pub(crate) fn map_mut(self, s: &mut StructValue) -> &mut FieldMap {
         match self {
             Section::Field => &mut s.fields,
             Section::Definition => &mut s.definitions,

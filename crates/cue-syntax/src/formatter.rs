@@ -601,8 +601,8 @@ fn format_expr(expr_node: &Expr, out: &mut String, indent: usize) {
             }
             wrap_literal(form, '"', &body, out, indent);
         }
+        // The brackets belong to the list holding the comprehension.
         Expr::ListComp(comp) => {
-            out.push('[');
             for clause in &comp.clauses {
                 match clause {
                     ComprehensionClause::For { key, value, source } => {
@@ -632,7 +632,7 @@ fn format_expr(expr_node: &Expr, out: &mut String, indent: usize) {
             }
             out.push('{');
             format_expr(&comp.expr, out, indent);
-            out.push_str("}]");
+            out.push('}');
         }
     }
 }

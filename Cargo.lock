@@ -219,6 +219,7 @@ version = "0.1.0"
 dependencies = [
  "cue-syntax",
  "cue-test-harness",
+ "indexmap",
  "num-bigint",
  "num-traits",
  "regex",

@@ -140,8 +140,10 @@ fn finish_fixed(
         return error;
     }
     // Once constrained to struct kind, its normal field storage is sufficient.
+    // The literal's own fields come before what its embeddings resolve to.
     if matches!(arena.get(value), Some(Value::Struct(_))) {
-        return unify_with_context(arena, value, fields, context);
+        let merged = unify_with_context(arena, value, fields, context);
+        return crate::arc_order::keep_fields_first(arena, merged, fields);
     }
     // Fixed choices can retain an individual constant recipe in each
     // alternative. A thunk for the whole choice cannot stand in for a branch.
@@ -220,7 +222,7 @@ pub(crate) fn merged_choice_view(
             continue;
         };
         body.is_closed = false;
-        let next = arena.alloc(Value::Struct(body));
+        let next = arena.alloc(Value::Struct(Box::new(body)));
         fields = Some(match fields {
             Some(previous) => unify_with_context(arena, previous, next, context),
             None => next,
@@ -272,7 +274,7 @@ fn attach_branch_fields(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::value::{DisjunctionBranch, StructValue};
+    use crate::value::DisjunctionBranch;
 
     #[test]
     fn normalization_bounds_cycles_and_deep_acyclic_choices() {
@@ -299,7 +301,7 @@ mod tests {
                     });
                 }
             }
-            let fields = arena.alloc(Value::Struct(StructValue::default()));
+            let fields = arena.alloc(Value::Struct(Box::default()));
             let mut context = UnifyContext::new();
             let result = finish_with_context(
                 &mut arena,

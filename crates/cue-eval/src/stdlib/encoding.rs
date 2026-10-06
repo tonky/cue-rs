@@ -13,6 +13,137 @@ pub fn value_to_json(arena: &ValueArena, val_id: ValueId) -> Result<serde_json::
 }
 
 pub fn json_to_value(arena: &mut ValueArena, j: serde_json::Value) -> ValueId {
+    json_to_value_in_order(arena, j, None)
+}
+
+/// The key order of a decoded document. `serde_json::Value` sorts object keys,
+/// while upstream keeps them as written, which is the order a comprehension
+/// over the decoded struct yields.
+#[derive(Default)]
+struct KeyOrder {
+    /// Each object's keys as written, with the order of what each holds.
+    keys: Vec<(String, KeyOrder)>,
+    /// The element orders of an array.
+    elements: Vec<KeyOrder>,
+}
+
+impl<'de> serde::Deserialize<'de> for KeyOrder {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(KeyOrderVisitor)
+    }
+}
+
+struct KeyOrderVisitor;
+
+impl<'de> serde::de::Visitor<'de> for KeyOrderVisitor {
+    type Value = KeyOrder;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("any value")
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<KeyOrder, A::Error> {
+        let mut order = KeyOrder::default();
+        while let Some(key) = map.next_key::<KeyName>()? {
+            order.keys.push((key.0, map.next_value()?));
+        }
+        Ok(order)
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<KeyOrder, A::Error> {
+        let mut order = KeyOrder::default();
+        while let Some(element) = seq.next_element()? {
+            order.elements.push(element);
+        }
+        Ok(order)
+    }
+
+    fn visit_some<D: serde::Deserializer<'de>>(self, d: D) -> Result<KeyOrder, D::Error> {
+        serde::Deserialize::deserialize(d)
+    }
+
+    fn visit_newtype_struct<D: serde::Deserializer<'de>>(self, d: D) -> Result<KeyOrder, D::Error> {
+        serde::Deserialize::deserialize(d)
+    }
+
+    fn visit_enum<A: serde::de::EnumAccess<'de>>(self, data: A) -> Result<KeyOrder, A::Error> {
+        let (_, variant) = data.variant::<serde::de::IgnoredAny>()?;
+        serde::de::VariantAccess::newtype_variant(variant)
+    }
+
+    fn visit_bool<E>(self, _: bool) -> Result<KeyOrder, E> {
+        Ok(KeyOrder::default())
+    }
+    fn visit_i64<E>(self, _: i64) -> Result<KeyOrder, E> {
+        Ok(KeyOrder::default())
+    }
+    fn visit_i128<E>(self, _: i128) -> Result<KeyOrder, E> {
+        Ok(KeyOrder::default())
+    }
+    fn visit_u64<E>(self, _: u64) -> Result<KeyOrder, E> {
+        Ok(KeyOrder::default())
+    }
+    fn visit_u128<E>(self, _: u128) -> Result<KeyOrder, E> {
+        Ok(KeyOrder::default())
+    }
+    fn visit_f64<E>(self, _: f64) -> Result<KeyOrder, E> {
+        Ok(KeyOrder::default())
+    }
+    fn visit_str<E>(self, _: &str) -> Result<KeyOrder, E> {
+        Ok(KeyOrder::default())
+    }
+    fn visit_bytes<E>(self, _: &[u8]) -> Result<KeyOrder, E> {
+        Ok(KeyOrder::default())
+    }
+    fn visit_none<E>(self) -> Result<KeyOrder, E> {
+        Ok(KeyOrder::default())
+    }
+    fn visit_unit<E>(self) -> Result<KeyOrder, E> {
+        Ok(KeyOrder::default())
+    }
+}
+
+/// An object key, whatever scalar spelled it (YAML allows `1:` or `true:`).
+struct KeyName(String);
+
+impl<'de> serde::Deserialize<'de> for KeyName {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct V;
+        impl serde::de::Visitor<'_> for V {
+            type Value = KeyName;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a key")
+            }
+            fn visit_str<E>(self, v: &str) -> Result<KeyName, E> {
+                Ok(KeyName(v.to_string()))
+            }
+            fn visit_bool<E>(self, v: bool) -> Result<KeyName, E> {
+                Ok(KeyName(v.to_string()))
+            }
+            fn visit_i64<E>(self, v: i64) -> Result<KeyName, E> {
+                Ok(KeyName(v.to_string()))
+            }
+            fn visit_u64<E>(self, v: u64) -> Result<KeyName, E> {
+                Ok(KeyName(v.to_string()))
+            }
+            fn visit_f64<E>(self, v: f64) -> Result<KeyName, E> {
+                Ok(KeyName(v.to_string()))
+            }
+            fn visit_unit<E>(self) -> Result<KeyName, E> {
+                Ok(KeyName("null".to_string()))
+            }
+        }
+        deserializer.deserialize_any(V)
+    }
+}
+
+/// `json_to_value`, with objects in the key order `order` recorded. Keys the
+/// order does not know about follow in sorted order.
+fn json_to_value_in_order(
+    arena: &mut ValueArena,
+    j: serde_json::Value,
+    order: Option<&KeyOrder>,
+) -> ValueId {
     match j {
         serde_json::Value::Null => arena.null(),
         serde_json::Value::Bool(b) => arena.bool(b),
@@ -29,20 +160,30 @@ pub fn json_to_value(arena: &mut ValueArena, j: serde_json::Value) -> ValueId {
         serde_json::Value::Array(arr) => {
             let elements = arr
                 .into_iter()
-                .map(|item| json_to_value(arena, item))
+                .enumerate()
+                .map(|(index, item)| {
+                    let element = order.and_then(|order| order.elements.get(index));
+                    json_to_value_in_order(arena, item, element)
+                })
                 .collect();
             arena.alloc(Value::List {
                 elements,
                 ellipsis: None,
             })
         }
-        serde_json::Value::Object(obj) => {
+        serde_json::Value::Object(mut obj) => {
             let mut st = StructValue::new(false);
+            for (k, inner) in order.map(|order| order.keys.as_slice()).unwrap_or_default() {
+                if let Some(v) = obj.remove(k) {
+                    let v_id = json_to_value_in_order(arena, v, Some(inner));
+                    st.insert_field(k.clone(), v_id, false);
+                }
+            }
             for (k, v) in obj {
-                let v_id = json_to_value(arena, v);
+                let v_id = json_to_value_in_order(arena, v, None);
                 st.insert_field(k, v_id, false);
             }
-            arena.alloc(Value::Struct(st))
+            arena.alloc(Value::Struct(Box::new(st)))
         }
     }
 }
@@ -69,7 +210,8 @@ pub fn call_encoding(
             {
                 let parsed: serde_json::Value =
                     serde_json::from_str(s).map_err(|e| format!("json.Unmarshal failed: {e}"))?;
-                return Ok(json_to_value(arena, parsed));
+                let order = serde_json::from_str::<KeyOrder>(s).ok();
+                return Ok(json_to_value_in_order(arena, parsed, order.as_ref()));
             }
             Err("json.Unmarshal requires 1 JSON string argument".to_string())
         }
@@ -135,7 +277,8 @@ pub fn call_encoding(
             {
                 let parsed: serde_json::Value = serde_yaml_ng::from_str(s)
                     .map_err(|e| format!("yaml.Unmarshal failed: {e}"))?;
-                return Ok(json_to_value(arena, parsed));
+                let order = serde_yaml_ng::from_str::<KeyOrder>(s).ok();
+                return Ok(json_to_value_in_order(arena, parsed, order.as_ref()));
             }
             Err("yaml.Unmarshal requires 1 YAML string argument".to_string())
         }

@@ -1055,14 +1055,6 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    /// Parse a list comprehension: `[ for x in src if x > 1 { x * 10 } ]`
-    pub fn parse_list_comprehension(&mut self) -> Result<Expr, ParseError> {
-        let comp = self.parse_list_comprehension_body()?;
-        self.match_token(&Token::Comma);
-        self.expect(Token::RBracket)?;
-        Ok(comp)
-    }
-
     // --- Expressions (Pratt Precedence) ---
 
     pub fn parse_expr(&mut self) -> Result<Expr, ParseError> {
@@ -1414,19 +1406,16 @@ impl<'a> Parser<'a> {
                     elements.push(self.parse_expr()?);
                     self.match_token(&Token::Comma);
                 }
-                if elements.len() == 1
-                    && matches!(elements.first(), Some(Expr::ListComp(_)))
-                    && ellipsis.is_none()
-                {
-                    Ok(elements.pop().unwrap())
-                } else {
-                    Ok(Expr::List(ListLit {
-                        elements,
-                        ellipsis,
-                        open,
-                        form,
-                    }))
-                }
+                // A comprehension is always an element of its list, even when it is the
+                // only one: `[[for x in s {x}]]` is a list holding one list, and the
+                // comprehension's yields are spliced into the brackets around it, never
+                // into an enclosing list.
+                Ok(Expr::List(ListLit {
+                    elements,
+                    ellipsis,
+                    open,
+                    form,
+                }))
             }
             Token::LParen => {
                 let expr = self.parse_expr()?;

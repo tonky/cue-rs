@@ -9,8 +9,11 @@ fn empty_struct_bodies_parse_in_list_comprehensions() {
     let [Decl::Field(field)] = file.decls.as_slice() else {
         panic!("expected one field: {:?}", file.decls);
     };
-    let Expr::ListComp(comp) = &field.value else {
-        panic!("expected list comprehension: {:?}", field.value);
+    let Expr::List(list) = &field.value else {
+        panic!("expected list: {:?}", field.value);
+    };
+    let [Expr::ListComp(comp)] = list.elements.as_slice() else {
+        panic!("expected one comprehension element: {:?}", list.elements);
     };
     assert_eq!(comp.clauses.len(), 1);
     let Expr::Struct(body) = comp.expr.as_ref() else {

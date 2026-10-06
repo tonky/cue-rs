@@ -1,0 +1,22 @@
+{
+  "dedup": {
+    "a": 1,
+    "b": 2
+  },
+  "dedupDefault": {
+    "a": 1,
+    "b": 2
+  },
+  "eq": {
+    "different": false,
+    "flat": true,
+    "inList": true,
+    "ne": false,
+    "nested": true,
+    "unified": true
+  },
+  "kDedup": [
+    "a",
+    "b"
+  ]
+}

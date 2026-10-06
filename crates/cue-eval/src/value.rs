@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use slotmap::{SlotMap, new_key_type};
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::rc::Rc;
 
@@ -291,7 +291,9 @@ pub enum Value {
         elements: Vec<ValueId>,
         ellipsis: Option<ValueId>,
     },
-    Struct(StructValue),
+    /// Boxed: a struct's three field maps would otherwise set the size of
+    /// every value in the arena.
+    Struct(Box<StructValue>),
     Disjunction {
         branches: Vec<DisjunctionBranch>,
     },
@@ -319,11 +321,16 @@ pub struct PatternConstraint {
     pub target_val: ValueId,
 }
 
+/// A struct's fields in arc order: the order upstream creates them while
+/// evaluating, which is the order a comprehension over the struct yields.
+/// Equality ignores the order, as upstream's does.
+pub type FieldMap = indexmap::IndexMap<String, FieldEntry>;
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct StructValue {
-    pub fields: BTreeMap<String, FieldEntry>,
-    pub definitions: BTreeMap<String, FieldEntry>,
-    pub hidden: BTreeMap<String, FieldEntry>,
+    pub fields: FieldMap,
+    pub definitions: FieldMap,
+    pub hidden: FieldMap,
     pub pattern_constraints: Vec<PatternConstraint>,
     pub is_closed: bool,
     /// Written with `...`: closing the definition it belongs to leaves this
@@ -603,9 +610,9 @@ impl PartialEq for FieldEntry {
 impl StructValue {
     pub fn new(is_closed: bool) -> Self {
         Self {
-            fields: BTreeMap::new(),
-            definitions: BTreeMap::new(),
-            hidden: BTreeMap::new(),
+            fields: FieldMap::new(),
+            definitions: FieldMap::new(),
+            hidden: FieldMap::new(),
             pattern_constraints: Vec::new(),
             is_closed,
             is_open: false,

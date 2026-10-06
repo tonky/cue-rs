@@ -12,6 +12,9 @@ pub(crate) struct DeclarationValue {
     /// An explicit `{}` embedding constrains the kind even without fields.
     pub has_struct_embedding: bool,
     pub close_on_finish: bool,
+    /// Fields a comprehension added under labels it computed: upstream adds
+    /// those after the references beside it (see [`crate::arc_order`]).
+    pub late_fields: Vec<String>,
 }
 
 impl DeclarationValue {
@@ -56,25 +59,25 @@ impl DeclarationValue {
                 if (requires_struct || has_metadata)
                     && crate::metadata::needs_recipe(arena, &self.conjuncts) =>
             {
-                let fields = arena.alloc(Value::Struct(self.structure));
+                let fields = arena.alloc(Value::Struct(Box::new(self.structure)));
                 let mut conjuncts = self.conjuncts;
                 if requires_struct {
                     // The declaration's fields are refreshed separately. Only
                     // struct kind is immutable; caching their values here would
                     // freeze expressions that depend on a later override.
-                    let kind = arena.alloc(Value::Struct(StructValue::default()));
+                    let kind = arena.alloc(Value::Struct(Box::default()));
                     value = unify(arena, value, kind);
                     conjuncts.push(Conjunct::Value(kind));
                 }
                 crate::metadata::finish(arena, value, fields, conjuncts)
             }
             Some(value) if !requires_struct && has_metadata => {
-                let fields = arena.alloc(Value::Struct(self.structure));
+                let fields = arena.alloc(Value::Struct(Box::new(self.structure)));
                 crate::metadata::finish(arena, value, fields, self.conjuncts)
             }
             Some(value) if !requires_struct => value,
             constraint => {
-                let structure = arena.alloc(Value::Struct(self.structure));
+                let structure = arena.alloc(Value::Struct(Box::new(self.structure)));
                 match constraint {
                     Some(value) => unify(arena, structure, value),
                     None => structure,

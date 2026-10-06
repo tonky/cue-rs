@@ -348,7 +348,7 @@ impl Evaluator {
 
     pub(crate) fn unify_decl_field(
         &mut self,
-        fields: &mut std::collections::BTreeMap<String, FieldEntry>,
+        fields: &mut crate::value::FieldMap,
         name: &str,
         val: ValueId,
         optional: bool,
@@ -491,11 +491,46 @@ impl Evaluator {
         (comp, deps)
     }
 
+    /// `merged`, the value of the conjunction `expr`, with the fields its
+    /// struct literals declare first: upstream inserts those before it
+    /// resolves the references beside them (see [`crate::arc_order`]).
+    fn literal_fields_first(&mut self, expr: &Expr, merged: ValueId) -> ValueId {
+        let mut labels = Vec::new();
+        crate::arc_order::expr_literal_labels(expr, &mut labels);
+        crate::arc_order::with_literal_fields_first(&mut self.arena, merged, &labels)
+    }
+
     /// A concrete value as a diagnostic names it.
     fn describe(&self, id: ValueId) -> String {
         crate::export::to_json(&self.arena, id)
             .map(|json| json.to_string())
             .unwrap_or_else(|_| "value".to_string())
+    }
+
+    /// The elements a list comprehension yields, or the bottom that stands for
+    /// the enclosing list when a clause fails or cannot be decided yet.
+    fn eval_list_comprehension(
+        &mut self,
+        comp: &cue_syntax::ast::ListComprehension,
+    ) -> Result<Result<Vec<ValueId>, ValueId>, EvalError> {
+        let mut out = ListYield::default();
+        match self.eval_list_comprehension_clause(0, comp, &mut out) {
+            Err(EvalError::Unresolved(m)) => {
+                return Ok(Err(self.arena.bottom_of(BottomKind::Unresolved, m)));
+            }
+            // A definite error in a clause is the list's value, the way
+            // an error in an element would be.
+            Err(EvalError::Evaluation(m)) => {
+                return Ok(Err(self.arena.bottom_of(BottomKind::Conflict, m)));
+            }
+            other => other?,
+        }
+        // An undecided clause leaves the whole list undecided: the field
+        // holding it derives it again once a merge decides the clause.
+        if let Some(message) = out.incomplete {
+            return Ok(Err(self.arena.bottom_of(BottomKind::Incomplete, message)));
+        }
+        Ok(Ok(out.elements))
     }
 
     fn eval_list_comprehension_clause(
@@ -708,19 +743,15 @@ impl Evaluator {
             Expr::List(l) => {
                 let mut elements = Vec::new();
                 for elem in &l.elements {
-                    let elem_id = self.eval_expr(elem)?;
-                    if matches!(elem, Expr::ListComp(_)) {
-                        if let Some(Value::List {
-                            elements: inner_elems,
-                            ..
-                        }) = self.arena.get(elem_id)
-                        {
-                            elements.extend(inner_elems.clone());
-                        } else {
-                            elements.push(elem_id);
+                    // A comprehension splices its yields into this list; a
+                    // failed or undecided one is the whole list's value.
+                    if let Expr::ListComp(comp) = elem {
+                        match self.eval_list_comprehension(comp)? {
+                            Ok(yields) => elements.extend(yields),
+                            Err(bottom) => return Ok(bottom),
                         }
                     } else {
-                        elements.push(elem_id);
+                        elements.push(self.eval_expr(elem)?);
                     }
                 }
                 // `[...]` names no element type but is still open, and the value model
@@ -757,7 +788,8 @@ impl Evaluator {
                             return Ok(left_id);
                         }
                         let merged = unify(&mut self.arena, left_id, right_id);
-                        RelaxationLoop::new(self).rederive(merged)
+                        let merged = RelaxationLoop::new(self).rederive(merged)?;
+                        Ok(self.literal_fields_first(expr, merged))
                     }
                     BinaryOp::Disjoin => {
                         let branches = vec![
@@ -977,29 +1009,15 @@ impl Evaluator {
                 }
                 Ok(self.arena.string(result_str))
             }
-            Expr::ListComp(comp) => {
-                let mut out = ListYield::default();
-                match self.eval_list_comprehension_clause(0, comp, &mut out) {
-                    Err(EvalError::Unresolved(m)) => {
-                        return Ok(self.arena.bottom_of(BottomKind::Unresolved, m));
-                    }
-                    // A definite error in a clause is the list's value, the way
-                    // an error in an element would be.
-                    Err(EvalError::Evaluation(m)) => {
-                        return Ok(self.arena.bottom_of(BottomKind::Conflict, m));
-                    }
-                    other => other?,
-                }
-                // An undecided clause leaves the whole list undecided: the field
-                // holding it derives it again once a merge decides the clause.
-                if let Some(message) = out.incomplete {
-                    return Ok(self.arena.bottom_of(BottomKind::Incomplete, message));
-                }
-                Ok(self.arena.alloc(Value::List {
-                    elements: out.elements,
+            // Only a hand-built tree puts a comprehension outside a list; it
+            // stands for the closed list of its yields.
+            Expr::ListComp(comp) => Ok(match self.eval_list_comprehension(comp)? {
+                Ok(elements) => self.arena.alloc(Value::List {
+                    elements,
                     ellipsis: None,
-                }))
-            }
+                }),
+                Err(bottom) => bottom,
+            }),
         }
     }
 

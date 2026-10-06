@@ -143,11 +143,21 @@ fn equal(arena: &mut ValueArena, left: &Value, right: &Value) -> Result<bool, Va
                     .map(|(name, entry)| (name.clone(), entry.val))
                     .collect()
             };
+            // Field order is arc order, not part of the value:
+            // `{a: 1, b: 2} == {b: 2, a: 1}`.
             let (a, b) = (regular(a), regular(b));
-            if a.len() != b.len() || a.iter().zip(&b).any(|((x, _), (y, _))| x != y) {
+            if a.len() != b.len() {
                 return Ok(false);
             }
-            for ((_, x), (_, y)) in a.into_iter().zip(b) {
+            let b: std::collections::HashMap<String, ValueId> = b.into_iter().collect();
+            let mut pairs = Vec::with_capacity(a.len());
+            for (name, x) in a {
+                match b.get(&name) {
+                    Some(&y) => pairs.push((x, y)),
+                    None => return Ok(false),
+                }
+            }
+            for (x, y) in pairs {
                 if !element_equal(arena, x, y)? {
                     return Ok(false);
                 }
@@ -900,7 +910,7 @@ mod tests {
         let val = arena.int(7);
         let mut s = StructValue::new(false);
         s.insert_field("a".to_string(), val, false);
-        let base = arena.alloc(Value::Struct(s));
+        let base = arena.alloc(Value::Struct(Box::new(s)));
 
         let id = select(&mut arena, &mut closed, false, false, base, "a");
         assert_eq!(id, val);
@@ -914,7 +924,7 @@ mod tests {
         // A closed base decides the miss, like a read through a definition.
         let mut s = StructValue::new(true);
         s.insert_field("a".to_string(), val, false);
-        let base = arena.alloc(Value::Struct(s));
+        let base = arena.alloc(Value::Struct(Box::new(s)));
         let id = select(&mut arena, &mut closed, false, false, base, "missing");
         assert!(matches!(
             arena.get(id),

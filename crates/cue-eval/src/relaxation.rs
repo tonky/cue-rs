@@ -46,6 +46,10 @@ pub(crate) struct RelaxationLoop<'a> {
     /// Why the comprehension being run could not decide a clause, if it
     /// could not.
     incomplete: Option<String>,
+    /// Set while the dynamic-label pass evaluates a literal again with its
+    /// labels resolved: those labels are not literal fields, so the pass
+    /// around it orders the fields instead.
+    labels_resolved: bool,
 }
 
 impl<'a> RelaxationLoop<'a> {
@@ -53,6 +57,7 @@ impl<'a> RelaxationLoop<'a> {
         Self {
             eval,
             incomplete: None,
+            labels_resolved: false,
         }
     }
 
@@ -103,6 +108,7 @@ impl<'a> RelaxationLoop<'a> {
         target: &mut DeclarationValue,
     ) -> Result<(), EvalError> {
         let comprehension_body = std::mem::take(&mut self.eval.comprehension_body);
+        let labels_resolved = std::mem::take(&mut self.labels_resolved);
         // A reference must see every declaration of a static field, including
         // declarations appearing after the reference in source order.
         let aliased = expand_field_aliases(decls).map_err(EvalError::Evaluation)?;
@@ -305,11 +311,13 @@ impl<'a> RelaxationLoop<'a> {
             });
             *target = base_struct;
             self.eval.scopes = base_scopes;
+            self.labels_resolved = true;
             self.eval_decls_into(&named_decls, target)?;
             for field in undecided {
                 let own = self.run_field(&field)?;
                 merge_generated(&mut self.eval.arena, &mut target.structure, own.structure);
             }
+            put_literal_fields_first(target, decls);
             return Ok(());
         }
 
@@ -342,6 +350,9 @@ impl<'a> RelaxationLoop<'a> {
         if needs_rederive {
             let mut visiting = HashSet::new();
             self.rederive_struct(&mut target.structure, &mut visiting)?;
+        }
+        if !labels_resolved {
+            put_literal_fields_first(target, decls);
         }
 
         Ok(())
@@ -620,7 +631,7 @@ impl<'a> RelaxationLoop<'a> {
                     let current_id = self
                         .eval
                         .arena
-                        .alloc(Value::Struct(target.structure.clone()));
+                        .alloc(Value::Struct(Box::new(target.structure.clone())));
                     let unified_id = unify(&mut self.eval.arena, current_id, embedded_id);
                     let unified_id = if was_closed && !self.eval.at_file_root {
                         reclose(&mut self.eval.arena, unified_id)
@@ -635,7 +646,7 @@ impl<'a> RelaxationLoop<'a> {
                         None => unified_id,
                     };
                     if let Some(Value::Struct(s)) = self.eval.arena.get(unified_id) {
-                        target.structure = s.clone();
+                        target.structure = s.as_ref().clone();
                         self.eval.bind_struct_fields(&target.structure);
                     } else {
                         target.constrain(&mut self.eval.arena, unified_id);
@@ -645,10 +656,10 @@ impl<'a> RelaxationLoop<'a> {
                         let current = self
                             .eval
                             .arena
-                            .alloc(Value::Struct(target.structure.clone()));
+                            .alloc(Value::Struct(Box::new(target.structure.clone())));
                         let fields = unify(&mut self.eval.arena, current, metadata.fields);
                         if let Some(Value::Struct(fields)) = self.eval.arena.get(fields) {
-                            target.structure = fields.clone();
+                            target.structure = fields.as_ref().clone();
                             self.eval.bind_struct_fields(&target.structure);
                             let payload =
                                 crate::metadata::payload(&mut self.eval.arena, embedded_id);
@@ -689,6 +700,17 @@ impl<'a> RelaxationLoop<'a> {
                     other => other?,
                 };
                 scratch.merge_constraints(&mut self.eval.arena, &own, self.eval.at_file_root);
+                let mut body_labels = Vec::new();
+                crate::arc_order::decl_literal_labels(&comp.struct_lit.decls, &mut body_labels);
+                for section in SECTIONS {
+                    let existing = section.map(&scratch.structure);
+                    let added = section.map(&own.structure).keys().filter(|name| {
+                        !existing.contains_key(*name) && !body_labels.contains(*name)
+                    });
+                    scratch
+                        .late_fields
+                        .extend(added.cloned().collect::<Vec<_>>());
+                }
                 merge_generated(&mut self.eval.arena, &mut scratch.structure, own.structure);
                 if !final_pass
                     && scratch
@@ -1547,7 +1569,7 @@ impl<'a> RelaxationLoop<'a> {
             }
             changed.insert(name.clone());
             if remaining.is_empty() {
-                section.map_mut(s).remove(name);
+                section.map_mut(s).shift_remove(name);
                 continue;
             }
             let rest = FieldEntry::with_conjuncts(entry.val, entry.optional, remaining);
@@ -1563,4 +1585,14 @@ impl<'a> RelaxationLoop<'a> {
         s.recipes
             .retain(|kept| kept != recipe && !recipe.outcome.recipes.contains(kept));
     }
+}
+
+/// Arc order for a literal: its own fields where it declares them, then what
+/// embeddings, comprehensions and dynamic labels added, as they were added.
+/// Passes resolve fields in dependency order, which is not the order upstream
+/// creates them in.
+fn put_literal_fields_first(target: &mut DeclarationValue, decls: &[Decl]) {
+    let mut labels = Vec::new();
+    crate::arc_order::decl_literal_labels(decls, &mut labels);
+    crate::arc_order::put_literal_fields_first(&mut target.structure, &labels, &target.late_fields);
 }

@@ -1102,6 +1102,15 @@ fn disallowed_field<'a>(
         })
 }
 
+/// The labels of a merge in arc order: the left side's, then the ones only
+/// the right side adds, as upstream inserts arcs conjunct by conjunct.
+fn arc_order(left: &FieldMap, right: &FieldMap) -> Vec<String> {
+    left.keys()
+        .chain(right.keys().filter(|key| !left.contains_key(*key)))
+        .cloned()
+        .collect()
+}
+
 fn unify_structs_inner(
     arena: &mut ValueArena,
     s1: &StructValue,
@@ -1136,8 +1145,7 @@ fn unify_structs_inner(
     }
 
     // Merge regular fields
-    let all_keys: BTreeSet<String> = s1.fields.keys().chain(s2.fields.keys()).cloned().collect();
-    for key in all_keys {
+    for key in arc_order(&s1.fields, &s2.fields) {
         let entry = match (s1.fields.get(&key), s2.fields.get(&key)) {
             (Some(e1), Some(e2)) => {
                 let unified_val = unify_internal(arena, e1.val, e2.val, ctx);
@@ -1183,13 +1191,7 @@ fn unify_structs_inner(
     }
 
     // Merge definitions (#Def)
-    let all_def_keys: BTreeSet<String> = s1
-        .definitions
-        .keys()
-        .chain(s2.definitions.keys())
-        .cloned()
-        .collect();
-    for key in all_def_keys {
+    for key in arc_order(&s1.definitions, &s2.definitions) {
         let entry = match (s1.definitions.get(&key), s2.definitions.get(&key)) {
             (Some(e1), Some(e2)) => {
                 let unified_val = unify_internal(arena, e1.val, e2.val, ctx);
@@ -1210,9 +1212,7 @@ fn unify_structs_inner(
     }
 
     // Merge hidden fields (_hidden)
-    let all_hidden_keys: BTreeSet<String> =
-        s1.hidden.keys().chain(s2.hidden.keys()).cloned().collect();
-    for key in all_hidden_keys {
+    for key in arc_order(&s1.hidden, &s2.hidden) {
         let entry = match (s1.hidden.get(&key), s2.hidden.get(&key)) {
             (Some(e1), Some(e2)) => {
                 let unified_val = unify_internal(arena, e1.val, e2.val, ctx);
@@ -1232,7 +1232,7 @@ fn unify_structs_inner(
         merged.hidden.insert(key, entry);
     }
 
-    arena.alloc(Value::Struct(merged))
+    arena.alloc(Value::Struct(Box::new(merged)))
 }
 
 fn unify_lists(
@@ -1426,6 +1426,7 @@ fn unify_disjunction_inner(
     for branch in branches {
         let cp = arena.speculate();
         let u = unify_internal(arena, branch.val, other_id, ctx);
+        let u = crate::arc_order::keep_fields_first(arena, u, other_id);
         if !arena.has_embedded_recipe(u)
             && let Some(Value::Bottom(b)) = arena.get(u)
         {
@@ -1907,13 +1908,13 @@ fn equivalent_payload(
                 (&left.hidden, &right.hidden),
             ];
             // An `if` + `return`, not a bare statement: the sections check
-            // is an early exit, and a bare `.all()` would discard it.
+            // is an early exit, and a bare `.all()` would discard it. Fields
+            // match by name: their order is arc order, not content.
             if !sections.into_iter().all(|(left, right)| {
                 left.len() == right.len()
-                    && left.iter().zip(right).all(
-                        |((left_name, left_entry), (right_name, right_entry))| {
-                            left_name == right_name
-                                && left_entry.optional == right_entry.optional
+                    && left.iter().all(|(name, left_entry)| {
+                        right.get(name).is_some_and(|right_entry| {
+                            left_entry.optional == right_entry.optional
                                 && equivalent(
                                     arena,
                                     left_entry.val,
@@ -1921,8 +1922,8 @@ fn equivalent_payload(
                                     active,
                                     budget,
                                 )
-                        },
-                    )
+                        })
+                    })
             }) {
                 return false;
             }
