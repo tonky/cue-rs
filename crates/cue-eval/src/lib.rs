@@ -12,6 +12,7 @@ pub mod manifest;
 mod metadata;
 mod operators;
 pub mod package;
+pub mod references;
 mod relaxation;
 mod schedule;
 pub mod scope;

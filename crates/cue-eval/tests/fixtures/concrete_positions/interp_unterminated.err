@@ -1,0 +1,2 @@
+expected ')' for string interpolation, found 'IDENT' b:
+    ./interp_unterminated.cue:2:13

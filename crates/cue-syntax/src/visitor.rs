@@ -227,6 +227,7 @@ pub fn fold_decl<F: Folder>(folder: &mut F, decl: Decl) -> Decl {
 
 pub fn fold_field_decl<F: Folder>(folder: &mut F, field: FieldDecl) -> FieldDecl {
     FieldDecl {
+        alias: field.alias,
         label: folder.fold_label(field.label),
         optional: field.optional,
         value: folder.fold_expr(field.value),

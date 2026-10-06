@@ -131,6 +131,10 @@ pub enum Decl {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FieldDecl {
+    /// `X=label: value`: a name for this field within the enclosing literal,
+    /// whatever form the label takes.
+    #[serde(default)]
+    pub alias: Option<String>,
     pub label: Label,
     pub optional: bool,
     pub value: Expr,
@@ -163,6 +167,19 @@ impl Label {
             | Label::HiddenDefIdent(s)
             | Label::String(s) => Some(s.as_str()),
             Label::Pattern(_) | Label::Dynamic(_) => None,
+        }
+    }
+
+    /// The name an identifier can refer to the field by. Only an identifier label
+    /// declares one: a quoted label (`"a": 1`), a dynamic one (`(k): 1`) and a
+    /// pattern name a field no reference reaches, upstream as here.
+    pub fn ident_name(&self) -> Option<&str> {
+        match self {
+            Label::Ident(s)
+            | Label::DefIdent(s)
+            | Label::HiddenIdent(s)
+            | Label::HiddenDefIdent(s) => Some(s.as_str()),
+            Label::String(_) | Label::Pattern(_) | Label::Dynamic(_) => None,
         }
     }
 

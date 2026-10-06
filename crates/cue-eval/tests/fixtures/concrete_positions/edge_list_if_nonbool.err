@@ -1,0 +1,3 @@
+o: cannot use "x" (type string) as type bool:
+    ./edge_list_if_nonbool.cue:2:6
+    ./edge_list_if_nonbool.cue:1:5

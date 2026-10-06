@@ -1,0 +1,3 @@
+o: key value of dynamic field must be concrete, found string:
+    ./edge_label_incomplete.cue:2:7
+    ./edge_label_incomplete.cue:1:5

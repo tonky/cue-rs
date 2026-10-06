@@ -1,0 +1,2 @@
+o: cannot range over _d (found int, want list or struct):
+    ./edge_for_scalar.cue:2:15

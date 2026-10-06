@@ -334,6 +334,91 @@ pub struct StructValue {
     /// literal also carries, and which only blocks auto-closing), this is
     /// the merge permission — and it survives `&`, per the oracle.
     pub spread_open: bool,
+    /// Comprehensions and dynamic fields this struct's literals declared, with
+    /// what each generated. A merge that moves what one of them reads derives
+    /// it again: a default overridden, a value made concrete, a source that
+    /// grew. One that could not decide yet leaves the struct incomplete.
+    pub recipes: Vec<DeclRecipe>,
+}
+
+/// A declaration whose fields depend on values a merge can still change.
+#[derive(Debug, Clone)]
+pub struct DeclRecipe {
+    pub(crate) source: DeclSource,
+    /// The literal it was written in. Deriving it again binds that literal's
+    /// fields to their merged values, as a field's recipe does.
+    pub(crate) env: Rc<ThunkEnv>,
+    /// The names its clauses or label read. Only a merge that moves one of
+    /// these can change what it generates.
+    pub(crate) deps: Rc<HashSet<String>>,
+    /// What it generated the last time it ran.
+    pub(crate) outcome: Rc<DeclOutcome>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum DeclSource {
+    Comprehension(Rc<cue_syntax::ast::ComprehensionDecl>),
+    /// A field with a dynamic label that was not concrete.
+    Field(Rc<cue_syntax::ast::FieldDecl>),
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct DeclOutcome {
+    /// Each field it generated, with the recipes it contributed to it.
+    pub fields: Vec<(crate::schedule::Section, String, Rc<[Conjunct]>)>,
+    /// The recipes of the literals it generated, which leave with it.
+    pub recipes: Vec<DeclRecipe>,
+    /// Set when a guard, source or label was not concrete: the struct is
+    /// incomplete until a merge decides it.
+    pub incomplete: Option<String>,
+}
+
+impl DeclRecipe {
+    pub(crate) fn source_ptr(&self) -> *const () {
+        match &self.source {
+            DeclSource::Comprehension(comp) => Rc::as_ptr(comp).cast(),
+            DeclSource::Field(field) => Rc::as_ptr(field).cast(),
+        }
+    }
+
+    pub fn incomplete(&self) -> Option<&str> {
+        self.outcome.incomplete.as_deref()
+    }
+
+    /// Whether running it again generated the same fields: the same
+    /// declaration (syntax is interned), deciding the same way. The values of
+    /// those fields are their own recipes' business.
+    pub(crate) fn same_decision(&self, other: &Self) -> bool {
+        self.source_ptr() == other.source_ptr()
+            && self.outcome.incomplete.is_some() == other.outcome.incomplete.is_some()
+            && self.outcome.fields.len() == other.outcome.fields.len()
+            && self
+                .outcome
+                .fields
+                .iter()
+                .zip(&other.outcome.fields)
+                .all(|((a, x, _), (b, y, _))| a == b && x == y)
+    }
+}
+
+/// One run of a declaration: the same recipe only if it is the same outcome.
+impl PartialEq for DeclRecipe {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.outcome, &other.outcome)
+    }
+}
+
+impl Conjunct {
+    /// The same recipe, not merely an equal one: what a retraction removes.
+    pub(crate) fn same(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Conjunct::Value(a), Conjunct::Value(b)) => a == b,
+            (Conjunct::Thunk(a), Conjunct::Thunk(b)) => {
+                Rc::ptr_eq(&a.expr, &b.expr) && Rc::ptr_eq(&a.env, &b.env)
+            }
+            _ => false,
+        }
+    }
 }
 
 /// The packages one file imported.
@@ -405,12 +490,6 @@ impl ThunkEnv {
 
     pub fn owns_field(&self, name: &str) -> bool {
         self.own_fields.borrow().contains(name)
-    }
-
-    /// A field this literal declares only once it runs - a dynamic label, or one
-    /// a comprehension or an embedding generates - is reachable the same way.
-    pub fn note_field(&self, name: &str) {
-        self.own_fields.borrow_mut().insert(name.to_string());
     }
 }
 
@@ -531,7 +610,20 @@ impl StructValue {
             is_closed,
             is_open: false,
             spread_open: false,
+            recipes: Vec::new(),
         }
+    }
+
+    /// Keep a declaration's recipe, once.
+    pub(crate) fn add_recipe(&mut self, recipe: DeclRecipe) {
+        if !self.recipes.contains(&recipe) {
+            self.recipes.push(recipe);
+        }
+    }
+
+    /// Why the struct is incomplete, if a declaration in it is undecided.
+    pub fn incomplete(&self) -> Option<&str> {
+        self.recipes.iter().find_map(DeclRecipe::incomplete)
     }
 
     pub fn insert_field(&mut self, name: String, val: ValueId, optional: bool) {
@@ -580,6 +672,9 @@ pub struct ValueArena {
     /// Only live, unmodified string nodes. Mutation and rollback remove keys
     /// so failed speculative work cannot retain text through this index.
     strings: HashMap<String, ValueId>,
+    /// How many times an operation chose a default over other alternatives.
+    /// A decision read through one is provisional: a merge may override it.
+    defaults_chosen: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -630,7 +725,16 @@ impl ValueArena {
             speculation_depth: 0,
             booleans: [None; 2],
             strings: HashMap::new(),
+            defaults_chosen: 0,
         }
+    }
+
+    pub(crate) fn defaults_chosen(&self) -> usize {
+        self.defaults_chosen
+    }
+
+    pub(crate) fn note_default_chosen(&mut self) {
+        self.defaults_chosen += 1;
     }
 
     /// Allocate a fresh node, even when an equal value already exists.

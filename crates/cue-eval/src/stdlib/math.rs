@@ -734,11 +734,11 @@ pub fn call_math(
         }
         ("math", "Pi") => Ok(arena.float(std::f64::consts::PI)),
         ("math", "E") => Ok(arena.float(std::f64::consts::E)),
-        ("math", "Phi") => Ok(arena.float(1.618_033_988_749_895)),
+        ("math", "Phi") => Ok(arena.float(std::f64::consts::GOLDEN_RATIO)),
         ("math", "Sqrt2") => Ok(arena.float(std::f64::consts::SQRT_2)),
         ("math", "SqrtE") => Ok(arena.float(std::f64::consts::E.sqrt())),
         ("math", "SqrtPi") => Ok(arena.float(std::f64::consts::PI.sqrt())),
-        ("math", "SqrtPhi") => Ok(arena.float(1.618_033_988_749_895f64.sqrt())),
+        ("math", "SqrtPhi") => Ok(arena.float(std::f64::consts::GOLDEN_RATIO.sqrt())),
         ("math", "Ln2") => Ok(arena.float(std::f64::consts::LN_2)),
         ("math", "Log2E") => Ok(arena.float(std::f64::consts::LOG2_E)),
         ("math", "Ln10") => Ok(arena.float(std::f64::consts::LN_10)),

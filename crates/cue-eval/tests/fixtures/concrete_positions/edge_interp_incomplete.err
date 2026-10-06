@@ -1,0 +1,5 @@
+d: incomplete value string:
+    ./edge_interp_incomplete.cue:1:4
+o: invalid interpolation: non-concrete value string (type string):
+    ./edge_interp_incomplete.cue:2:4
+    ./edge_interp_incomplete.cue:1:4

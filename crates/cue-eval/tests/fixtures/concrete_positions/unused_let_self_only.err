@@ -1,0 +1,4 @@
+o: unreferenced alias or let clause L:
+    ./unused_let_self_only.cue:1:5
+o.let[].b: reference "L" not found:
+    ./unused_let_self_only.cue:1:23

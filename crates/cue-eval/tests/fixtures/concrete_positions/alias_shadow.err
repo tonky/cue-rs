@@ -1,0 +1,2 @@
+cannot have both alias and field with name "X" in same scope:
+    ./alias_shadow.cue:2:5

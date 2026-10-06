@@ -1,0 +1,2 @@
+o: incomplete bool: bool:
+    ./edge_if_incomplete.cue:1:5

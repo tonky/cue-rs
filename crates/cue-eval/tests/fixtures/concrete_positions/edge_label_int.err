@@ -1,0 +1,2 @@
+o: integer fields not supported:
+    ./edge_label_int.cue:2:7

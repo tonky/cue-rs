@@ -1,0 +1,2 @@
+o: unresolved disjunction true | false (type bool):
+    ./edge_if_nodefault.cue:2:6

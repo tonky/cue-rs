@@ -5,8 +5,9 @@ package test
 import "list"
 
 l1: list.Concat([[1, 2], [3, 4], [5]])
-l2: list.Repeat("abc", 4)
-l3: list.Repeat(0, 5)
+// list.Repeat repeats the elements of a list, as upstream defines it.
+l2: list.Repeat(["abc"], 4)
+l3: list.Repeat([0], 5)
 
 -- out/eval --
 l1: [

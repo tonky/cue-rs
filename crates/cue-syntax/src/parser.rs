@@ -767,9 +767,11 @@ impl<'a> Parser<'a> {
 
     fn parse_field_decl_inner(&mut self) -> Result<Decl, ParseError> {
         // Optional prefix alias: `X = ...`
-        if matches!(self.peek(), Some(Token::Ident(_) | Token::DefIdent(_)))
+        let mut alias = None;
+        if let Some(Token::Ident(name) | Token::DefIdent(name)) = self.peek()
             && self.tokens.get(self.pos + 1).map(|(t, _)| t) == Some(&Token::Equal)
         {
+            alias = Some(name.clone());
             self.pos += 2;
         }
 
@@ -818,6 +820,7 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Decl::Field(FieldDecl {
+            alias,
             label,
             optional,
             value,
@@ -1517,7 +1520,7 @@ impl Decoder {
         if self.block {
             return Ok(dedent_block(&raw.text));
         }
-        match raw.text.contains('\n') {
+        match crate::token::breaks_line(&raw.text, self.hashes) {
             true => Err(ParseError::UnterminatedString {
                 span: self.at.whole.clone(),
             }),
@@ -1688,7 +1691,7 @@ impl Decoder {
                 lit.clear();
             }
             let inner = &body[1..];
-            let close = balanced_paren(inner).ok_or(ParseError::UnexpectedEof)?;
+            let close = crate::token::interpolation_end(inner).ok_or(ParseError::UnexpectedEof)?;
             parts.push(InterpolationPart::Expr(Box::new(Parser::parse_expr_str(
                 &inner[..close],
             )?)));
@@ -1748,27 +1751,4 @@ fn dedent_block(text: &str) -> String {
         .map(|line| line.strip_prefix(indent).unwrap_or(line))
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-/// The offset of the `)` closing an interpolation, counting nesting and stepping over
-/// escapes so a `)` inside a nested string does not end it early.
-fn balanced_paren(s: &str) -> Option<usize> {
-    let mut depth = 1usize;
-    let mut chars = s.char_indices();
-    while let Some((i, c)) = chars.next() {
-        match c {
-            '(' => depth += 1,
-            ')' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(i);
-                }
-            }
-            '\\' => {
-                chars.next();
-            }
-            _ => {}
-        }
-    }
-    None
 }

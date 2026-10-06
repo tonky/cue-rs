@@ -1,0 +1,2 @@
+o: unresolved disjunction "a" | "b" (type string):
+    ./edge_label_nodefault.cue:2:12

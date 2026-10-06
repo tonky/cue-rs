@@ -217,11 +217,7 @@ fn lex_delimited(lex: &mut logos::Lexer<Token>, quote: char) -> Option<RawString
         format!("{quote}{guard}")
     };
 
-    let end = if hashes > 0 {
-        body.find(&closer)?
-    } else {
-        find_closer(body, &closer)?
-    };
+    let end = literal_end(body, quote, hashes, block)?;
 
     lex.bump(opened + end + closer.len());
     let form = match (block, hashes) {
@@ -236,31 +232,97 @@ fn lex_delimited(lex: &mut logos::Lexer<Token>, quote: char) -> Option<RawString
     })
 }
 
-/// The byte offset of the closing delimiter in an interpreted literal, stepping over
-/// escapes and interpolations.
-fn find_closer(body: &str, closer: &str) -> Option<usize> {
-    let mut chars = body.char_indices().peekable();
-    let mut depth = 0usize;
-
-    while let Some((i, c)) = chars.next() {
-        if depth > 0 {
-            match c {
-                '(' => depth += 1,
-                ')' => depth -= 1,
-                '\\' => {
-                    chars.next();
-                }
-                _ => {}
-            }
-        } else if c == '\\' {
-            if let Some(&(_, '(')) = chars.peek() {
-                chars.next();
-                depth = 1;
-            } else {
-                chars.next();
-            }
-        } else if body[i..].starts_with(closer) {
+/// The byte offset of the closing delimiter in the body of a literal (the text after
+/// its opening delimiter), stepping over escapes and interpolations.
+///
+/// The escape introducer is `\` followed by the literal's `#` guard, so in `#"…"#` a
+/// bare `\` is an ordinary character and `\#(` opens an interpolation. An interpolation
+/// holds an expression, which may contain parentheses and literals of its own - nested
+/// to any depth, of any form - so it is scanned by [`interpolation_end`] rather than by
+/// counting parentheses, which a `)` inside a nested literal would throw off.
+pub(crate) fn literal_end(body: &str, quote: char, hashes: usize, block: bool) -> Option<usize> {
+    let guard = "#".repeat(hashes);
+    let quotes = if block { 3 } else { 1 };
+    let closer = format!("{}{guard}", quote.to_string().repeat(quotes));
+    let intro = format!("\\{guard}");
+    let mut i = 0;
+    while i < body.len() {
+        let rest = &body[i..];
+        if rest.starts_with(&closer) {
             return Some(i);
+        }
+        if let Some(escaped) = rest.strip_prefix(&intro) {
+            i += intro.len();
+            if let Some(expr) = escaped.strip_prefix('(') {
+                i += 1 + interpolation_end(expr)? + 1;
+            } else {
+                i += escaped.chars().next()?.len_utf8();
+            }
+            continue;
+        }
+        i += rest.chars().next()?.len_utf8();
+    }
+    None
+}
+
+/// Whether the text of a literal holds a line break outside its interpolations, which
+/// only a block literal may: an interpolated expression can span lines anywhere.
+pub(crate) fn breaks_line(text: &str, hashes: usize) -> bool {
+    let intro = format!("\\{}(", "#".repeat(hashes));
+    let mut i = 0;
+    while i < text.len() {
+        let rest = &text[i..];
+        if let Some(expr) = rest.strip_prefix(&intro) {
+            match interpolation_end(expr) {
+                Some(end) => i += intro.len() + end + 1,
+                None => return rest.contains('\n'),
+            }
+            continue;
+        }
+        if rest.starts_with('\n') {
+            return true;
+        }
+        // An escaped character, `\\` included, is stepped over with its introducer.
+        let width = if rest.starts_with('\\') { 1 } else { 0 };
+        i += width + rest[width..].chars().next().map_or(1, char::len_utf8);
+    }
+    false
+}
+
+/// The byte offset of the `)` that closes an interpolation, given the text after its
+/// `\(`. Parentheses nest; string and bytes literals - quoted, block or `#`-guarded,
+/// with interpolations of their own - and `//` comments are stepped over whole.
+pub(crate) fn interpolation_end(expr: &str) -> Option<usize> {
+    let mut depth = 1usize;
+    let mut i = 0;
+    while i < expr.len() {
+        let rest = &expr[i..];
+        let hashes = rest.len() - rest.trim_start_matches('#').len();
+        let after_hashes = &rest[hashes..];
+        match after_hashes.chars().next()? {
+            quote @ ('"' | '\'') => {
+                let pair: String = [quote, quote].iter().collect();
+                let block = after_hashes[1..].starts_with(&pair);
+                let opened = hashes + if block { 3 } else { 1 };
+                let end = literal_end(&rest[opened..], quote, hashes, block)?;
+                let closer = if block { 3 } else { 1 } + hashes;
+                i += opened + end + closer;
+                continue;
+            }
+            _ if hashes > 0 => i += hashes,
+            '(' => {
+                depth += 1;
+                i += 1;
+            }
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+                i += 1;
+            }
+            '/' if rest.starts_with("//") => i += rest.find('\n').unwrap_or(rest.len()),
+            c => i += c.len_utf8(),
         }
     }
     None

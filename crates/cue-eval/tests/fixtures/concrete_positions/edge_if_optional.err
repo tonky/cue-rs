@@ -1,0 +1,2 @@
+o: cannot reference optional field: a:
+    ./edge_if_optional.cue:2:10

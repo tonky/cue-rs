@@ -75,6 +75,8 @@ impl PackageLoader {
             EvalError::Evaluation(format!("Failed to read {}: {e}", file_path.display()))
         })?;
         let parsed_file = cue_syntax::parse_file(&content)?;
+        crate::references::check_file(&parsed_file)
+            .map_err(|error| EvalError::Evaluation(format!("{}: {error}", file_path.display())))?;
 
         let mut evaluator = Evaluator::new();
         evaluator.origin = options.origin.clone();
@@ -283,6 +285,8 @@ fn read_and_filter_files(
             _ => true,
         };
         if matches_pkg {
+            crate::references::check_file(&source_file)
+                .map_err(|error| EvalError::Evaluation(format!("{}: {error}", path.display())))?;
             parsed_files.push(source_file.clone());
         }
         all_files.push(source_file);

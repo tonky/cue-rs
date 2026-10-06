@@ -1,0 +1,2 @@
+o: invalid non-ground value int (must be concrete int):
+    ./edge_index_incomplete.cue:1:5

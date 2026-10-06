@@ -1,0 +1,16 @@
+{
+  "components": {
+    "eq": {
+      "test": "eq"
+    },
+    "ln": {
+      "test": "ln"
+    },
+    "ne": {
+      "test": "ne"
+    },
+    "se": {
+      "test": "se"
+    }
+  }
+}

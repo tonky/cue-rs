@@ -57,6 +57,9 @@ fn write_decl(decl: &Decl, out: &mut String, indent: usize, pad: &str) {
         Decl::BlankLine => {}
         Decl::Field(f) => {
             out.push_str(pad);
+            if let Some(alias) = &f.alias {
+                out.push_str(&format!("{alias}="));
+            }
             format_label(&f.label, out);
             if f.optional {
                 out.push('?');
@@ -346,6 +349,9 @@ fn render_field(field: &FieldDecl, indent: usize, pad: &str) -> Rendered {
     for (i, segment) in path.iter().enumerate() {
         if i > 0 {
             label.push(' ');
+        }
+        if let Some(alias) = &segment.alias {
+            label.push_str(&format!("{alias}="));
         }
         format_label(&segment.label, &mut label);
         if segment.optional {

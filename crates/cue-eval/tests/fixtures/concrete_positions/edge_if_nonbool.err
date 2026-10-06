@@ -1,0 +1,3 @@
+o: cannot use 1 (type int) as type bool:
+    ./edge_if_nonbool.cue:2:6
+    ./edge_if_nonbool.cue:1:5

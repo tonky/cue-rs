@@ -1,0 +1,2 @@
+b: reference "a" not found:
+    ./scope_dyn_ref.cue:3:4

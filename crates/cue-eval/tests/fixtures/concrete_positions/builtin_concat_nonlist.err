@@ -1,0 +1,3 @@
+v: error in call to list.Concat: cannot use value 1 (type int) as list:
+    ./builtin_concat_nonlist.cue:2:4
+    ./builtin_concat_nonlist.cue:2:17

@@ -29,6 +29,23 @@ pub(crate) fn direct_deps(expr: &Expr) -> HashSet<String> {
     names
 }
 
+/// Names that decide which fields a comprehension generates: what its clauses
+/// read, and the dynamic labels of its body. The values of those fields carry
+/// their own recipes.
+pub(crate) fn clause_deps(comp: &ComprehensionDecl) -> HashSet<String> {
+    let mut names = HashSet::new();
+    walk_clauses(&comp.clauses, &mut names);
+    // A dynamic label in the body decides a generated field's name too.
+    for decl in &comp.struct_lit.decls {
+        if let Decl::Field(field) = decl
+            && let Label::Dynamic(label) = &field.label
+        {
+            walk_expr(label, &mut names);
+        }
+    }
+    names
+}
+
 pub(crate) fn expand_lets(
     mut names: HashSet<String>,
     lets: &[(String, Rc<Expr>)],

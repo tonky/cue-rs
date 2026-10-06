@@ -26,6 +26,9 @@ language conformance.
 - [ast.rs](crates/cue-syntax/src/ast.rs) owns parsed expressions, declarations
   and formatting metadata. `StringLit` holds Unicode text; `BytesLit` holds
   arbitrary octets. Derived AST equality/hashing compare syntax, not CUE values.
+- [token.rs](crates/cue-syntax/src/token.rs) finds where a literal ends;
+  `literal_end`/`interpolation_end` step over interpolations holding nested
+  literals of any form and depth, shared with the parser's interpolation split.
 - [parser.rs](crates/cue-syntax/src/parser.rs) handles expression precedence,
   declarations and literal decoding; [formatter.rs](crates/cue-syntax/src/formatter.rs)
   preserves supported source forms and byte values through reparsing.
@@ -38,12 +41,16 @@ language conformance.
 - [expression.rs](crates/cue-eval/src/expression.rs) owns a session-local store
   of exact syntax trees. Recipes share identical syntax, with separate lexical
   environments, imports and results. It does not memoize evaluated values.
+- [references.rs](crates/cue-eval/src/references.rs) rejects unused imports and
+  unreferenced `let`s/aliases before evaluation, as upstream's compiler does.
 - [deps.rs](crates/cue-eval/src/deps.rs) conservatively collects identifiers and
   follows let dependencies. Binding-free recipes retain a value constraint;
   dependent recipes retain their expression and lexical environment. Direct
   dependency sets are cached per expression; let closures remain scope-specific.
 - [operators.rs](crates/cue-eval/src/operators.rs) selects scalar operands and
-  executes arithmetic/comparisons; [number.rs](crates/cue-eval/src/number.rs)
+  executes arithmetic/comparisons. `concrete` classifies what a position that
+  needs a concrete value read (value, pending, incomplete, error); `equal`
+  compares lists and structs by content (impl/18-concrete-positions.md); [number.rs](crates/cue-eval/src/number.rs)
   decodes integer/radix/SI literals without machine-integer overflow.
 - [package.rs](crates/cue-eval/src/package.rs) performs filesystem/module
   resolution, package assembly and opt-in origin annotations. Imported values

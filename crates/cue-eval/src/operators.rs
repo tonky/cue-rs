@@ -51,49 +51,48 @@ pub(crate) fn binary(
             }
         }
 
-        // List Concatenation and Repetition
-        (
-            BinaryOp::Add,
-            Value::List {
-                elements: mut e1,
-                ellipsis: _,
-            },
-            Value::List {
-                elements: e2,
-                ellipsis,
-            },
-        ) => {
-            e1.extend(e2);
-            arena.alloc(Value::List {
-                elements: e1,
-                ellipsis,
-            })
+        // Removed from the language in v0.11: upstream rejects both forms with
+        // a pointer to the builtin that replaces them.
+        (BinaryOp::Add, Value::List { .. }, Value::List { .. }) => arena.bottom_of(
+            BottomKind::Conflict,
+            "Addition of lists is superseded by list.Concat; see https://cuelang.org/e/v0.11-list-arithmetic",
+        ),
+        (BinaryOp::Mul, Value::List { .. }, Value::Int(_))
+        | (BinaryOp::Mul, Value::Int(_), Value::List { .. }) => arena.bottom_of(
+            BottomKind::Conflict,
+            "Multiplication of lists is superseded by list.Repeat; see https://cuelang.org/e/v0.11-list-arithmetic",
+        ),
+
+        (BinaryOp::Add, Value::Bytes(mut a), Value::Bytes(b)) => {
+            a.extend(b);
+            arena.alloc(Value::Bytes(a))
         }
-        (
-            BinaryOp::Mul,
-            Value::List {
-                elements: e1,
-                ellipsis,
-            },
-            Value::Int(b),
-        ) => {
-            if let Some(count) = b.to_usize() {
-                let repeated: Vec<_> = (0..count).flat_map(|_| e1.clone()).collect();
-                arena.alloc(Value::List {
-                    elements: repeated,
-                    ellipsis,
-                })
-            } else {
-                arena.bottom("invalid list repetition factor")
+        (op, Value::String(a), Value::String(b)) if is_ordering(op) => {
+            arena.bool(comparison(op, a.cmp(&b)).unwrap_or(false))
+        }
+        (op, Value::Bytes(a), Value::Bytes(b)) if is_ordering(op) => {
+            arena.bool(comparison(op, a.cmp(&b)).unwrap_or(false))
+        }
+        // The pattern may be given as bytes; the subject must be a string.
+        (op @ (BinaryOp::RegexMatch | BinaryOp::RegexNotMatch), Value::String(s), Value::Bytes(pattern)) => {
+            match String::from_utf8(pattern) {
+                Ok(pattern) => regex_match(arena, op, &s, &pattern),
+                Err(_) => arena.bottom_of(BottomKind::Conflict, "regular expression is not valid UTF-8"),
             }
         }
-
-        (BinaryOp::Equal, Value::String(a), Value::String(b)) => arena.bool(a == b),
-        (BinaryOp::NotEqual, Value::String(a), Value::String(b)) => arena.bool(a != b),
-        (BinaryOp::Equal, Value::Bool(a), Value::Bool(b)) => arena.bool(a == b),
-        (BinaryOp::NotEqual, Value::Bool(a), Value::Bool(b)) => arena.bool(a != b),
+        (
+            op @ (BinaryOp::RegexMatch | BinaryOp::RegexNotMatch),
+            Value::String(s),
+            Value::String(pattern),
+        ) => regex_match(arena, op, &s, &pattern),
         (BinaryOp::LogicalAnd, Value::Bool(a), Value::Bool(b)) => arena.bool(a && b),
         (BinaryOp::LogicalOr, Value::Bool(a), Value::Bool(b)) => arena.bool(a || b),
+        (op @ (BinaryOp::Equal | BinaryOp::NotEqual), left, right) => {
+            match equal(arena, &left, &right) {
+                Ok(same) => arena.bool(same == (op == BinaryOp::Equal)),
+                Err(bottom) => bottom,
+            }
+        }
 
         (op, left, right) if accepts(op, kind(&left), kind(&right)) => {
             arena.bottom("binary operation is not implemented for these operand kinds")
@@ -102,6 +101,182 @@ pub(crate) fn binary(
             BottomKind::Conflict,
             "invalid operands for binary operation",
         ),
+    }
+}
+
+/// `==` over two operands whose defaults are already selected. Values of
+/// different kinds are unequal, as upstream has it (`1 == "a"` is `false`);
+/// lists and structs compare element by element, selecting defaults inside
+/// them the same way. A value that is not concrete has no answer yet.
+fn equal(arena: &mut ValueArena, left: &Value, right: &Value) -> Result<bool, ValueId> {
+    let incomplete = |arena: &mut ValueArena| {
+        Err(arena.bottom_of(BottomKind::Incomplete, "comparison operand is not concrete"))
+    };
+    if !is_concrete_kind(left) || !is_concrete_kind(right) {
+        return incomplete(arena);
+    }
+    // Upstream checks both sides all the way down before comparing, so
+    // `[int] == null` is incomplete rather than `false`.
+    deep_concrete(arena, left)?;
+    deep_concrete(arena, right)?;
+    match (left, right) {
+        (Value::Null, Value::Null) => Ok(true),
+        (Value::Bool(a), Value::Bool(b)) => Ok(a == b),
+        (Value::String(a), Value::String(b)) => Ok(a == b),
+        (Value::Bytes(a), Value::Bytes(b)) => Ok(a == b),
+        (Value::List { elements: a, .. }, Value::List { elements: b, .. }) => {
+            if a.len() != b.len() {
+                return Ok(false);
+            }
+            for (&x, &y) in a.clone().iter().zip(b.clone().iter()) {
+                if !element_equal(arena, x, y)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        (Value::Struct(a), Value::Struct(b)) => {
+            let regular = |s: &crate::value::StructValue| -> Vec<(String, ValueId)> {
+                s.fields
+                    .iter()
+                    .filter(|(_, entry)| !entry.optional)
+                    .map(|(name, entry)| (name.clone(), entry.val))
+                    .collect()
+            };
+            let (a, b) = (regular(a), regular(b));
+            if a.len() != b.len() || a.iter().zip(&b).any(|((x, _), (y, _))| x != y) {
+                return Ok(false);
+            }
+            for ((_, x), (_, y)) in a.into_iter().zip(b) {
+                if !element_equal(arena, x, y)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+/// Fail with the first value inside `value` (list elements, regular fields)
+/// that is bottom or not concrete. Optional, hidden and definition fields do
+/// not take part in equality, so they are not checked.
+fn deep_concrete(arena: &mut ValueArena, value: &Value) -> Result<(), ValueId> {
+    let children: Vec<ValueId> = match value {
+        Value::List { elements, .. } => elements.clone(),
+        Value::Struct(s) => s
+            .fields
+            .values()
+            .filter(|entry| !entry.optional)
+            .map(|entry| entry.val)
+            .collect(),
+        _ => return Ok(()),
+    };
+    for child in children {
+        let child = operand(arena, child);
+        let value = match arena.get(child) {
+            Some(Value::Bottom(_)) => return Err(child),
+            Some(value) => value.clone(),
+            None => return Err(arena.bottom("invalid comparison operand")),
+        };
+        if !is_concrete_kind(&value) {
+            return Err(arena.bottom_of(
+                BottomKind::Incomplete,
+                format!(
+                    "comparison operand is not concrete: incomplete value {}",
+                    kind_name(&value)
+                ),
+            ));
+        }
+        deep_concrete(arena, &value)?;
+    }
+    Ok(())
+}
+
+/// `a == b` as the language defines it: defaults selected, lists and structs
+/// compared by content. `Err` holds the bottom when either side is not
+/// concrete.
+pub(crate) fn element_equal(
+    arena: &mut ValueArena,
+    a: ValueId,
+    b: ValueId,
+) -> Result<bool, ValueId> {
+    let result = binary(arena, BinaryOp::Equal, a, b);
+    match arena.get(result) {
+        Some(Value::Bool(same)) => Ok(*same),
+        _ => Err(result),
+    }
+}
+
+/// A value an operation can read as it is: a scalar, a list or a struct.
+fn is_concrete_kind(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Null
+            | Value::Bool(_)
+            | Value::Int(_)
+            | Value::Float(_)
+            | Value::String(_)
+            | Value::Bytes(_)
+            | Value::List { .. }
+    ) || matches!(value, Value::Struct(s) if s.incomplete().is_none())
+}
+
+/// What a position that needs a concrete value - an `if` guard, a `for`
+/// source, a dynamic label, an index - read, with its default selected.
+pub(crate) enum Concrete {
+    /// A scalar, a list or a struct.
+    Value(ValueId),
+    /// A reference the relaxation loop may still resolve.
+    Pending(String),
+    /// Resolved, but not concrete enough to decide: `bool`, `string`, a
+    /// disjunction without a unique default. Unifying it further may decide it.
+    Incomplete(String),
+    /// A definite error.
+    Error(String),
+}
+
+pub(crate) fn concrete(arena: &mut ValueArena, id: ValueId) -> Concrete {
+    let id = operand(arena, id);
+    match arena.get(id) {
+        Some(Value::Bottom(reason)) if reason.kind.may_resolve_later() => {
+            Concrete::Pending(reason.message.clone())
+        }
+        Some(Value::Bottom(reason)) if reason.kind == BottomKind::Incomplete => {
+            Concrete::Incomplete(reason.message.clone())
+        }
+        Some(Value::Bottom(reason)) => Concrete::Error(reason.message.clone()),
+        Some(Value::RecursiveRef { name, .. }) => {
+            Concrete::Pending(format!("{name} not evaluated yet"))
+        }
+        Some(value) if is_concrete_kind(value) => Concrete::Value(id),
+        Some(value) => Concrete::Incomplete(format!("incomplete value {}", kind_name(value))),
+        None => Concrete::Error("invalid value".to_string()),
+    }
+}
+
+/// The kind upstream names in diagnostics: `int`, `string`, `struct`.
+pub(crate) fn kind_name(value: &Value) -> String {
+    match value {
+        Value::Null => "null".into(),
+        Value::Bool(_) => "bool".into(),
+        Value::Int(_) => "int".into(),
+        Value::Float(_) => "float".into(),
+        Value::String(_) => "string".into(),
+        Value::Bytes(_) => "bytes".into(),
+        Value::List { .. } => "list".into(),
+        Value::Struct(_) => "struct".into(),
+        Value::Type(t) => t.to_string(),
+        Value::Top => "_".into(),
+        Value::Bounds {
+            base_type: Some(t), ..
+        } => t.to_string(),
+        Value::Bounds { .. } => "number".into(),
+        Value::Disjunction { .. } => "disjunction".into(),
+        Value::BuiltinValidator { name, .. } => name.clone(),
+        Value::Validators(_) => "validator".into(),
+        Value::RecursiveRef { name, .. } => name.clone(),
+        Value::Bottom(_) => "_|_".into(),
     }
 }
 
@@ -114,18 +289,58 @@ pub(crate) fn operand(arena: &mut ValueArena, mut id: ValueId) -> ValueId {
             return arena.bottom_of(BottomKind::Cycle, "cycle while selecting a default operand");
         }
         let mut defaults = branches.iter().filter(|branch| branch.default);
+        let alternatives = branches.len();
         id = match (defaults.next(), defaults.next()) {
-            (Some(branch), None) => branch.val,
+            (Some(branch), None) => {
+                let chosen = branch.val;
+                if alternatives > 1 {
+                    arena.note_default_chosen();
+                }
+                chosen
+            }
             (None, None) if branches.len() == 1 => branches[0].val,
             _ => {
                 return arena.bottom_of(
                     BottomKind::Incomplete,
-                    "operand has no unique concrete default",
+                    "unresolved disjunction: no unique default",
                 );
             }
         };
     }
     id
+}
+
+/// A builtin argument: its default, and the defaults of list elements all the
+/// way down, so `list.Concat([l])` reads `l: *[1] | [...int]` as `[1]`. An
+/// element without a unique default is passed on as it is for the builtin
+/// to judge.
+pub(crate) fn argument(arena: &mut ValueArena, id: ValueId) -> ValueId {
+    let id = operand(arena, id);
+    let Some(Value::List { elements, ellipsis }) = arena.get(id) else {
+        return id;
+    };
+    let (elements, ellipsis) = (elements.clone(), *ellipsis);
+    let mut changed = false;
+    let resolved: Vec<ValueId> = elements
+        .iter()
+        .map(|&element| {
+            let chosen = argument(arena, element);
+            if chosen == element || matches!(arena.get(chosen), Some(Value::Bottom(_))) {
+                element
+            } else {
+                changed = true;
+                chosen
+            }
+        })
+        .collect();
+    if changed {
+        arena.alloc(Value::List {
+            elements: resolved,
+            ellipsis,
+        })
+    } else {
+        id
+    }
 }
 
 pub(crate) fn unary(arena: &mut ValueArena, op: UnaryOp, id: ValueId) -> ValueId {
@@ -204,6 +419,23 @@ pub(crate) fn integer_division(arena: &mut ValueArena, name: &str, args: &[Value
         _ => unreachable!("integer division dispatch"),
     };
     arena.int(result)
+}
+
+fn is_ordering(op: BinaryOp) -> bool {
+    matches!(
+        op,
+        BinaryOp::Less | BinaryOp::LessEqual | BinaryOp::Greater | BinaryOp::GreaterEqual
+    )
+}
+
+fn regex_match(arena: &mut ValueArena, op: BinaryOp, subject: &str, pattern: &str) -> ValueId {
+    match crate::unify::cached_regex(pattern) {
+        Some(re) => arena.bool(re.is_match(subject) == (op == BinaryOp::RegexMatch)),
+        None => arena.bottom_of(
+            BottomKind::Conflict,
+            format!("error parsing regexp: invalid pattern {pattern:?}"),
+        ),
+    }
 }
 
 fn comparison(op: BinaryOp, order: Ordering) -> Option<bool> {
@@ -359,9 +591,7 @@ fn accepts(op: BinaryOp, left: OperandKind, right: OperandKind) -> bool {
     use OperandKind::*;
     let pair = |a, b| (left == Any || left == a) && (right == Any || right == b);
     match op {
-        BinaryOp::Add => {
-            pair(Number, Number) || pair(String, String) || pair(Bytes, Bytes) || pair(List, List)
-        }
+        BinaryOp::Add => pair(Number, Number) || pair(String, String) || pair(Bytes, Bytes),
         BinaryOp::Sub | BinaryOp::Div => pair(Number, Number),
         BinaryOp::Mul => {
             pair(Number, Number)
@@ -369,7 +599,6 @@ fn accepts(op: BinaryOp, left: OperandKind, right: OperandKind) -> bool {
                 || pair(Number, String)
                 || pair(Bytes, Number)
                 || pair(Number, Bytes)
-                || pair(List, Number)
         }
         BinaryOp::Equal | BinaryOp::NotEqual => left == Any || right == Any || left == right,
         BinaryOp::Less | BinaryOp::LessEqual | BinaryOp::Greater | BinaryOp::GreaterEqual => {
@@ -377,7 +606,7 @@ fn accepts(op: BinaryOp, left: OperandKind, right: OperandKind) -> bool {
         }
         BinaryOp::LogicalAnd | BinaryOp::LogicalOr => pair(Bool, Bool),
         BinaryOp::RegexMatch | BinaryOp::RegexNotMatch => {
-            pair(String, String) || pair(Bytes, Bytes)
+            pair(String, String) || pair(String, Bytes)
         }
         _ => false,
     }
@@ -401,6 +630,18 @@ pub(crate) fn select(
     base_id: ValueId,
     field: &str,
 ) -> ValueId {
+    // A selector reads the default of a choice. A choice with no unique
+    // default can still answer for the fields its alternatives share.
+    let base_id = match arena.get(base_id) {
+        Some(Value::Disjunction { .. }) => {
+            let chosen = operand(arena, base_id);
+            match arena.get(chosen) {
+                Some(Value::Bottom(_)) if arena.fields(base_id).is_some() => base_id,
+                _ => chosen,
+            }
+        }
+        _ => base_id,
+    };
     if arena.fields(base_id).is_none()
         && let Some(Value::Bottom(_)) = arena.get(base_id)
     {
@@ -452,6 +693,8 @@ pub(crate) fn index(
     target_id: ValueId,
     index_id: ValueId,
 ) -> ValueId {
+    let target_id = operand(arena, target_id);
+    let index_id = operand(arena, index_id);
     if let Some(Value::Bottom(_)) = arena.get(target_id) {
         return target_id;
     }
@@ -491,6 +734,22 @@ pub(crate) fn index(
             BottomKind::Conflict,
             format!("invalid index {i} (found struct, want list)"),
         ),
+        (Some(target), Some(index)) if !is_concrete_kind(target) || !is_concrete_kind(index) => {
+            let message = format!(
+                "invalid non-ground value {} (must be concrete {})",
+                kind_name(if is_concrete_kind(target) {
+                    index
+                } else {
+                    target
+                }),
+                if is_concrete_kind(target) {
+                    "int or string"
+                } else {
+                    "list or struct"
+                },
+            );
+            arena.bottom_of(BottomKind::Incomplete, message)
+        }
         _ => arena.bottom("indexing unsupported on target"),
     }
 }
@@ -505,6 +764,19 @@ pub(crate) fn slice(
     low_id: Option<ValueId>,
     high_id: Option<ValueId>,
 ) -> ValueId {
+    let target_id = operand(arena, target_id);
+    let low_id = low_id.map(|id| operand(arena, id));
+    let high_id = high_id.map(|id| operand(arena, id));
+    if let Some(Value::Bottom(_)) = arena.get(target_id) {
+        return target_id;
+    }
+    if let Some(id) = [low_id, high_id]
+        .into_iter()
+        .flatten()
+        .find(|id| matches!(arena.get(*id), Some(Value::Bottom(_))))
+    {
+        return id;
+    }
     let Some(Value::List { elements, ellipsis }) = arena.get(target_id).cloned() else {
         return arena.bottom_of(BottomKind::Conflict, "slice unsupported on non-list");
     };

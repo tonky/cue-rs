@@ -1,0 +1,3 @@
+s: incomplete value "a" | "b"
+o: unresolved disjunction "a" | "b" (type string):
+    ./edge_builtin_ambiguous.cue:2:4

@@ -1,0 +1,3 @@
+a: conflicting values null and !=null (mismatched types null and (bool|string|bytes|func|list|struct|number)):
+    ./bound_eq_bound_violation.cue:1:4
+    ./bound_eq_bound_violation.cue:1:13

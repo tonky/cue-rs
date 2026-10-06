@@ -19,7 +19,7 @@ const MAX_CACHED_PATTERNS: usize = 4096;
 
 /// A compiled pattern, or `None` when it does not compile. Callers keep
 /// their existing fallback for the `None` case.
-fn cached_regex(pattern: &str) -> Option<Regex> {
+pub(crate) fn cached_regex(pattern: &str) -> Option<Regex> {
     REGEX_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if let Some(compiled) = cache.get(pattern) {
@@ -1130,6 +1130,10 @@ fn unify_structs_inner(
     merged
         .pattern_constraints
         .extend(s2.pattern_constraints.clone());
+    // Undecided declarations of both sides: the merge may be what decides them.
+    for recipe in s1.recipes.iter().chain(&s2.recipes) {
+        merged.add_recipe(recipe.clone());
+    }
 
     // Merge regular fields
     let all_keys: BTreeSet<String> = s1.fields.keys().chain(s2.fields.keys()).cloned().collect();
@@ -1724,18 +1728,8 @@ fn unify_validator(
                     }
                 }
             } else if name == "list.UniqueItems()" {
-                let mut seen = std::collections::HashSet::new();
-                for &elem in elements {
-                    let repr = match arena.get(elem) {
-                        Some(Value::String(s)) => format!("str:{s}"),
-                        Some(Value::Int(i)) => format!("int:{i}"),
-                        Some(Value::Float(f)) => format!("flt:{f}"),
-                        Some(Value::Bool(b)) => format!("bool:{b}"),
-                        _ => format!("id:{elem:?}"),
-                    };
-                    if !seen.insert(repr) {
-                        return conflict(arena, "list contains duplicate elements");
-                    }
+                if crate::stdlib::has_duplicates(arena, elements) {
+                    return conflict(arena, "list contains duplicate elements");
                 }
                 return candidate_id;
             } else if name.starts_with("list.MatchN") {
@@ -1898,6 +1892,12 @@ fn equivalent_payload(
                 || left.is_open != right.is_open
                 || left.spread_open != right.spread_open
                 || left.pattern_constraints.len() != right.pattern_constraints.len()
+                || left.recipes.len() != right.recipes.len()
+                || !left
+                    .recipes
+                    .iter()
+                    .zip(&right.recipes)
+                    .all(|(left, right)| left.same_decision(right))
             {
                 return false;
             }

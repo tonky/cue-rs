@@ -1,0 +1,2 @@
+o: failed arithmetic: division by zero:
+    ./edge_if_bottom.cue:1:8

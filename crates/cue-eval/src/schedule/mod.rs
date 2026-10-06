@@ -32,22 +32,65 @@ pub(crate) struct Sweep {
 /// field is not read this way.
 pub(crate) fn pending_binding_name(decl: &Decl) -> Option<&str> {
     match decl {
-        Decl::Field(f) if !f.label.is_definition() && !f.label.is_hidden() => f.label.name(),
+        Decl::Field(f) if !f.label.is_definition() && !f.label.is_hidden() => f.label.ident_name(),
         _ => None,
     }
 }
 
-/// Field names one literal declares outright. A reference inside it resolves
-/// to these at whatever value the merged struct gives them; anything else it
-/// names belongs to an enclosing scope and keeps resolving there.
+/// Field names one literal declares with an identifier label. A reference
+/// inside it resolves to these at whatever value the merged struct gives them;
+/// anything else it names - a quoted or dynamic label, a field an embedding or
+/// a comprehension contributed - belongs to an enclosing scope and keeps
+/// resolving there, as upstream scopes references.
 pub(crate) fn collect_field_names(decls: &[Decl]) -> HashSet<String> {
     decls
         .iter()
         .filter_map(|decl| match decl {
-            Decl::Field(field) => field.label.name().map(str::to_string),
+            Decl::Field(field) => field.label.ident_name().map(str::to_string),
             _ => None,
         })
         .collect()
+}
+
+/// `X=a: v` names the field `a` within its literal: the alias reads what `a`
+/// reads, the field's merged value, so it is the binding `let X = a`. An alias
+/// on a quoted or dynamic label names a field no identifier reaches, which the
+/// evaluator does not model, so it is refused rather than left unbound - an
+/// unbound `X` would silently read an enclosing `X`.
+pub(crate) fn expand_field_aliases(decls: &[Decl]) -> Result<Cow<'_, [Decl]>, String> {
+    if !decls
+        .iter()
+        .any(|decl| matches!(decl, Decl::Field(field) if field.alias.is_some()))
+    {
+        return Ok(Cow::Borrowed(decls));
+    }
+    let mut expanded = Vec::with_capacity(decls.len() + 1);
+    for decl in decls {
+        expanded.push(decl.clone());
+        let Decl::Field(field) = decl else { continue };
+        let Some(alias) = &field.alias else { continue };
+        let reference = match &field.label {
+            Label::Ident(name) => Expr::Ident(name.clone()),
+            Label::DefIdent(name) => Expr::DefIdent(name.clone()),
+            Label::HiddenIdent(name) => Expr::HiddenIdent(name.clone()),
+            Label::HiddenDefIdent(name) => Expr::HiddenDefIdent(name.clone()),
+            Label::String(name) => {
+                return Err(format!(
+                    "alias {alias} on the quoted label \"{name}\" is not supported"
+                ));
+            }
+            Label::Pattern(_) | Label::Dynamic(_) => {
+                return Err(format!(
+                    "alias {alias} on a pattern or dynamic label is not supported"
+                ));
+            }
+        };
+        expanded.push(Decl::Let {
+            ident: alias.clone(),
+            expr: reference,
+        });
+    }
+    Ok(Cow::Owned(expanded))
 }
 
 /// Merge repeated fields of one literal into unification conjuncts.
@@ -77,6 +120,11 @@ pub(crate) fn collect_field_declarations(decls: &[Decl]) -> Cow<'_, [Decl]> {
                 let Decl::Field(previous) = &mut collected[index] else {
                     unreachable!();
                 };
+                // `"a": 1, a: int` is one field that `a` refers to: keep the
+                // identifier spelling, which is the one that declares the name.
+                if previous.label.ident_name().is_none() {
+                    previous.label = field.label.clone();
+                }
                 previous.optional &= field.optional;
                 previous.value = Expr::Binary {
                     op: BinaryOp::Unify,
@@ -205,6 +253,7 @@ pub(crate) fn merge_generated(
         hidden,
         pattern_constraints,
         is_open,
+        recipes,
         ..
     } = generated;
     for (section, entries) in [
@@ -229,4 +278,7 @@ pub(crate) fn merge_generated(
     }
     target.pattern_constraints.extend(pattern_constraints);
     target.is_open |= is_open;
+    for recipe in recipes {
+        target.add_recipe(recipe);
+    }
 }

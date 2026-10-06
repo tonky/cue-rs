@@ -1,12 +1,16 @@
-Test list concatenation, list repetition, and string repetition
+Test list concatenation, list repetition, and string repetition. Since v0.11
+lists concatenate and repeat through list.Concat and list.Repeat; `+` and `*` on
+lists are errors (see crates/cue-eval/tests/concrete_positions.rs).
 -- in.cue --
 package test
 
+import "list"
+
 l1: [1, 2]
 l2: [3, 4]
-concatList: l1 + l2
+concatList: list.Concat([l1, l2])
 
-repeatedList: [0] * 4
+repeatedList: list.Repeat([0], 4)
 
 repeatedStr: "=" * 10
 

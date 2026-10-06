@@ -1,0 +1,2 @@
+o.b: reference "a" not found:
+    ./scope_embed_ref.cue:1:17

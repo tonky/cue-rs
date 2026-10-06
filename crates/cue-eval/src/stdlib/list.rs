@@ -54,7 +54,11 @@ pub fn call_list(
                 && let Some(Value::List { elements, .. }) = arena.get(args[0])
             {
                 let target_id = args[1];
-                let contains = elements.contains(&target_id);
+                // Upstream: an element that is not concrete does not
+                // contain the value (`list.Contains([int], 1)` is false).
+                let contains = elements.clone().into_iter().any(|element| {
+                    crate::operators::element_equal(arena, element, target_id) == Ok(true)
+                });
                 return Ok(arena.bool(contains));
             }
             Err("list.Contains requires 1 list and 1 element argument".to_string())
@@ -361,8 +365,23 @@ pub fn call_list(
                     }) = arena.get(sub_id)
                     {
                         concatenated.extend_from_slice(sub_elems);
+                    } else if let Some(Value::Bottom(_)) = arena.get(sub_id) {
+                        // Not evaluated yet, or failed: the bottom says which,
+                        // and an unresolved one is retried.
+                        return Ok(sub_id);
+                    } else if let crate::operators::Concrete::Pending(_)
+                    | crate::operators::Concrete::Incomplete(_) =
+                        crate::operators::concrete(arena, sub_id)
+                    {
+                        return Ok(arena.bottom_of(
+                            crate::value::BottomKind::Incomplete,
+                            "list.Concat: element is not concrete",
+                        ));
                     } else {
-                        concatenated.push(sub_id);
+                        return Err(format!(
+                            "list.Concat: element is not a list: {}",
+                            crate::operators::kind_name(arena.get(sub_id).unwrap_or(&Value::Top))
+                        ));
                     }
                 }
                 return Ok(arena.alloc(Value::List {
@@ -372,25 +391,29 @@ pub fn call_list(
             }
             Err("list.Concat requires 1 list of lists argument".to_string())
         }
+        // `list.Repeat(x, count)`: the elements of the list `x`, `count` times
+        // over - what `x * count` meant before v0.11.
         ("list", "Repeat") => {
             if args.len() >= 2
+                && let Some(Value::List { elements, .. }) = arena.get(args[0])
                 && let Some(Value::Int(count_val)) = arena.get(args[1])
-                && let Some(count) = count_val.to_usize()
             {
+                let Some(count) = count_val.to_usize() else {
+                    return Err("list.Repeat: negative count".to_string());
+                };
                 const MAX_REPEAT_COUNT: usize = 1_000_000;
-                if count > MAX_REPEAT_COUNT {
+                if count.saturating_mul(elements.len()) > MAX_REPEAT_COUNT {
                     return Err(format!(
-                        "list.Repeat: count {count} exceeds maximum allowed elements ({MAX_REPEAT_COUNT})"
+                        "list.Repeat: result exceeds maximum allowed elements ({MAX_REPEAT_COUNT})"
                     ));
                 }
-                let elem = args[0];
-                let repeated = vec![elem; count];
+                let repeated = elements.repeat(count);
                 return Ok(arena.alloc(Value::List {
                     elements: repeated,
                     ellipsis: None,
                 }));
             }
-            Err("list.Repeat requires (elem, count) arguments".to_string())
+            Err("list.Repeat requires (list, count) arguments".to_string())
         }
         ("list", "Slice") => {
             if args.len() >= 3

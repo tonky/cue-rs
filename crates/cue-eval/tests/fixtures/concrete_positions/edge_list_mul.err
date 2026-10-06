@@ -1,0 +1,2 @@
+a: Multiplication of lists is superseded by list.Repeat; see https://cuelang.org/e/v0.11-list-arithmetic:
+    ./edge_list_mul.cue:2:4

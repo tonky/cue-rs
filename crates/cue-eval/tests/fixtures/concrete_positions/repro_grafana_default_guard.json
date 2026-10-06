@@ -1,0 +1,11 @@
+{
+  "out": {
+    "a": {
+      "always": true,
+      "on": true
+    },
+    "b": {
+      "always": true
+    }
+  }
+}

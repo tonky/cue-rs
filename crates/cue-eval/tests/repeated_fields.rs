@@ -67,20 +67,35 @@ fn repeated_fields_preserve_scalar_constraints_and_optionality() {
 
 #[test]
 fn repeated_fields_unify_all_label_kinds_and_bindings() {
+    let merged = json!({"policy": "restricted", "command": "sleep 60"});
     for label in ["value", "\"value\"", "(\"value\")", "#Value", "_value"] {
         for source in both_orders(
             &format!("{label}: {{policy: \"restricted\"}}"),
             &format!("{label}: {{command: \"sleep 60\"}}"),
         ) {
-            let binding = match label {
+            // Every label kind names the same field, reached through its struct.
+            let selector = match label {
                 "#Value" | "_value" => label,
                 _ => "value",
             };
-            let result = eval_to_json(&format!("{source}\noutput: {binding}")).unwrap();
-            assert_eq!(
-                result["output"],
-                json!({"policy": "restricted", "command": "sleep 60"})
-            );
+            let nested = source.replace('\n', ", ");
+            let result = eval_to_json(&format!("s: {{{nested}}}\noutput: s.{selector}")).unwrap();
+            assert_eq!(result["output"], merged, "{source}");
+
+            // Only an identifier label declares a name a reference reads, as
+            // upstream scopes it: `"value": 1` and `("value"): 1` leave `value`
+            // unbound.
+            let referenced = eval_to_json(&format!("{source}\noutput: {selector}"));
+            match label {
+                "\"value\"" | "(\"value\")" => {
+                    let error = referenced.unwrap_err().to_string();
+                    assert!(
+                        error.contains("reference \"value\" not found"),
+                        "{source}: {error}"
+                    );
+                }
+                _ => assert_eq!(referenced.unwrap()["output"], merged, "{source}"),
+            }
         }
     }
 }

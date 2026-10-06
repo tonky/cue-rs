@@ -1,0 +1,2 @@
+a: cannot use 1 (type int) as type bool in &&:
+    ./pos_bool_ops_err.cue:1:4

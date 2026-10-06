@@ -1,0 +1,2 @@
+o.b: reference "a" not found:
+    ./scope_comp_ref.cue:1:32

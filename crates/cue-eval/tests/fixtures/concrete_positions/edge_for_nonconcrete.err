@@ -1,0 +1,2 @@
+o: unresolved disjunction [] | {} (type (list|struct)):
+    ./edge_for_nonconcrete.cue:2:6

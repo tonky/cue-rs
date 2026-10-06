@@ -1,0 +1,3 @@
+q: conflicting values 2 and 1:
+    ./scope_quoted_and_ident.cue:1:6
+    ./scope_quoted_and_ident.cue:2:4

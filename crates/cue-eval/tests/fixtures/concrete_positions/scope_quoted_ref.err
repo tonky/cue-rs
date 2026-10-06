@@ -1,0 +1,2 @@
+a: reference "q" not found:
+    ./scope_quoted_ref.cue:2:4

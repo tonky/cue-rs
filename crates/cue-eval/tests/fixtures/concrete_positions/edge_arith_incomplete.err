@@ -1,0 +1,5 @@
+n: incomplete value int:
+    ./edge_arith_incomplete.cue:1:4
+o: non-concrete value int in operand to +:
+    ./edge_arith_incomplete.cue:2:4
+    ./edge_arith_incomplete.cue:1:4

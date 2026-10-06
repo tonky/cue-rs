@@ -1,0 +1,2 @@
+imported and not used: "strings":
+    ./unused_import_unused.cue:1:8

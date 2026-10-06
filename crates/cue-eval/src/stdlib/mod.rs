@@ -97,18 +97,8 @@ impl StdlibValidator {
             },
             StdlibValidator::ListUniqueItems => match val {
                 Value::List { elements, .. } => {
-                    let mut seen = HashSet::new();
-                    for &elem in elements {
-                        let repr = match arena.get(elem) {
-                            Some(Value::String(s)) => format!("str:{s}"),
-                            Some(Value::Int(i)) => format!("int:{i}"),
-                            Some(Value::Float(f)) => format!("flt:{f}"),
-                            Some(Value::Bool(b)) => format!("bool:{b}"),
-                            _ => format!("id:{elem:?}"),
-                        };
-                        if !seen.insert(repr) {
-                            return Err("list contains duplicate elements".to_string());
-                        }
+                    if has_duplicates(arena, elements) {
+                        return Err("list contains duplicate elements".to_string());
                     }
                     Ok(())
                 }
@@ -295,4 +285,17 @@ pub fn call_stdlib_func(
         }
         _ => Err(format!("unknown stdlib package: {pkg}")),
     }
+}
+
+/// Whether two elements of a list are equal, for `list.UniqueItems`. Equal
+/// values export equally, so lists and structs compare by content rather
+/// than by arena identity; an element that does not export yet is unique.
+pub(crate) fn has_duplicates(arena: &ValueArena, elements: &[ValueId]) -> bool {
+    let mut seen = HashSet::new();
+    elements
+        .iter()
+        .any(|&element| match crate::export::to_json(arena, element) {
+            Ok(json) => !seen.insert(json.to_string()),
+            Err(_) => false,
+        })
 }

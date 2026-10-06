@@ -1,0 +1,3 @@
+d: conflicting values false and true:
+    ./edge_if_conflict.cue:1:4
+    ./edge_if_conflict.cue:1:11

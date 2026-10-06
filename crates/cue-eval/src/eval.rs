@@ -1,5 +1,6 @@
 use crate::closedness::ClosedCopies;
 use crate::expression::ExpressionStore;
+use crate::operators::Concrete;
 use crate::relaxation::RelaxationLoop;
 use crate::scope::ScopeFrame;
 use crate::unify::{push_branch, unify};
@@ -11,6 +12,21 @@ use cue_syntax::ast::*;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use thiserror::Error;
+
+/// What a comprehension clause read: a decision, or a value that is not
+/// concrete enough to decide one yet.
+pub(crate) enum Clause<T> {
+    Ready(T),
+    Incomplete(String),
+}
+
+/// The elements a list comprehension yielded, and the clause it could not
+/// decide, if any.
+#[derive(Default)]
+struct ListYield {
+    elements: Vec<ValueId>,
+    incomplete: Option<String>,
+}
 
 #[derive(Error, Debug)]
 pub enum EvalError {
@@ -73,6 +89,12 @@ pub struct Evaluator {
     /// A select whose base lacks the field is then decided, not pending: a
     /// template cannot grow the field the way an open value may.
     pub(crate) in_definition: bool,
+    /// Comprehension syntax shared by the recipes of every literal that
+    /// evaluates it, with the names its clauses read.
+    comprehensions: HashMap<Rc<ComprehensionDecl>, Rc<HashSet<String>>>,
+    /// Set for the literal a comprehension body is about to evaluate. The
+    /// comprehension's recipe reads that body's dynamic labels already.
+    pub(crate) comprehension_body: bool,
 }
 
 const MAX_EXPR_DEPTH: usize = 64;
@@ -114,6 +136,8 @@ impl Evaluator {
             origin: None,
             deferring: false,
             in_definition: false,
+            comprehensions: HashMap::new(),
+            comprehension_body: false,
         };
         evaluator.register_builtins();
         evaluator
@@ -250,6 +274,7 @@ impl Evaluator {
 
     /// Evaluate an entire CUE source file.
     pub fn eval_file(&mut self, file: &SourceFile) -> Result<ValueId, EvalError> {
+        crate::references::check_file(file).map_err(EvalError::Evaluation)?;
         for imp in &file.imports {
             let pkg_name = imp
                 .alias
@@ -291,12 +316,13 @@ impl Evaluator {
         )
     }
 
-    /// Make the struct's fields visible to the declarations that follow.
+    /// Rebind the names this literal declares to the struct's merged values, so
+    /// the declarations that follow read what embeddings and comprehensions
+    /// added to them.
     ///
-    /// This does not record them as names the literal declares: a field an
-    /// embedding contributed, or one a comprehension generated, was not written
-    /// here, so a reference to that name means the enclosing scope's and must go
-    /// on meaning it after a merge.
+    /// A field only an embedding contributed, or only a comprehension
+    /// generated, was not declared here: a reference to that name means the
+    /// enclosing scope's, as upstream has it, so it is not bound.
     pub(crate) fn bind_struct_fields(&mut self, value: &StructValue) {
         for (name, entry) in value
             .fields
@@ -304,7 +330,9 @@ impl Evaluator {
             .chain(&value.definitions)
             .chain(&value.hidden)
         {
-            self.insert_binding(name, entry.val);
+            if self.declares_field(name) {
+                self.insert_binding(name, entry.val);
+            }
         }
     }
 
@@ -312,16 +340,10 @@ impl Evaluator {
     ///
     /// Enclosing declarations that shadow existing names have pending bindings
     /// in their own frames, so a reader waits until they are evaluated.
-    fn declares_field(&self, name: &str) -> bool {
+    pub(crate) fn declares_field(&self, name: &str) -> bool {
         self.current_env
             .as_ref()
             .is_some_and(|env| env.owns_field(name))
-    }
-
-    pub(crate) fn note_field_name(&self, name: &str) {
-        if let Some(env) = &self.current_env {
-            env.note_field(name);
-        }
     }
 
     pub(crate) fn unify_decl_field(
@@ -372,52 +394,148 @@ impl Evaluator {
         })
     }
 
+    /// Decide a comprehension's `if` guard. The guard reads its condition's
+    /// default, as every position that needs a concrete value does; one that
+    /// is not concrete yet stays undecided rather than counting as `false`.
+    pub(crate) fn comprehension_guard(
+        &mut self,
+        condition: &Expr,
+    ) -> Result<Clause<bool>, EvalError> {
+        let id = self.eval_expr(condition)?;
+        match crate::operators::concrete(&mut self.arena, id) {
+            Concrete::Value(id) => match self.arena.get(id) {
+                Some(Value::Bool(b)) => Ok(Clause::Ready(*b)),
+                Some(other) => {
+                    let kind = crate::operators::kind_name(other);
+                    Err(EvalError::Evaluation(format!(
+                        "cannot use {} (type {kind}) as type bool",
+                        self.describe(id)
+                    )))
+                }
+                None => Err(EvalError::Evaluation("invalid condition".to_string())),
+            },
+            Concrete::Pending(message) => Err(EvalError::Unresolved(message)),
+            Concrete::Incomplete(message) => Ok(Clause::Incomplete(message)),
+            Concrete::Error(message) => Err(EvalError::Evaluation(message)),
+        }
+    }
+
+    /// Evaluate a comprehension's `for` source: a list or a struct, with its
+    /// default selected.
+    pub(crate) fn comprehension_source(
+        &mut self,
+        source: &Expr,
+    ) -> Result<Clause<Value>, EvalError> {
+        let id = self.eval_expr(source)?;
+        match crate::operators::concrete(&mut self.arena, id) {
+            Concrete::Value(id) => match self.arena.get(id) {
+                Some(value @ (Value::List { .. } | Value::Struct(_))) => {
+                    Ok(Clause::Ready(value.clone()))
+                }
+                Some(other) => {
+                    let kind = crate::operators::kind_name(other);
+                    Err(EvalError::Evaluation(format!(
+                        "cannot range over {} (found {kind}, want list or struct)",
+                        self.describe(id)
+                    )))
+                }
+                None => Err(EvalError::Evaluation("invalid source".to_string())),
+            },
+            // A source that is not resolved yet has nothing to yield *yet*;
+            // yielding nothing would settle the comprehension as empty.
+            Concrete::Pending(message) => Err(EvalError::Unresolved(message)),
+            Concrete::Incomplete(message) => Ok(Clause::Incomplete(message)),
+            Concrete::Error(message) => Err(EvalError::Evaluation(message)),
+        }
+    }
+
+    /// Evaluate a dynamic field's label: a string, with its default selected.
+    pub(crate) fn dynamic_label(&mut self, label: &Expr) -> Result<Clause<String>, EvalError> {
+        let id = self.eval_expr(label)?;
+        match crate::operators::concrete(&mut self.arena, id) {
+            Concrete::Value(id) => match self.arena.get(id) {
+                Some(Value::String(name)) => Ok(Clause::Ready(name.clone())),
+                // A concrete integer label is definitely wrong, not merely
+                // unresolved: upstream reports `eval`.
+                Some(Value::Int(_)) => Err(EvalError::Evaluation(
+                    "integer fields not supported".to_string(),
+                )),
+                Some(other) => {
+                    let kind = crate::operators::kind_name(other);
+                    Err(EvalError::Evaluation(format!(
+                        "invalid index {} (invalid type {kind})",
+                        self.describe(id)
+                    )))
+                }
+                None => Err(EvalError::Evaluation("invalid label".to_string())),
+            },
+            Concrete::Pending(message) => Err(EvalError::Unresolved(message)),
+            Concrete::Incomplete(message) => Ok(Clause::Incomplete(format!(
+                "key value of dynamic field must be concrete: {message}"
+            ))),
+            Concrete::Error(message) => Err(EvalError::Evaluation(message)),
+        }
+    }
+
+    /// Shared syntax for a comprehension, and the names its clauses read.
+    pub(crate) fn intern_comprehension(
+        &mut self,
+        comp: &ComprehensionDecl,
+    ) -> (Rc<ComprehensionDecl>, Rc<HashSet<String>>) {
+        if let Some((comp, deps)) = self.comprehensions.get_key_value(comp) {
+            return (comp.clone(), deps.clone());
+        }
+        let deps = Rc::new(crate::deps::clause_deps(comp));
+        let comp = Rc::new(comp.clone());
+        self.comprehensions.insert(comp.clone(), deps.clone());
+        (comp, deps)
+    }
+
+    /// A concrete value as a diagnostic names it.
+    fn describe(&self, id: ValueId) -> String {
+        crate::export::to_json(&self.arena, id)
+            .map(|json| json.to_string())
+            .unwrap_or_else(|_| "value".to_string())
+    }
+
     fn eval_list_comprehension_clause(
         &mut self,
         clause_idx: usize,
         comp: &cue_syntax::ast::ListComprehension,
-        elements: &mut Vec<ValueId>,
+        out: &mut ListYield,
     ) -> Result<(), EvalError> {
+        if out.incomplete.is_some() {
+            return Ok(());
+        }
         if clause_idx >= comp.clauses.len() {
             let val_id = self.eval_expr(&comp.expr)?;
-            elements.push(val_id);
+            out.elements.push(val_id);
             return Ok(());
         }
 
         match &comp.clauses[clause_idx] {
-            ComprehensionClause::If { condition } => {
-                let cond_val = self.eval_expr(condition)?;
-                match self.arena.get(cond_val) {
-                    Some(Value::Bool(true)) => {
-                        self.eval_list_comprehension_clause(clause_idx + 1, comp, elements)?;
-                    }
-                    Some(Value::Bottom(r)) if r.kind.may_resolve_later() && self.deferring => {
-                        return Err(EvalError::Unresolved(r.to_string()));
-                    }
-                    _ => {}
+            ComprehensionClause::If { condition } => match self.comprehension_guard(condition)? {
+                Clause::Ready(true) => {
+                    self.eval_list_comprehension_clause(clause_idx + 1, comp, out)?;
                 }
-            }
+                Clause::Ready(false) => {}
+                Clause::Incomplete(message) => out.incomplete = Some(message),
+            },
             ComprehensionClause::Let { ident, expr } => {
                 let val_id = self.eval_expr(expr)?;
                 self.push_scope();
                 self.insert_binding(ident, val_id);
-                let result = self.eval_list_comprehension_clause(clause_idx + 1, comp, elements);
+                let result = self.eval_list_comprehension_clause(clause_idx + 1, comp, out);
                 self.pop_scope();
                 result?;
             }
             ComprehensionClause::For { key, value, source } => {
-                let src_id = self.eval_expr(source)?;
-                // A source that is not resolved yet has nothing to yield *yet*;
-                // yielding nothing would settle the comprehension as empty.
-                let src_val = match self.arena.get(src_id) {
-                    Some(Value::Bottom(r)) if r.kind.may_resolve_later() => {
-                        return Err(EvalError::Unresolved(r.to_string()));
+                let src_val = match self.comprehension_source(source)? {
+                    Clause::Ready(value) => value,
+                    Clause::Incomplete(message) => {
+                        out.incomplete = Some(message);
+                        return Ok(());
                     }
-                    Some(Value::RecursiveRef { name, .. }) => {
-                        return Err(EvalError::Unresolved(format!("{name} not evaluated yet")));
-                    }
-                    Some(v) => v.clone(),
-                    None => return Ok(()),
                 };
 
                 match src_val {
@@ -433,7 +551,7 @@ impl Evaluator {
                                 self.insert_binding(k_name, k_id);
                             }
                             let result =
-                                self.eval_list_comprehension_clause(clause_idx + 1, comp, elements);
+                                self.eval_list_comprehension_clause(clause_idx + 1, comp, out);
                             self.pop_scope();
                             result?;
                         }
@@ -447,12 +565,12 @@ impl Evaluator {
                                 self.insert_binding(k_name, k_id);
                             }
                             let result =
-                                self.eval_list_comprehension_clause(clause_idx + 1, comp, elements);
+                                self.eval_list_comprehension_clause(clause_idx + 1, comp, out);
                             self.pop_scope();
                             result?;
                         }
                     }
-                    _ => {}
+                    _ => unreachable!("comprehension_source yields a list or a struct"),
                 }
             }
         }
@@ -791,6 +909,10 @@ impl Evaluator {
             }
             Expr::Slice { expr, low, high } => {
                 let target_id = self.eval_expr(expr)?;
+                let target_id = crate::operators::operand(&mut self.arena, target_id);
+                if let Some(Value::Bottom(_)) = self.arena.get(target_id) {
+                    return Ok(target_id);
+                }
                 // Bounds evaluate only against a list, as before: a non-list
                 // target reports itself without touching them.
                 if !matches!(self.arena.get(target_id), Some(Value::List { .. })) {
@@ -856,15 +978,25 @@ impl Evaluator {
                 Ok(self.arena.string(result_str))
             }
             Expr::ListComp(comp) => {
-                let mut elements = Vec::new();
-                match self.eval_list_comprehension_clause(0, comp, &mut elements) {
+                let mut out = ListYield::default();
+                match self.eval_list_comprehension_clause(0, comp, &mut out) {
                     Err(EvalError::Unresolved(m)) => {
                         return Ok(self.arena.bottom_of(BottomKind::Unresolved, m));
                     }
+                    // A definite error in a clause is the list's value, the way
+                    // an error in an element would be.
+                    Err(EvalError::Evaluation(m)) => {
+                        return Ok(self.arena.bottom_of(BottomKind::Conflict, m));
+                    }
                     other => other?,
                 }
+                // An undecided clause leaves the whole list undecided: the field
+                // holding it derives it again once a merge decides the clause.
+                if let Some(message) = out.incomplete {
+                    return Ok(self.arena.bottom_of(BottomKind::Incomplete, message));
+                }
                 Ok(self.arena.alloc(Value::List {
-                    elements,
+                    elements: out.elements,
                     ellipsis: None,
                 }))
             }
@@ -932,7 +1064,7 @@ impl Evaluator {
             .iter()
             .map(|arg| {
                 let arg_id = self.eval_expr(arg)?;
-                Ok(crate::operators::operand(&mut self.arena, arg_id))
+                Ok(crate::operators::argument(&mut self.arena, arg_id))
             })
             .collect::<Result<Vec<_>, EvalError>>()?;
         Ok(crate::builtins::call(

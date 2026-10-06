@@ -28,6 +28,15 @@ pub(crate) fn to_json_at_path(
             Ok(serde_json::Value::Array(arr))
         }
         Some(Value::Struct(s)) => {
+            // A comprehension or dynamic field nothing has decided yet: the
+            // struct is incomplete, not one without those fields.
+            if let Some(reason) = s.incomplete() {
+                return Err(if path == "$" {
+                    format!("incomplete value: {reason}")
+                } else {
+                    format!("incomplete value at '{path}': {reason}")
+                });
+            }
             let mut map = serde_json::Map::new();
             for (k, entry) in &s.fields {
                 // An optional field is a constraint on a field that may

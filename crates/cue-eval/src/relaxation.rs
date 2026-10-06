@@ -7,15 +7,16 @@
 
 use crate::closedness::{open_for_embedding, reclose};
 use crate::declaration::DeclarationValue;
-use crate::eval::{EvalError, Evaluator};
+use crate::eval::{Clause, EvalError, Evaluator};
 use crate::schedule::{
     SECTIONS, Section, Sweep, collect_field_declarations, collect_field_names, derivation_order,
-    merge_generated, pending_binding_name, refined_any, seed_moved, waits_only_on_external,
+    expand_field_aliases, merge_generated, pending_binding_name, refined_any, seed_moved,
+    waits_only_on_external,
 };
 use crate::unify::{Equivalence, compare_values, push_branch, unify};
 use crate::value::{
-    BottomKind, Conjunct, DisjunctionBranch as ValueBranch, FieldEntry, StructValue, Thunk,
-    ThunkEnv, Value, ValueArena, ValueId,
+    BottomKind, Conjunct, DeclOutcome, DeclRecipe, DeclSource, DisjunctionBranch as ValueBranch,
+    FieldEntry, StructValue, Thunk, ThunkEnv, Value, ValueArena, ValueId,
 };
 use cue_syntax::ast::*;
 use std::collections::HashSet;
@@ -42,11 +43,17 @@ const MAX_REDERIVE_SWEEPS: usize = 256;
 /// Construct per entry point; nested literals reborrow through a new owner.
 pub(crate) struct RelaxationLoop<'a> {
     eval: &'a mut Evaluator,
+    /// Why the comprehension being run could not decide a clause, if it
+    /// could not.
+    incomplete: Option<String>,
 }
 
 impl<'a> RelaxationLoop<'a> {
     pub(crate) fn new(eval: &'a mut Evaluator) -> Self {
-        Self { eval }
+        Self {
+            eval,
+            incomplete: None,
+        }
     }
 
     /// Evaluate the top level of a file or package. It is never closed: a
@@ -95,9 +102,11 @@ impl<'a> RelaxationLoop<'a> {
         decls: &[Decl],
         target: &mut DeclarationValue,
     ) -> Result<(), EvalError> {
+        let comprehension_body = std::mem::take(&mut self.eval.comprehension_body);
         // A reference must see every declaration of a static field, including
         // declarations appearing after the reference in source order.
-        let collected = collect_field_declarations(decls);
+        let aliased = expand_field_aliases(decls).map_err(EvalError::Evaluation)?;
+        let collected = collect_field_declarations(&aliased);
         let decls: &[Decl] = &collected;
         // Captured once per literal and shared by its thunks: every field of this
         // struct was written in the same lexical scope.
@@ -116,7 +125,7 @@ impl<'a> RelaxationLoop<'a> {
         for decl in decls {
             if let Decl::Field(field) = decl
                 && !field.label.is_definition()
-                && let Some(name) = field.label.name()
+                && let Some(name) = field.label.ident_name()
                 && !self
                     .eval
                     .scopes
@@ -254,32 +263,54 @@ impl<'a> RelaxationLoop<'a> {
         // Otherwise an earlier reference can retain a pre-merge snapshot.
         if let Some((base_struct, base_scopes)) = dynamic_base {
             let mut named_decls = decls.to_vec();
+            let mut undecided = Vec::new();
             for decl in &mut named_decls {
                 if let Decl::Field(field) = decl
                     && let Label::Dynamic(expr) = &field.label
                 {
-                    let label = self.eval.eval_expr(expr)?;
-                    match self.eval.arena.get(label) {
-                        Some(Value::String(name)) => field.label = Label::String(name.clone()),
-                        // A concrete integer label is definitely wrong, not
-                        // merely unresolved: upstream reports `eval`.
-                        Some(Value::Int(_)) => {
-                            return Err(EvalError::Evaluation(
-                                "integer fields not supported".to_string(),
-                            ));
+                    let defaults = self.eval.arena.defaults_chosen();
+                    match self.eval.dynamic_label(expr)? {
+                        // A label read through a default names a field a merge
+                        // may rename. It is generated the way a comprehension
+                        // generates one, which a merge derives again.
+                        Clause::Ready(_)
+                            if !comprehension_body
+                                && self.eval.arena.defaults_chosen() != defaults =>
+                        {
+                            *decl = Decl::Comprehension(ComprehensionDecl {
+                                clauses: vec![ComprehensionClause::If {
+                                    condition: Expr::Bool(true),
+                                }],
+                                struct_lit: StructLit {
+                                    decls: vec![Decl::Field(field.clone())],
+                                    form: Default::default(),
+                                },
+                            });
                         }
-                        _ => {
-                            return Err(EvalError::Unresolved(
-                                "unresolved reference or non-string dynamic field label"
-                                    .to_string(),
-                            ));
-                        }
+                        Clause::Ready(name) => field.label = Label::String(name),
+                        // A label that is not concrete yet waits on the struct
+                        // for a merge to supply it, instead of being dropped.
+                        Clause::Incomplete(_) => undecided.push(Rc::new(field.clone())),
                     }
                 }
             }
+            named_decls.retain(|decl| {
+                !matches!(
+                    decl,
+                    Decl::Field(FieldDecl {
+                        label: Label::Dynamic(_),
+                        ..
+                    })
+                )
+            });
             *target = base_struct;
             self.eval.scopes = base_scopes;
-            return self.eval_decls_into(&named_decls, target);
+            self.eval_decls_into(&named_decls, target)?;
+            for field in undecided {
+                let own = self.run_field(&field)?;
+                merge_generated(&mut self.eval.arena, &mut target.structure, own.structure);
+            }
+            return Ok(());
         }
 
         // A comprehension, an embedding or a pattern constraint can change a field
@@ -397,9 +428,21 @@ impl<'a> RelaxationLoop<'a> {
                     Ok(!is_unresolved)
                 }
                 Label::Dynamic(dyn_expr) => {
-                    let label_val_id = self.eval.eval_expr(dyn_expr)?;
-                    if let Some(Value::String(name)) = self.eval.arena.get(label_val_id) {
-                        let name = name.clone();
+                    let label = match self.eval.dynamic_label(dyn_expr) {
+                        Ok(label) => label,
+                        Err(EvalError::Unresolved(message)) => {
+                            if final_pass {
+                                return Err(EvalError::Unresolved(format!(
+                                    "unresolved reference in dynamic field label: {message}"
+                                )));
+                            }
+                            return Ok(false);
+                        }
+                        Err(error) => return Err(error),
+                    };
+                    // An undecided label is recorded once the labels are
+                    // normalized, below the declaration loop.
+                    if let Clause::Ready(name) = label {
                         let saved_field = self.eval.current_field.replace(name.clone());
                         let res = self.eval.eval_field_value(&f.value, env);
                         self.eval.current_field = saved_field;
@@ -415,16 +458,12 @@ impl<'a> RelaxationLoop<'a> {
                             f.optional,
                             conjunct,
                         )?;
-                        self.eval.note_field_name(&name);
-                        self.eval.insert_binding(&name, val_id);
-                        Ok(!is_unresolved)
-                    } else if self.eval.arena.is_unresolved(label_val_id) {
-                        if final_pass {
-                            return Err(EvalError::Unresolved(
-                                "unresolved reference in dynamic field label".to_string(),
-                            ));
+                        // A dynamic label declares no name a reference reads,
+                        // but it adds to a field an identifier label declared.
+                        if self.eval.declares_field(&name) {
+                            self.eval.insert_binding(&name, val_id);
                         }
-                        Ok(false)
+                        Ok(!is_unresolved)
                     } else {
                         Ok(true)
                     }
@@ -470,6 +509,7 @@ impl<'a> RelaxationLoop<'a> {
                         // bottom cannot win the field. Only the scope gains a
                         // name, and only for the next pass.
                         if let Some(name) = f.label.name()
+                            && self.eval.declares_field(name)
                             && !f.label.is_definition()
                             && !f.label.is_hidden()
                             && !placeholder
@@ -505,7 +545,11 @@ impl<'a> RelaxationLoop<'a> {
                                 *target = Some(closed);
                             }
                         }
-                        self.eval.insert_binding(name, val_id);
+                        // Bound only under a name an identifier label declared
+                        // here; `"a": 1` alone leaves `a` to the enclosing scope.
+                        if self.eval.declares_field(name) {
+                            self.eval.insert_binding(name, val_id);
+                        }
                     }
                     Ok(!is_unresolved)
                 }
@@ -639,10 +683,13 @@ impl<'a> RelaxationLoop<'a> {
                 // A comprehension that waits on a reference yields nothing yet:
                 // the fields it generated before it stopped are dropped with it.
                 let mut scratch = target.clone();
-                match self.eval_comprehension(comp, &mut scratch) {
+                let (comp, deps) = self.eval.intern_comprehension(comp);
+                let own = match self.run_comprehension(&comp, deps) {
                     Err(EvalError::Unresolved(_)) if !final_pass => return Ok(false),
                     other => other?,
-                }
+                };
+                scratch.merge_constraints(&mut self.eval.arena, &own, self.eval.at_file_root);
+                merge_generated(&mut self.eval.arena, &mut scratch.structure, own.structure);
                 if !final_pass
                     && scratch
                         .constraint()
@@ -948,7 +995,7 @@ impl<'a> RelaxationLoop<'a> {
             return Ok(false);
         }
 
-        let order = derivation_order(s);
+        let mut order = derivation_order(s);
         let mut changed = false;
         // Two things move a field here. Deriving the field beside it, and
         // descending into a field the unifier merged, which settles a nested
@@ -965,7 +1012,20 @@ impl<'a> RelaxationLoop<'a> {
 
             let sweep = self.rederive_sweep(s, &order, &moved)?;
             changed |= sweep.wrote;
-            moved = sweep.moved;
+            // A declaration the struct could not decide before reads what the
+            // merge moved too. What it generates now moves in turn.
+            let mut next = sweep.moved;
+            if !s.recipes.is_empty() {
+                let mut read = moved.clone();
+                read.extend(next.iter().cloned());
+                let regenerated = self.derive_recipes(s, &read)?;
+                if let Some(regenerated) = regenerated {
+                    order = derivation_order(s);
+                    changed = true;
+                    next.extend(regenerated);
+                }
+            }
+            moved = next;
             if moved.is_empty() {
                 settled = true;
                 break;
@@ -1202,7 +1262,10 @@ impl<'a> RelaxationLoop<'a> {
             // then merged into the target: evaluated in place, every iteration would clone and
             // re-derive everything the iterations before it generated, which is
             // quadratic in the size of the source.
-            let generated = self.eval_nested_decls(&comp.struct_lit.decls)?;
+            self.eval.comprehension_body = true;
+            let generated = self.eval_nested_decls(&comp.struct_lit.decls);
+            self.eval.comprehension_body = false;
+            let generated = generated?;
             target.merge_constraints(&mut self.eval.arena, &generated, self.eval.at_file_root);
             merge_generated(
                 &mut self.eval.arena,
@@ -1214,15 +1277,14 @@ impl<'a> RelaxationLoop<'a> {
 
         match &comp.clauses[clause_idx] {
             ComprehensionClause::If { condition } => {
-                let cond_val = self.eval.eval_expr(condition)?;
-                match self.eval.arena.get(cond_val) {
-                    Some(Value::Bool(true)) => {
+                match self.eval.comprehension_guard(condition)? {
+                    Clause::Ready(true) => {
                         self.eval_comprehension_clause(clause_idx + 1, comp, target)?;
                     }
-                    Some(Value::Bottom(r)) if r.kind.may_resolve_later() && self.eval.deferring => {
-                        return Err(EvalError::Unresolved(r.to_string()));
+                    Clause::Ready(false) => {}
+                    Clause::Incomplete(reason) => {
+                        self.incomplete.get_or_insert(reason);
                     }
-                    _ => {}
                 }
             }
             ComprehensionClause::Let { ident, expr } => {
@@ -1234,18 +1296,12 @@ impl<'a> RelaxationLoop<'a> {
                 result?;
             }
             ComprehensionClause::For { key, value, source } => {
-                let src_id = self.eval.eval_expr(source)?;
-                // A source that is not resolved yet has nothing to yield *yet*;
-                // yielding nothing would settle the comprehension as empty.
-                let src_val = match self.eval.arena.get(src_id) {
-                    Some(Value::Bottom(r)) if r.kind.may_resolve_later() => {
-                        return Err(EvalError::Unresolved(r.to_string()));
+                let src_val = match self.eval.comprehension_source(source)? {
+                    Clause::Ready(value) => value,
+                    Clause::Incomplete(reason) => {
+                        self.incomplete.get_or_insert(reason);
+                        return Ok(());
                     }
-                    Some(Value::RecursiveRef { name, .. }) => {
-                        return Err(EvalError::Unresolved(format!("{name} not evaluated yet")));
-                    }
-                    Some(v) => v.clone(),
-                    None => return Ok(()),
                 };
 
                 match src_val {
@@ -1277,11 +1333,234 @@ impl<'a> RelaxationLoop<'a> {
                             result?;
                         }
                     }
-                    _ => {}
+                    _ => unreachable!("comprehension_source yields a list or a struct"),
                 }
             }
         }
 
         Ok(())
+    }
+
+    /// Run a comprehension into a struct of its own, and keep its recipe there:
+    /// what it generated, and whether a clause was left undecided.
+    fn run_comprehension(
+        &mut self,
+        comp: &Rc<ComprehensionDecl>,
+        deps: Rc<HashSet<String>>,
+    ) -> Result<DeclarationValue, EvalError> {
+        let mut own = DeclarationValue::default();
+        let enclosing = self.incomplete.take();
+        let result = self.eval_comprehension(comp, &mut own);
+        let incomplete = std::mem::replace(&mut self.incomplete, enclosing);
+        result?;
+        self.keep_recipe(
+            &mut own,
+            DeclSource::Comprehension(comp.clone()),
+            deps,
+            incomplete,
+        )?;
+        Ok(own)
+    }
+
+    /// Evaluate a dynamic field whose label was not concrete when its literal
+    /// was, into a struct of its own that keeps its recipe.
+    fn run_field(&mut self, field: &Rc<FieldDecl>) -> Result<DeclarationValue, EvalError> {
+        let Label::Dynamic(label) = &field.label else {
+            return Ok(DeclarationValue::default());
+        };
+        let Some(env) = self.eval.current_env.clone() else {
+            return Err(EvalError::Evaluation(
+                "dynamic field outside a literal".to_string(),
+            ));
+        };
+        let mut own = DeclarationValue::default();
+        let incomplete = match self.eval.dynamic_label(label)? {
+            Clause::Ready(name) => {
+                let saved_field = self.eval.current_field.replace(name.clone());
+                let res = self.eval.eval_field_value(&field.value, &env);
+                self.eval.current_field = saved_field;
+                let (val_id, conjunct) = res?;
+                self.eval.unify_decl_field(
+                    &mut own.structure.fields,
+                    &name,
+                    val_id,
+                    field.optional,
+                    conjunct,
+                )?;
+                None
+            }
+            Clause::Incomplete(reason) => Some(reason),
+        };
+        let deps = Rc::new(crate::deps::recipe_deps(label, &[]));
+        self.keep_recipe(&mut own, DeclSource::Field(field.clone()), deps, incomplete)?;
+        Ok(own)
+    }
+
+    fn keep_recipe(
+        &mut self,
+        own: &mut DeclarationValue,
+        source: DeclSource,
+        deps: Rc<HashSet<String>>,
+        incomplete: Option<String>,
+    ) -> Result<(), EvalError> {
+        let Some(env) = self.eval.current_env.clone() else {
+            return match incomplete {
+                Some(reason) => Err(EvalError::Evaluation(reason)),
+                None => Ok(()),
+            };
+        };
+        let deps = if env.lets.iter().any(|(name, _)| deps.contains(name)) {
+            Rc::new(crate::deps::expand_lets((*deps).clone(), &env.lets))
+        } else {
+            deps
+        };
+        let fields = SECTIONS
+            .iter()
+            .flat_map(|section| {
+                section
+                    .map(&own.structure)
+                    .iter()
+                    .map(|(name, entry)| (*section, name.clone(), entry.conjuncts.clone()))
+            })
+            .collect();
+        let outcome = DeclOutcome {
+            fields,
+            recipes: own.structure.recipes.clone(),
+            incomplete,
+        };
+        own.structure.add_recipe(DeclRecipe {
+            source,
+            env,
+            deps,
+            outcome: Rc::new(outcome),
+        });
+        Ok(())
+    }
+
+    /// Run again the declarations of a merged struct that read a name the
+    /// merge moved. One that decides differently now gives back the fields it
+    /// generated and contributes what it generates instead. Returns the names
+    /// of the fields that changed that way, or `None` when every one decided
+    /// as it had.
+    fn derive_recipes(
+        &mut self,
+        s: &mut StructValue,
+        moved: &HashSet<String>,
+    ) -> Result<Option<HashSet<String>>, EvalError> {
+        let mut changed = HashSet::new();
+        let mut wrote = false;
+        for recipe in s.recipes.clone() {
+            if !recipe.deps.iter().any(|name| moved.contains(name)) || !s.recipes.contains(&recipe)
+            {
+                continue;
+            }
+            let Some(fresh) = self.rerun_recipe(&recipe, s)? else {
+                continue;
+            };
+            let decided_alike = fresh
+                .structure
+                .recipes
+                .last()
+                .is_some_and(|rerun| rerun.same_decision(&recipe));
+            if decided_alike {
+                continue;
+            }
+            wrote = true;
+            self.retract(s, &recipe, &mut changed);
+            changed.extend(
+                SECTIONS
+                    .iter()
+                    .flat_map(|section| section.map(&fresh.structure).keys().cloned()),
+            );
+            merge_generated(&mut self.eval.arena, s, fresh.structure);
+        }
+        Ok(wrote.then_some(changed))
+    }
+
+    /// Run one recipe in the scope its literal was written in, under a frame
+    /// holding the merged values of the names that literal declares - as a
+    /// field's recipe runs. `None` while it still waits on a reference.
+    fn rerun_recipe(
+        &mut self,
+        recipe: &DeclRecipe,
+        s: &StructValue,
+    ) -> Result<Option<DeclarationValue>, EvalError> {
+        let env = &recipe.env;
+        let saved_scopes = std::mem::replace(&mut self.eval.scopes, env.scopes.clone());
+        let saved_env = self.eval.current_env.replace(env.clone());
+        let saved_imports = std::mem::replace(&mut self.eval.imports, env.imports.clone());
+        let saved_depth = self.eval.struct_scope_depth;
+        let saved_field = self.eval.current_field.take();
+
+        self.eval.push_scope();
+        self.eval.struct_scope_depth = self.eval.scopes.len().saturating_sub(1);
+        for section in SECTIONS {
+            for (name, entry) in section.map(s) {
+                if env.owns_field(name) {
+                    self.eval.insert_binding(name, entry.val);
+                }
+            }
+        }
+        let mut result = Ok(());
+        for (name, expr) in env.lets.clone() {
+            match self.eval.eval_expr(&expr) {
+                Ok(val) => self.eval.insert_binding(&name, val),
+                Err(error) => {
+                    result = Err(error);
+                    break;
+                }
+            }
+        }
+        let result = result.and_then(|()| match &recipe.source {
+            DeclSource::Comprehension(comp) => self.run_comprehension(comp, recipe.deps.clone()),
+            DeclSource::Field(field) => self.run_field(field),
+        });
+
+        self.eval.scopes = saved_scopes;
+        self.eval.current_env = saved_env;
+        self.eval.imports = saved_imports;
+        self.eval.struct_scope_depth = saved_depth;
+        self.eval.current_field = saved_field;
+        match result {
+            Ok(fresh) => Ok(Some(fresh)),
+            Err(EvalError::Unresolved(_)) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Take back what a recipe generated: its recipes from each field, the
+    /// field itself where nothing else declares it, and the recipes of the
+    /// literals it generated.
+    fn retract(&mut self, s: &mut StructValue, recipe: &DeclRecipe, changed: &mut HashSet<String>) {
+        for (section, name, contributed) in &recipe.outcome.fields {
+            let Some(entry) = section.map(s).get(name).cloned() else {
+                continue;
+            };
+            let remaining: Vec<Conjunct> = entry
+                .conjuncts
+                .iter()
+                .filter(|conjunct| !contributed.iter().any(|c| c.same(conjunct)))
+                .cloned()
+                .collect();
+            if remaining.len() == entry.conjuncts.len() {
+                continue;
+            }
+            changed.insert(name.clone());
+            if remaining.is_empty() {
+                section.map_mut(s).remove(name);
+                continue;
+            }
+            let rest = FieldEntry::with_conjuncts(entry.val, entry.optional, remaining);
+            let snapshot = s.clone();
+            let val = match self.derive_field(&rest, &snapshot, name) {
+                Ok(Some(val)) => val,
+                _ => entry.val,
+            };
+            section
+                .map_mut(s)
+                .insert(name.clone(), FieldEntry { val, ..rest });
+        }
+        s.recipes
+            .retain(|kept| kept != recipe && !recipe.outcome.recipes.contains(kept));
     }
 }
