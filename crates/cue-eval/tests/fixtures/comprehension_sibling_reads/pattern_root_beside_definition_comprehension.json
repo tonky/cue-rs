@@ -1,0 +1,18 @@
+{
+  "issue3851": {
+    "t2": {
+      "env1": {
+        "conf": {
+          "one": {
+            "disj": {},
+            "shared": "foo"
+          },
+          "two": {
+            "disj": {},
+            "shared": "foo"
+          }
+        }
+      }
+    }
+  }
+}

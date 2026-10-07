@@ -1201,7 +1201,7 @@ impl<'a> RelaxationLoop<'a> {
             if !entry.reads_any(&live) {
                 continue;
             }
-            let Some(val) = self.derive_field(&entry, s, name)? else {
+            let Some(val) = self.derive_field(&entry, s, *section, name)? else {
                 continue;
             };
             if val == entry.val {
@@ -1239,11 +1239,12 @@ impl<'a> RelaxationLoop<'a> {
         &mut self,
         entry: &FieldEntry,
         s: &StructValue,
+        section: Section,
         name: &str,
     ) -> Result<Option<ValueId>, EvalError> {
         self.eval.derivations += 1;
         let saved_field = self.eval.current_field.replace(name.to_string());
-        let result = self.derive_field_value(entry, s, name);
+        let result = self.derive_field_value(entry, s, section, name);
         self.eval.current_field = saved_field;
         result
     }
@@ -1252,6 +1253,7 @@ impl<'a> RelaxationLoop<'a> {
         &mut self,
         entry: &FieldEntry,
         s: &StructValue,
+        section: Section,
         name: &str,
     ) -> Result<Option<ValueId>, EvalError> {
         // A definition's contributions derive together and close once: it is
@@ -1279,19 +1281,33 @@ impl<'a> RelaxationLoop<'a> {
         }
         let definition =
             definition.map(|definition| Closure::Recursive.apply(&mut self.eval.arena, definition));
-        let mut val = match (definition, rest) {
+        let val = match (definition, rest) {
             (Some(definition), Some(rest)) => unify(&mut self.eval.arena, definition, rest),
             (Some(val), None) | (None, Some(val)) => val,
             (None, None) => return Ok(None),
         };
+        Ok(Some(self.meet_patterns(s, section, name, val)))
+    }
 
-        // Pattern constraints are part of the field's value, not of its recipe.
-        for pc in s.pattern_constraints.clone() {
+    /// A regular field's value meets the struct's patterns that match its
+    /// name: they are part of its value, not of its recipe. A definition or a
+    /// hidden field is matched by none, as at the merge.
+    fn meet_patterns(
+        &mut self,
+        s: &StructValue,
+        section: Section,
+        name: &str,
+        mut val: ValueId,
+    ) -> ValueId {
+        if section != Section::Field {
+            return val;
+        }
+        for pc in &s.pattern_constraints {
             if crate::unify::field_matches_pattern(&self.eval.arena, pc.pattern_val, name) {
                 val = unify(&mut self.eval.arena, val, pc.target_val);
             }
         }
-        Ok(Some(val))
+        val
     }
 
     /// Evaluate one recipe in the scope it was written in, under one frame
@@ -1756,15 +1772,10 @@ impl<'a> RelaxationLoop<'a> {
             let val = if only_rerun {
                 // Nothing else declares the field: the rerun derived it already,
                 // and only the struct's patterns are left to meet it.
-                let mut val = after.val;
-                for pc in &s.pattern_constraints {
-                    if crate::unify::field_matches_pattern(&self.eval.arena, pc.pattern_val, name) {
-                        val = unify(&mut self.eval.arena, val, pc.target_val);
-                    }
-                }
-                val
+                self.meet_patterns(s, *section, name, after.val)
             } else {
-                self.derive_field(&candidate, s, name)?.unwrap_or(entry.val)
+                self.derive_field(&candidate, s, *section, name)?
+                    .unwrap_or(entry.val)
             };
             let moved = val != entry.val
                 && compare_values(&self.eval.arena, val, entry.val) != Equivalence::Equal;
@@ -1870,7 +1881,7 @@ impl<'a> RelaxationLoop<'a> {
             }
             let rest = FieldEntry::with_conjuncts(entry.val, entry.optional, remaining);
             let snapshot = s.clone();
-            let val = match self.derive_field(&rest, &snapshot, name) {
+            let val = match self.derive_field(&rest, &snapshot, *section, name) {
                 Ok(Some(val)) => val,
                 _ => entry.val,
             };

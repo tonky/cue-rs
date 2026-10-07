@@ -98,10 +98,13 @@ The same class had a pattern member: `svcs: [string]: #Svc` beside
 `rederive_children` never descended into a pattern-matched field unless it
 held a field on credit. It now descends when the target reads its own fields
 (`reads_own_fields`, through nested patterns). `fixtures/comprehension_sibling_reads`
-holds 40 cue v0.17.1 goldens (38 fail at 46705ff); `rederive_cost` pins one
-derivation per reading field per merge. The added work is the derivations
-that were missing: about +15% instructions on a 3000-service `if` preset,
-+33-42% where every `for` body or pattern-matched url re-derives.
+holds 42 cue v0.17.1 goldens (40 fail at 46705ff); `rederive_cost` pins one
+derivation per reading field per merge. A re-derived field meets only the
+patterns of its own section: a root `[string]` pattern never reaches a
+definition (`pattern_root_beside_definition*`, upstream issue3851 t2). The
+added work is the derivations that were missing: about +15% instructions on a
+3000-service `if` preset, +30-39% where every `for` body or pattern-matched url
+re-derives; the txtar corpus as a whole +0.4%.
 
 ## Validation re-derivation and nested verdicts
 
