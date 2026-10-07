@@ -170,6 +170,21 @@ in `eval_interpolation`, which also wants the string-from-bytes rule that file
 pins: invalid UTF-8 interpolated into a *string* becomes replacement characters
 by the Unicode standard, one per invalid sequence, not one per byte.
 
+## A builtin over an argument not concrete yet fails for good
+
+Open; the builtin sibling of the interpolation fix (`tests/interpolation_merge.rs`).
+`_t: {n: string, u: strings.ToUpper(n)}` met with `{n: "a"}` exports `u: "A"` in
+cue, but cue-rs fails `x.u: strings.ToUpper requires 1 string argument` whenever
+`u` is evaluated before `n` arrives (another conjunct of `u`, an embedding in
+`_t`): the builtin's error is a plain bottom the merge never re-derives. Making
+every failed call with an abstract argument incomplete passes 14 more upstream
+checks (`builtins_incomplete`, `fulleval_027/048/051/052`) but reports 7 `eval`
+errors as `incomplete`: cue answers `eval` when the abstract argument cannot
+have the parameter's kind (`strings.Join([int, ...string], " ")`,
+`list.Avg([string])`) and when the argument is a schema (`matchN(1, [_])`). The
+fix wants each builtin's parameter kinds, so a call is incomplete only for an
+abstract argument that could still match.
+
 ## Optional struct and list fields are materialised
 
 Closed by phase 07 stage 2. Export skips every optional field, whatever its
