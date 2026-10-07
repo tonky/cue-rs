@@ -1,0 +1,26 @@
+-- in.cue --
+r5: {
+	#Config: {shared: _}
+	#Env: {
+		conf: [string]: #Config
+		if true {conf: one: shared: "foo"}
+	}
+	env1: #Env @test(err, code=eval)
+	env1: {
+		conf: ["one"]: disj: {}
+		conf: two: shared: conf.one.shared
+	}
+}
+
+r7: {
+	#Config: {shared: _}
+	#Env: {
+		conf: [string]: #Config
+		conf: one: shared: "foo"
+	}
+	env1: #Env @test(err, code=eval)
+	env1: {
+		conf: ["one"]: disj: {}
+		conf: two: shared: conf.one.shared
+	}
+}

@@ -210,3 +210,25 @@ fn scalar_metadata_regressions_match_the_pinned_reference() {
         assert!(ok, "{report}");
     }
 }
+
+/// Builtins over arguments declared further down, forward lets, chains of a
+/// hundred operands and repeated declarations beside a pattern, and the
+/// issue3851 closedness errors. An export mismatch leaves the exit status
+/// alone, so every check must have passed.
+#[test]
+#[ignore = "requires pinned Go oracle; run just conformance-test under just safe"]
+fn relaxation_regressions_match_the_pinned_reference() {
+    for source in [
+        include_str!("../../../tests/conformance/regressions/relaxation/pending.txtar"),
+        include_str!("../../../tests/conformance/regressions/relaxation/lets.txtar"),
+        include_str!("../../../tests/conformance/regressions/relaxation/chains.txtar"),
+        include_str!("../../../tests/conformance/regressions/relaxation/closedness.txtar"),
+    ] {
+        let (ok, report) = oracle_case(source);
+        let checks = report["cases"][0]["checks"].as_array().unwrap();
+        assert!(
+            ok && !checks.is_empty() && checks.iter().all(|check| check["status"] == "passed"),
+            "{report}"
+        );
+    }
+}

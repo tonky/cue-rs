@@ -1,0 +1,209 @@
+-- in.cue --
+#Svc: {
+	name: string | *"n"
+	port: int | *80
+	url:  "http://\(name):\(port)"
+}
+svcs: [string]: #Svc
+svcs: s0: {name: "s0", port: 0}
+svcs: s1: {name: "s1", port: 1}
+svcs: s2: {name: "s2", port: 2}
+svcs: s3: {name: "s3", port: 3}
+svcs: s4: {name: "s4", port: 4}
+svcs: s5: {name: "s5", port: 5}
+svcs: s6: {name: "s6", port: 6}
+svcs: s7: {name: "s7", port: 7}
+svcs: s8: {name: "s8", port: 8}
+svcs: s9: {name: "s9", port: 9}
+svcs: s10: {name: "s10", port: 10}
+svcs: s11: {name: "s11", port: 11}
+svcs: s12: {name: "s12", port: 12}
+svcs: s13: {name: "s13", port: 13}
+svcs: s14: {name: "s14", port: 14}
+svcs: s15: {name: "s15", port: 15}
+svcs: s16: {name: "s16", port: 16}
+svcs: s17: {name: "s17", port: 17}
+svcs: s18: {name: "s18", port: 18}
+svcs: s19: {name: "s19", port: 19}
+svcs: s20: {name: "s20", port: 20}
+svcs: s21: {name: "s21", port: 21}
+svcs: s22: {name: "s22", port: 22}
+svcs: s23: {name: "s23", port: 23}
+svcs: s24: {name: "s24", port: 24}
+svcs: s25: {name: "s25", port: 25}
+svcs: s26: {name: "s26", port: 26}
+svcs: s27: {name: "s27", port: 27}
+svcs: s28: {name: "s28", port: 28}
+svcs: s29: {name: "s29", port: 29}
+svcs: s30: {name: "s30", port: 30}
+svcs: s31: {name: "s31", port: 31}
+svcs: s32: {name: "s32", port: 32}
+svcs: s33: {name: "s33", port: 33}
+svcs: s34: {name: "s34", port: 34}
+svcs: s35: {name: "s35", port: 35}
+svcs: s36: {name: "s36", port: 36}
+svcs: s37: {name: "s37", port: 37}
+svcs: s38: {name: "s38", port: 38}
+svcs: s39: {name: "s39", port: 39}
+svcs: s40: {name: "s40", port: 40}
+svcs: s41: {name: "s41", port: 41}
+svcs: s42: {name: "s42", port: 42}
+svcs: s43: {name: "s43", port: 43}
+svcs: s44: {name: "s44", port: 44}
+svcs: s45: {name: "s45", port: 45}
+svcs: s46: {name: "s46", port: 46}
+svcs: s47: {name: "s47", port: 47}
+svcs: s48: {name: "s48", port: 48}
+svcs: s49: {name: "s49", port: 49}
+svcs: s50: {name: "s50", port: 50}
+svcs: s51: {name: "s51", port: 51}
+svcs: s52: {name: "s52", port: 52}
+svcs: s53: {name: "s53", port: 53}
+svcs: s54: {name: "s54", port: 54}
+svcs: s55: {name: "s55", port: 55}
+svcs: s56: {name: "s56", port: 56}
+svcs: s57: {name: "s57", port: 57}
+svcs: s58: {name: "s58", port: 58}
+svcs: s59: {name: "s59", port: 59}
+svcs: s60: {name: "s60", port: 60}
+svcs: s61: {name: "s61", port: 61}
+svcs: s62: {name: "s62", port: 62}
+svcs: s63: {name: "s63", port: 63}
+svcs: s64: {name: "s64", port: 64}
+svcs: s65: {name: "s65", port: 65}
+svcs: s66: {name: "s66", port: 66}
+svcs: s67: {name: "s67", port: 67}
+svcs: s68: {name: "s68", port: 68}
+svcs: s69: {name: "s69", port: 69}
+svcs: s70: {name: "s70", port: 70}
+svcs: s71: {name: "s71", port: 71}
+svcs: s72: {name: "s72", port: 72}
+svcs: s73: {name: "s73", port: 73}
+svcs: s74: {name: "s74", port: 74}
+svcs: s75: {name: "s75", port: 75}
+svcs: s76: {name: "s76", port: 76}
+svcs: s77: {name: "s77", port: 77}
+svcs: s78: {name: "s78", port: 78}
+svcs: s79: {name: "s79", port: 79}
+svcs: s80: {name: "s80", port: 80}
+svcs: s81: {name: "s81", port: 81}
+svcs: s82: {name: "s82", port: 82}
+svcs: s83: {name: "s83", port: 83}
+svcs: s84: {name: "s84", port: 84}
+svcs: s85: {name: "s85", port: 85}
+svcs: s86: {name: "s86", port: 86}
+svcs: s87: {name: "s87", port: 87}
+svcs: s88: {name: "s88", port: 88}
+svcs: s89: {name: "s89", port: 89}
+svcs: s90: {name: "s90", port: 90}
+svcs: s91: {name: "s91", port: 91}
+svcs: s92: {name: "s92", port: 92}
+svcs: s93: {name: "s93", port: 93}
+svcs: s94: {name: "s94", port: 94}
+svcs: s95: {name: "s95", port: 95}
+svcs: s96: {name: "s96", port: 96}
+svcs: s97: {name: "s97", port: 97}
+svcs: s98: {name: "s98", port: 98}
+svcs: s99: {name: "s99", port: 99}
+a: {f0: 0}
+a: {f1: 1}
+a: {f2: 2}
+a: {f3: 3}
+a: {f4: 4}
+a: {f5: 5}
+a: {f6: 6}
+a: {f7: 7}
+a: {f8: 8}
+a: {f9: 9}
+a: {f10: 10}
+a: {f11: 11}
+a: {f12: 12}
+a: {f13: 13}
+a: {f14: 14}
+a: {f15: 15}
+a: {f16: 16}
+a: {f17: 17}
+a: {f18: 18}
+a: {f19: 19}
+a: {f20: 20}
+a: {f21: 21}
+a: {f22: 22}
+a: {f23: 23}
+a: {f24: 24}
+a: {f25: 25}
+a: {f26: 26}
+a: {f27: 27}
+a: {f28: 28}
+a: {f29: 29}
+a: {f30: 30}
+a: {f31: 31}
+a: {f32: 32}
+a: {f33: 33}
+a: {f34: 34}
+a: {f35: 35}
+a: {f36: 36}
+a: {f37: 37}
+a: {f38: 38}
+a: {f39: 39}
+a: {f40: 40}
+a: {f41: 41}
+a: {f42: 42}
+a: {f43: 43}
+a: {f44: 44}
+a: {f45: 45}
+a: {f46: 46}
+a: {f47: 47}
+a: {f48: 48}
+a: {f49: 49}
+a: {f50: 50}
+a: {f51: 51}
+a: {f52: 52}
+a: {f53: 53}
+a: {f54: 54}
+a: {f55: 55}
+a: {f56: 56}
+a: {f57: 57}
+a: {f58: 58}
+a: {f59: 59}
+a: {f60: 60}
+a: {f61: 61}
+a: {f62: 62}
+a: {f63: 63}
+a: {f64: 64}
+a: {f65: 65}
+a: {f66: 66}
+a: {f67: 67}
+a: {f68: 68}
+a: {f69: 69}
+a: {f70: 70}
+a: {f71: 71}
+a: {f72: 72}
+a: {f73: 73}
+a: {f74: 74}
+a: {f75: 75}
+a: {f76: 76}
+a: {f77: 77}
+a: {f78: 78}
+a: {f79: 79}
+a: {f80: 80}
+a: {f81: 81}
+a: {f82: 82}
+a: {f83: 83}
+a: {f84: 84}
+a: {f85: 85}
+a: {f86: 86}
+a: {f87: 87}
+a: {f88: 88}
+a: {f89: 89}
+a: {f90: 90}
+a: {f91: 91}
+a: {f92: 92}
+a: {f93: 93}
+a: {f94: 94}
+a: {f95: 95}
+a: {f96: 96}
+a: {f97: 97}
+a: {f98: 98}
+a: {f99: 99}
+sum: 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1
+both: {g0: 0} & {g1: 1} & {g2: 2} & {g3: 3} & {g4: 4} & {g5: 5} & {g6: 6} & {g7: 7} & {g8: 8} & {g9: 9} & {g10: 10} & {g11: 11} & {g12: 12} & {g13: 13} & {g14: 14} & {g15: 15} & {g16: 16} & {g17: 17} & {g18: 18} & {g19: 19} & {g20: 20} & {g21: 21} & {g22: 22} & {g23: 23} & {g24: 24} & {g25: 25} & {g26: 26} & {g27: 27} & {g28: 28} & {g29: 29} & {g30: 30} & {g31: 31} & {g32: 32} & {g33: 33} & {g34: 34} & {g35: 35} & {g36: 36} & {g37: 37} & {g38: 38} & {g39: 39} & {g40: 40} & {g41: 41} & {g42: 42} & {g43: 43} & {g44: 44} & {g45: 45} & {g46: 46} & {g47: 47} & {g48: 48} & {g49: 49} & {g50: 50} & {g51: 51} & {g52: 52} & {g53: 53} & {g54: 54} & {g55: 55} & {g56: 56} & {g57: 57} & {g58: 58} & {g59: 59} & {g60: 60} & {g61: 61} & {g62: 62} & {g63: 63} & {g64: 64} & {g65: 65} & {g66: 66} & {g67: 67} & {g68: 68} & {g69: 69} & {g70: 70} & {g71: 71} & {g72: 72} & {g73: 73} & {g74: 74} & {g75: 75} & {g76: 76} & {g77: 77} & {g78: 78} & {g79: 79} & {g80: 80} & {g81: 81} & {g82: 82} & {g83: 83} & {g84: 84} & {g85: 85} & {g86: 86} & {g87: 87} & {g88: 88} & {g89: 89} & {g90: 90} & {g91: 91} & {g92: 92} & {g93: 93} & {g94: 94} & {g95: 95} & {g96: 96} & {g97: 97} & {g98: 98} & {g99: 99}

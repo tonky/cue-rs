@@ -1,0 +1,54 @@
+-- in.cue --
+merged: {
+	P: {
+		p: int | *0
+		let c = b + 1
+		let b = a2 * 2
+		let a2 = p
+		x: c
+	}
+	p1: P & {p: 3}
+}
+
+ifBody: {
+	P: {
+		p: int | *0
+		if true {
+			x: b
+			let b = a2
+			let a2 = p + 1
+		}
+	}
+	p1: P & {p: 3}
+}
+
+forInDef: {
+	#P: {
+		p: int | *0
+		let b = a2
+		let a2 = p
+		for i in [1, 2] {"x\(i)": b + i}
+	}
+	p1: #P & {p: 3}
+}
+
+disjunction: {
+	x: {
+		let b = a2
+		let a2 = p
+		p: int | *5
+		c: string | *"v\(b)"
+	} & {p: 9}
+}
+
+laterField: {
+	let d = a + 1
+	if true {x: d}
+	a: 1
+}
+
+listBody: [for i in [1, 2] {
+	let b = a2
+	let a2 = i * 10
+	v: b
+}]

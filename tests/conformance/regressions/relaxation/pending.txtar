@@ -1,0 +1,36 @@
+-- in.cue --
+import "strings"
+
+z: len(s)
+s: [1, 2]
+
+joined: {
+	let L = [for f in features {f + "!"}]
+	b: strings.Join(L, ",")
+	features: ["a", "b"]
+}
+
+libs: {
+	x: [for f in features for n in _libs[f] {name: n, of: len(_all)}]
+	_all: [for f in features for n in _libs[f] {n}]
+	features: ["a", "b"]
+	_libs: {a: ["x", "y"], b: ["z"]}
+}
+
+guard: {
+	if len(_names) > 1 {many: true}
+	_names: [for k, _ in src {k}]
+	src: {a: 1, b: 2}
+}
+
+template: {
+	#T: {n: [...string], c: len(n), u: strings.ToUpper(strings.Join(n, "-"))}
+	out: #T & {n: ["a", "b"]}
+}
+
+closed: {
+	x: close(s)
+	q: div(a, 2)
+	s: {a: 1}
+	a: 7
+}
