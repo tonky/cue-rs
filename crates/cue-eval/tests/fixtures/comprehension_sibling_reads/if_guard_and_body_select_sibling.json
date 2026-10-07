@@ -1,0 +1,22 @@
+{
+  "P": {
+    "cfg": {
+      "enabled": true,
+      "name": "d"
+    },
+    "x": "d"
+  },
+  "p1": {
+    "cfg": {
+      "enabled": true,
+      "name": "z"
+    },
+    "x": "z"
+  },
+  "p2": {
+    "cfg": {
+      "enabled": false,
+      "name": "d"
+    }
+  }
+}

@@ -123,7 +123,7 @@ fn comprehension_closedness_matches_cue_export() {
 /// and a pattern's target meeting the fields it matches the same way.
 #[test]
 fn comprehension_sibling_reads_match_cue_export() {
-    match_cue_export("comprehension_sibling_reads", 30);
+    match_cue_export("comprehension_sibling_reads", 40);
 }
 
 #[test]
