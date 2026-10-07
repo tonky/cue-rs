@@ -81,16 +81,27 @@ re-derive its readers.
 
 ## A comprehension's sibling read is stale after a merge
 
-`P: {a: int | *0, if true {x: a}}` with `p1: P & {a: 1}` exports `x: 0`; cue
-says `x: 1`. Also inside definitions (`create postgres` for
-`#P & {database: "app"}` in an enve-shaped preset), and on master. When the
-merge leaves the guard deciding the same way, the generated field's thunk is
-derived again, but its environment is the comprehension body's, which owns
-only the body's fields: `a` resolves from the frame captured when the enclosing
-literal was first evaluated. The fix is to rebind, in that captured frame
-(`thunk.env.scopes[recipe.env.scopes.len()]`), the names `recipe.env` owns to
-the merged struct's values. Pinned as known divergences in
-`tests/comprehension_closedness.rs` (`sibling_read_*`).
+Closed. `P: {a: int | *0, if true {x: a}}` with `P & {a: 1}` exported `x: 0`
+(and `create postgres` for an enve-shaped `#P & {database: "app"}`); a body
+thunk resolved `a` from the frame captured when the body first ran. A body's
+`ThunkEnv` now carries `enclosing` (the comprehension's literal and the frame
+its names are bound in, which is `struct_scope_depth` at the body - not
+`scopes.len()`, since a rerun binds into a pushed frame), and `derive_thunk`
+and `rerun_recipe` rebind those names, and derive those literals' `let`s, from
+the merged struct, outermost first, limited to what the recipe reads. Thunk
+and recipe deps expand through the enclosing literals' `let`s too. A `for` or
+`let` clause binding is fixed by the rerun the merge already makes: when it
+decides alike, `adopt_rerun` swaps its conjuncts in for the old run's.
+
+The same class had a pattern member: `svcs: [string]: #Svc` beside
+`svcs: {a: {name: "a"}}` exported `#Svc`'s url from the defaults, because
+`rederive_children` never descended into a pattern-matched field unless it
+held a field on credit. It now descends when the target reads its own fields
+(`reads_own_fields`, through nested patterns). `fixtures/comprehension_sibling_reads`
+holds 40 cue v0.17.1 goldens (38 fail at 46705ff); `rederive_cost` pins one
+derivation per reading field per merge. The added work is the derivations
+that were missing: about +15% instructions on a 3000-service `if` preset,
++33-42% where every `for` body or pattern-matched url re-derives.
 
 ## Validation re-derivation and nested verdicts
 
