@@ -1,0 +1,3 @@
+env1.conf.one.shared: field not allowed:
+    ./x3.cue:1:26
+    ./x3.cue:4:13

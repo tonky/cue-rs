@@ -1,0 +1,16 @@
+{
+  "issue3851": {
+    "t1": {
+      "out": {
+        "one": {
+          "disj": "default",
+          "shared": "foo"
+        },
+        "two": {
+          "disj": "default",
+          "shared": "foo"
+        }
+      }
+    }
+  }
+}

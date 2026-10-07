@@ -1,0 +1,12 @@
+{
+  "env1": {
+    "conf": {
+      "one": {
+        "shared": "foo"
+      },
+      "two": {
+        "shared": "foo"
+      }
+    }
+  }
+}

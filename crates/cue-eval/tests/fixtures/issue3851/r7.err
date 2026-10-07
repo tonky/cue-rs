@@ -1,0 +1,2 @@
+env1.conf.one.disj: field not allowed:
+    ./r7.cue:8:17

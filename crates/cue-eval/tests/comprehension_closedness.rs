@@ -8,8 +8,9 @@
 //! names the full path of the field that became bottom (`x.o.1.t: ...`), as
 //! cue does. A generated field reads the struct it was merged into, as any
 //! other field does. The goldens under `fixtures/comprehension_closedness`,
-//! `fixtures/comprehension_sibling_reads` and `fixtures/error_paths` come from
-//! the official `cue` binary; regenerate them with `regen.py` in each.
+//! `fixtures/comprehension_sibling_reads`, `fixtures/error_paths` and
+//! `fixtures/issue3851` come from the official `cue` binary; regenerate them
+//! with `regen.py` in each.
 
 mod support;
 
@@ -45,4 +46,25 @@ fn comprehension_sibling_reads_match_cue_export() {
 #[test]
 fn error_paths_match_cue_export() {
     support::match_cue_export("error_paths", 16, KNOWN_DIVERGENCES);
+}
+
+/// Reductions of upstream `disjunctions/issue3857` (issue3851 t2): a root
+/// pattern beside a definition whose `conf` pattern holds `#Config`, with the
+/// `one` entry added by an `if` or declared directly, and a disjunction (or a
+/// field the definition does not allow) added through the `["one"]` pattern.
+/// `r5`/`r7` (`env1.conf.one.disj: field not allowed`) match cue.
+const ISSUE3851_DIVERGENCES: &[(&str, &str)] = &[
+    (
+        "r8.cue",
+        "both refuse a field under the closed #Env; cue names `env1.conf.one.disj`, cue-rs `env1.conf.two`",
+    ),
+    (
+        "x3.cue",
+        "`#Env & #T` with `#T` open: cue refuses `#T`'s `disj` under `#Config`, cue-rs exports it",
+    ),
+];
+
+#[test]
+fn issue3851_reductions_match_cue_export() {
+    support::match_cue_export("issue3851", 38, ISSUE3851_DIVERGENCES);
 }

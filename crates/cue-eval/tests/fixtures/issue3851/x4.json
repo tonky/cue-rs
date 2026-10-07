@@ -1,0 +1,16 @@
+{
+  "x": {
+    "env1": {
+      "conf": {
+        "one": {
+          "disj": {},
+          "shared": "foo"
+        },
+        "two": {
+          "disj": {},
+          "shared": "foo"
+        }
+      }
+    }
+  }
+}

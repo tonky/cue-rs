@@ -1,0 +1,4 @@
+env1.conf.one.disj: field not allowed:
+    ./r8.cue:6:17
+env1.conf.two: field not allowed:
+    ./r8.cue:7:8
