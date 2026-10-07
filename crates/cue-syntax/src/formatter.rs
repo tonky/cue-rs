@@ -505,21 +505,21 @@ fn format_expr(expr_node: &Expr, out: &mut String, indent: usize) {
             format_operand(right, strength + 1, out, indent);
         }
         Expr::Unary { op, expr } => {
-            let op_str = match op {
-                UnaryOp::Pos => "+",
-                UnaryOp::Neg => "-",
-                UnaryOp::Not => "!",
-                UnaryOp::Default => "*",
-                UnaryOp::Less => "<",
-                UnaryOp::LessEqual => "<=",
-                UnaryOp::Greater => ">",
-                UnaryOp::GreaterEqual => ">=",
-                UnaryOp::Equal => "==",
-                UnaryOp::NotEqual => "!=",
-                UnaryOp::RegexMatch => "=~",
-                UnaryOp::RegexNotMatch => "!~",
-            };
+            let op_str = unary_op_str(*op);
             out.push_str(op_str);
+            let inner = match &**expr {
+                Expr::Unary { op, .. } => Some(unary_op_str(*op)),
+                _ => None,
+            };
+            if inner.is_some_and(|inner| reads_as_another_token(op_str, inner)) {
+                out.push('(');
+                format_expr(expr, out, indent);
+                out.push(')');
+                return;
+            }
+            if inner.is_some_and(|inner| matches!(op_str, "-" | "+") && op_str == inner) {
+                out.push(' ');
+            }
             format_operand(expr, binding_strength(expr_node), out, indent);
         }
         Expr::Disjunction { branches } => {
@@ -539,19 +539,29 @@ fn format_expr(expr_node: &Expr, out: &mut String, indent: usize) {
                 format_operand(&b.expr, 2, out, indent);
             }
         }
+        // A postfix operator binds tighter than anything but a term, so its operand is
+        // written in parentheses unless it is one: `(#A & {raw: "a"}).out` printed bare is
+        // `#A & ({raw: "a"}.out)`.
         Expr::Selector { expr, field } => {
-            format_expr(expr, out, indent);
+            // Upstream's scanner reads `1.f` as the number `1.` and a stray `f`.
+            match &**expr {
+                Expr::Number(n) => out.push_str(&format!("({})", n.as_str())),
+                expr => format_operand(expr, POSTFIX, out, indent),
+            }
             out.push('.');
-            out.push_str(field);
+            match is_identifier(field) {
+                true => out.push_str(field),
+                false => format_quoted(field, out),
+            }
         }
         Expr::Index { expr, index } => {
-            format_expr(expr, out, indent);
+            format_operand(expr, POSTFIX, out, indent);
             out.push('[');
             format_expr(index, out, indent);
             out.push(']');
         }
         Expr::Slice { expr, low, high } => {
-            format_expr(expr, out, indent);
+            format_operand(expr, POSTFIX, out, indent);
             out.push('[');
             if let Some(l) = low {
                 format_expr(l, out, indent);
@@ -563,7 +573,7 @@ fn format_expr(expr_node: &Expr, out: &mut String, indent: usize) {
             out.push(']');
         }
         Expr::Call { func, args } => {
-            format_expr(func, out, indent);
+            format_operand(func, POSTFIX, out, indent);
             out.push('(');
             for (i, a) in args.iter().enumerate() {
                 if i > 0 {
@@ -574,7 +584,7 @@ fn format_expr(expr_node: &Expr, out: &mut String, indent: usize) {
             out.push(')');
         }
         Expr::Spread { expr } => {
-            format_expr(expr, out, indent);
+            format_operand(expr, POSTFIX, out, indent);
             out.push_str("...");
         }
         Expr::Interpolation { parts, form } => {
@@ -630,19 +640,23 @@ fn format_expr(expr_node: &Expr, out: &mut String, indent: usize) {
                     }
                 }
             }
-            out.push('{');
-            format_expr(&comp.expr, out, indent);
-            out.push('}');
+            // A struct body is the braces; anything else is embedded in a pair of them.
+            // A struct whose first declaration is an embedding keeps the extra pair,
+            // which is what tells the parser it is not a value standing alone.
+            match &*comp.expr {
+                Expr::Struct(body) if opens_with_a_declaration(body) => {
+                    format_struct(body, out, indent, &pad)
+                }
+                other => {
+                    out.push('{');
+                    format_expr(other, out, indent);
+                    out.push('}');
+                }
+            }
         }
     }
 }
 
-/// Writes a literal back in the spelling it was read in.
-///
-/// The value in the AST is what the literal *means*; the form is how it was written. Both
-/// are needed: re-emitting every string as `"…"` would turn a readable `postgresql.conf`
-/// block into one line of `\n`-separated escapes, and would reinterpret a raw literal's
-/// backslashes on the way back in.
 /// Writes an operand, in parentheses when the tree would not survive without them.
 ///
 /// The parser does not keep the parentheses a file was written with — `(a | b) & c` and
@@ -661,6 +675,77 @@ fn format_operand(operand: &Expr, required: u8, out: &mut String, indent: usize)
         out.push(')');
     } else {
         format_expr(operand, out, indent);
+    }
+}
+
+/// What a postfix operator — selector, index, slice, call, spread — requires of its operand:
+/// a single term.
+const POSTFIX: u8 = u8::MAX;
+
+fn unary_op_str(op: UnaryOp) -> &'static str {
+    match op {
+        UnaryOp::Pos => "+",
+        UnaryOp::Neg => "-",
+        UnaryOp::Not => "!",
+        UnaryOp::Default => "*",
+        UnaryOp::Less => "<",
+        UnaryOp::LessEqual => "<=",
+        UnaryOp::Greater => ">",
+        UnaryOp::GreaterEqual => ">=",
+        UnaryOp::Equal => "==",
+        UnaryOp::NotEqual => "!=",
+        UnaryOp::RegexMatch => "=~",
+        UnaryOp::RegexNotMatch => "!~",
+    }
+}
+
+/// Whether two unary operators written back to back would read as other tokens.
+///
+/// `<` then `==` is `<=` then `=`, and `<` then `-` is the arrow `<-` that upstream's
+/// scanner reads. Such an operand keeps its parentheses rather than taking a space,
+/// because `cue fmt` closes the space again — `< -1` becomes `<-1`, which it then cannot
+/// parse — and leaves `<(-1)` alone. `- -1` and `+ +1` need neither and are spaced as
+/// upstream spaces them; everything else stays joined: `>=-1`, `!!x`, `*-1`.
+fn reads_as_another_token(outer: &str, inner: &str) -> bool {
+    inner.starts_with(['=', '~']) || (outer.ends_with('<') && inner.starts_with('-'))
+}
+
+/// Whether a selector can name the field bare: it lexes as one identifier, or as one of
+/// the keywords the parser accepts after a dot. Anything else is written quoted —
+/// `a."b-c"` bare is `a.b - c`.
+fn is_identifier(name: &str) -> bool {
+    use crate::token::Token;
+    use logos::Logos;
+    let mut lexer = Token::lexer(name);
+    let first = lexer.next();
+    lexer.span() == (0..name.len())
+        && matches!(
+            first,
+            Some(Ok(Token::Ident(_)
+                | Token::DefIdent(_)
+                | Token::HiddenIdent(_)
+                | Token::HiddenDefIdent(_)
+                | Token::KwPackage
+                | Token::KwImport
+                | Token::KwFor
+                | Token::KwIn
+                | Token::KwIf
+                | Token::KwLet))
+        )
+}
+
+/// Whether a list comprehension's struct body can be written as the body's own braces:
+/// the parser reads `{` followed by a label or a `let` as declarations, and anything
+/// else as one embedded value.
+fn opens_with_a_declaration(body: &StructLit) -> bool {
+    match body
+        .decls
+        .iter()
+        .find(|d| !matches!(d, Decl::Comment(_) | Decl::BlankLine))
+    {
+        None => true,
+        Some(Decl::Field(_) | Decl::Let { .. }) => true,
+        Some(_) => false,
     }
 }
 
@@ -692,6 +777,12 @@ fn binding_strength(expr: &Expr) -> u8 {
     }
 }
 
+/// Writes a literal back in the spelling it was read in.
+///
+/// The value in the AST is what the literal *means*; the form is how it was written. Both
+/// are needed: re-emitting every string as `"…"` would turn a readable `postgresql.conf`
+/// block into one line of `\n`-separated escapes, and would reinterpret a raw literal's
+/// backslashes on the way back in.
 fn format_string_lit(lit: &StringLit, quote: char, out: &mut String, indent: usize) {
     let form = emittable_form(lit.form, std::iter::once(lit.value.as_str()), quote);
     let mut body = String::new();

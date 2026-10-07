@@ -1063,35 +1063,9 @@ impl<'a> Parser<'a> {
             return Err(ParseError::RecursionDepthExceeded { span });
         }
         self.depth += 1;
-        let res = self.parse_logical_or();
+        let res = self.parse_disjunction();
         self.depth = self.depth.saturating_sub(1);
         res
-    }
-
-    fn parse_logical_or(&mut self) -> Result<Expr, ParseError> {
-        let mut left = self.parse_logical_and()?;
-        while self.match_token(&Token::PipePipe) {
-            let right = self.parse_logical_and()?;
-            left = Expr::Binary {
-                op: BinaryOp::LogicalOr,
-                left: Box::new(left),
-                right: Box::new(right),
-            };
-        }
-        Ok(left)
-    }
-
-    fn parse_logical_and(&mut self) -> Result<Expr, ParseError> {
-        let mut left = self.parse_disjunction()?;
-        while self.match_token(&Token::AndAnd) {
-            let right = self.parse_disjunction()?;
-            left = Expr::Binary {
-                op: BinaryOp::LogicalAnd,
-                left: Box::new(left),
-                right: Box::new(right),
-            };
-        }
-        Ok(left)
     }
 
     fn parse_disjunction(&mut self) -> Result<Expr, ParseError> {
@@ -1122,11 +1096,41 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_unification(&mut self) -> Result<Expr, ParseError> {
-        let mut left = self.parse_comparison()?;
+        let mut left = self.parse_logical_or()?;
         while self.match_token(&Token::Ampersand) {
-            let right = self.parse_comparison()?;
+            let right = self.parse_logical_or()?;
             left = Expr::Binary {
                 op: BinaryOp::Unify,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+        Ok(left)
+    }
+
+    // The ladder is the spec's, loosest first: `|`, `&`, `||`, `&&`, the comparisons, `+ -`,
+    // `* /`, then the unary operators. The two logical operators bind tighter than
+    // unification, so `true || false & false` is `(true || false) & false` — a conflict
+    // upstream — and not the `true` that putting them at the top of the ladder made of it.
+    fn parse_logical_or(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_logical_and()?;
+        while self.match_token(&Token::PipePipe) {
+            let right = self.parse_logical_and()?;
+            left = Expr::Binary {
+                op: BinaryOp::LogicalOr,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+        Ok(left)
+    }
+
+    fn parse_logical_and(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_comparison()?;
+        while self.match_token(&Token::AndAnd) {
+            let right = self.parse_comparison()?;
+            left = Expr::Binary {
+                op: BinaryOp::LogicalAnd,
                 left: Box::new(left),
                 right: Box::new(right),
             };

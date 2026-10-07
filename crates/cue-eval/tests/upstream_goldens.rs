@@ -59,6 +59,13 @@ fn check(fixture: &str) {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// Parentheses on the operand of every postfix operator, and each rung of the
+/// precedence ladder.
+#[test]
+fn operator_precedence_matches_cue_export() {
+    check("operator_precedence");
+}
+
 /// An empty separator splits between characters, as Go's `strings.Split` does — no empty
 /// part before the first one or after the last — and every other builtin given an empty
 /// argument answers as upstream's.

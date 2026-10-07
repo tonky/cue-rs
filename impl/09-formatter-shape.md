@@ -87,6 +87,15 @@ is a disjunction with no default, which `cue export` refuses. Fixed by deriving 
 parentheses from the tree rather than remembering them from the source: the output
 reparses to the tree it was printed from, whatever was written. A pair the tree does not
 need is not written back, which is the one place the module still differs from upstream.
+(2026-10-07) The derivation first covered only binary and unary operands, so the operand
+of a postfix operator lost its pair: `(#A & {raw: "a"}).out` came back as
+`#A & {raw: "a"}.out`. Selector, index, slice, call and spread operands now take one too,
+a selector that is not an identifier is quoted (`a."b-c"`, not `a.b-c`), and unary
+operators that would lex as another token keep theirs (`<(-1)`, not upstream's
+unparseable `<-1`). The parser also ranked `||`/`&&` above `|`/`&`, against the spec, so
+`true || false & false` was `true` rather than a conflict. `precedence_roundtrip.rs`
+checks the class: 20,000 generated expressions over every operator nested in every other
+parse back to the tree they were printed from.
 
 **`[...]` was written back as `[]`.** The bare ellipsis names no element type, and the
 parser stored that as no ellipsis at all — the same thing it stores for a closed list. A

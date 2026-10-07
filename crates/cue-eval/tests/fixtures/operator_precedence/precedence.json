@@ -1,0 +1,19 @@
+{
+    "selectOfUnification": "a!",
+    "indexOfDisjunction": 2,
+    "selectOfDefinition": 9,
+    "sliceOfUnification": [
+        2,
+        3
+    ],
+    "quotedSelector": 5,
+    "negatedNegation": 1,
+    "negatedSum": -3,
+    "differenceOfDiff": 7,
+    "quotientOfProduct": 2.0,
+    "productOfSum": 9,
+    "logicalUnderDisjunction": true,
+    "logicalUnderUnification": true,
+    "unificationUnderLogical": true,
+    "disjunctionUnderLogical": true
+}
