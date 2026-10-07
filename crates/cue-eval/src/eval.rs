@@ -92,9 +92,10 @@ pub struct Evaluator {
     /// Comprehension syntax shared by the recipes of every literal that
     /// evaluates it, with the names its clauses read.
     comprehensions: HashMap<Rc<ComprehensionDecl>, Rc<HashSet<String>>>,
-    /// Set for the literal a comprehension body is about to evaluate. The
-    /// comprehension's recipe reads that body's dynamic labels already.
-    pub(crate) comprehension_body: bool,
+    /// Set for the literal a comprehension body is about to evaluate, naming
+    /// the literal the comprehension is written in. The comprehension's recipe
+    /// reads that body's dynamic labels already.
+    pub(crate) comprehension_body: Option<crate::value::Enclosing>,
 }
 
 const MAX_EXPR_DEPTH: usize = 64;
@@ -137,7 +138,7 @@ impl Evaluator {
             deferring: false,
             in_definition: false,
             comprehensions: HashMap::new(),
-            comprehension_body: false,
+            comprehension_body: None,
         };
         evaluator.register_builtins();
         evaluator
@@ -383,7 +384,7 @@ impl Evaluator {
         env: &Rc<ThunkEnv>,
         val: ValueId,
     ) -> Conjunct {
-        let Some(source) = self.expressions.prepare_recipe(expr, &env.lets) else {
+        let Some(source) = self.expressions.prepare_recipe(expr, &env.reachable_lets()) else {
             // No binding can change this expression's value after a merge.
             return Conjunct::Value(val);
         };

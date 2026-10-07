@@ -1,0 +1,11 @@
+{
+  "P": {
+    "isX": true,
+    "label": "mode-x",
+    "mode": "x"
+  },
+  "p1": {
+    "label": "mode-y",
+    "mode": "y"
+  }
+}

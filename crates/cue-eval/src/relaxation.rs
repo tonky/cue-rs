@@ -116,12 +116,15 @@ impl<'a> RelaxationLoop<'a> {
         let decls: &[Decl] = &collected;
         // Captured once per literal and shared by its thunks: every field of this
         // struct was written in the same lexical scope.
-        let env = Rc::new(ThunkEnv::new(
-            self.eval.scopes.clone(),
-            self.collect_let_declarations(decls),
-            collect_field_names(decls),
-            self.eval.imports.clone(),
-        ));
+        let env = Rc::new(
+            ThunkEnv::new(
+                self.eval.scopes.clone(),
+                self.collect_let_declarations(decls),
+                collect_field_names(decls),
+                self.eval.imports.clone(),
+            )
+            .with_enclosing(comprehension_body.clone()),
+        );
         self.eval.current_env = Some(env.clone());
         // Reserve names that shadow an existing outer binding. Nested literals
         // must not read that outer value while this field is still uncomputed.
@@ -280,7 +283,7 @@ impl<'a> RelaxationLoop<'a> {
                         // may rename. It is generated the way a comprehension
                         // generates one, which a merge derives again.
                         Clause::Ready(_)
-                            if !comprehension_body
+                            if comprehension_body.is_none()
                                 && self.eval.arena.defaults_chosen() != defaults =>
                         {
                             *decl = Decl::Comprehension(ComprehensionDecl {
@@ -312,6 +315,8 @@ impl<'a> RelaxationLoop<'a> {
             *target = base_struct;
             self.eval.scopes = base_scopes;
             self.labels_resolved = true;
+            // Still the same body, declaring into the same literal around it.
+            self.eval.comprehension_body = comprehension_body;
             self.eval_decls_into(&named_decls, target)?;
             for field in undecided {
                 let own = self.run_field(&field)?;
@@ -1292,6 +1297,7 @@ impl<'a> RelaxationLoop<'a> {
         let saved_imports = std::mem::replace(&mut self.eval.imports, thunk.env.imports.clone());
         let saved_depth = self.eval.struct_scope_depth;
 
+        let mut result = self.rebind_enclosing(&thunk.env, s).map(|()| None);
         self.eval.push_scope();
         self.eval.struct_scope_depth = self.eval.scopes.len().saturating_sub(1);
         for section in SECTIONS {
@@ -1303,8 +1309,10 @@ impl<'a> RelaxationLoop<'a> {
         }
 
         // A binding is a recipe too, and reads the merged values beside it.
-        let mut result = Ok(None);
         for (name, expr) in thunk.env.lets.clone() {
+            if result.is_err() {
+                break;
+            }
             match self.eval.eval_expr(&expr) {
                 // A binding that cannot be derived here keeps the value it was
                 // captured with; deriving again may only improve it.
@@ -1335,6 +1343,63 @@ impl<'a> RelaxationLoop<'a> {
         result
     }
 
+    /// In a comprehension body's scope stack, bind the names each literal
+    /// around the body declares to their values in the merged struct, and
+    /// derive those literals' `let` bindings again, each in its own frame.
+    ///
+    /// The body declares into the struct its comprehension is written in, so
+    /// a name it reads from there - `x: a` in `{a: int | *0, if c {x: a}}` -
+    /// means the merged `a`, not the one captured when the body first ran. A
+    /// guard or `for` source that changes reruns the comprehension instead;
+    /// this is what keeps a body right when the merge leaves those alone.
+    fn rebind_enclosing(&mut self, env: &ThunkEnv, s: &StructValue) -> Result<(), EvalError> {
+        if env.enclosing.is_none() {
+            return Ok(());
+        }
+        let mut chain: Vec<_> = env.enclosing_literals().cloned().collect();
+        // Outermost first: a literal's `let` may read the literal around it.
+        chain.reverse();
+        let saved_env = self.eval.current_env.clone();
+        let saved_depth = self.eval.struct_scope_depth;
+        let mut result = Ok(());
+        for outer in chain {
+            if outer.frame >= self.eval.scopes.len() {
+                continue;
+            }
+            // The frames above this literal's own (comprehension clauses, the
+            // bodies inside it) are out of reach of its names and `let`s.
+            let inner = self.eval.scopes.split_off(outer.frame + 1);
+            self.eval.current_env = Some(outer.env.clone());
+            self.eval.struct_scope_depth = outer.frame;
+            for name in outer.env.own_fields.borrow().iter() {
+                if let Some(entry) = SECTIONS.iter().find_map(|section| section.map(s).get(name)) {
+                    self.eval.insert_binding(name, entry.val);
+                }
+            }
+            for (name, expr) in &outer.env.lets {
+                match self.eval.eval_expr(expr) {
+                    // As in `derive_thunk`: one that cannot be derived here
+                    // keeps the value it was captured with.
+                    Ok(val) if !self.eval.arena.is_unresolved(val) => {
+                        self.eval.insert_binding(name, val)
+                    }
+                    Ok(_) => {}
+                    Err(error) => result = Err(error),
+                }
+                if result.is_err() {
+                    break;
+                }
+            }
+            self.eval.scopes.extend(inner);
+            if result.is_err() {
+                break;
+            }
+        }
+        self.eval.current_env = saved_env;
+        self.eval.struct_scope_depth = saved_depth;
+        result
+    }
+
     pub(crate) fn eval_comprehension(
         &mut self,
         comp: &ComprehensionDecl,
@@ -1358,9 +1423,18 @@ impl<'a> RelaxationLoop<'a> {
             // then merged into the target: evaluated in place, every iteration would clone and
             // re-derive everything the iterations before it generated, which is
             // quadratic in the size of the source.
-            self.eval.comprehension_body = true;
+            // The body declares into the literal the comprehension is written
+            // in, whose names are bound in the frame of that literal's scope.
+            self.eval.comprehension_body =
+                self.eval
+                    .current_env
+                    .clone()
+                    .map(|env| crate::value::Enclosing {
+                        env,
+                        frame: self.eval.struct_scope_depth,
+                    });
             let generated = self.eval_nested_decls(&comp.struct_lit.decls);
-            self.eval.comprehension_body = false;
+            self.eval.comprehension_body = None;
             let generated = generated?;
             target.merge_constraints(&mut self.eval.arena, &generated, self.eval.at_file_root);
             merge_generated(
@@ -1505,10 +1579,13 @@ impl<'a> RelaxationLoop<'a> {
                 None => Ok(()),
             };
         };
-        let deps = if env.lets.iter().any(|(name, _)| deps.contains(name)) {
-            Rc::new(crate::deps::expand_lets((*deps).clone(), &env.lets))
-        } else {
-            deps
+        let deps = {
+            let lets = env.reachable_lets();
+            if lets.iter().any(|(name, _)| deps.contains(name)) {
+                Rc::new(crate::deps::expand_lets((*deps).clone(), &lets))
+            } else {
+                deps
+            }
         };
         let fields = SECTIONS
             .iter()
@@ -1563,6 +1640,13 @@ impl<'a> RelaxationLoop<'a> {
                 .last()
                 .is_some_and(|rerun| rerun.same_decision(&recipe));
             if decided_alike {
+                // The same fields, but what a clause bound for them - `v` of
+                // `for v in l`, `y` of `let y = a` - is the value from before
+                // the merge in the fields generated the last time. The run
+                // just made bound the merged one.
+                if recipe.binds_clause_names() {
+                    wrote |= self.adopt_rerun(s, &recipe, fresh.structure, &mut changed)?;
+                }
                 continue;
             }
             wrote = true;
@@ -1589,6 +1673,66 @@ impl<'a> RelaxationLoop<'a> {
         Ok(wrote.then_some(changed))
     }
 
+    /// Put what a rerun that decided as `old` did generate in place of what
+    /// `old` generated: each field's conjuncts from `old` give way to the
+    /// rerun's, where they stood, and the field is derived from them. Reports
+    /// whether any field changed; the names whose value moved join `changed`.
+    fn adopt_rerun(
+        &mut self,
+        s: &mut StructValue,
+        old: &DeclRecipe,
+        fresh: StructValue,
+        changed: &mut HashSet<String>,
+    ) -> Result<bool, EvalError> {
+        let mut updates = Vec::new();
+        for (section, name, before) in &old.outcome.fields {
+            let (Some(entry), Some(after)) =
+                (section.map(s).get(name), section.map(&fresh).get(name))
+            else {
+                continue;
+            };
+            let mut conjuncts = Vec::with_capacity(entry.conjuncts.len() + after.conjuncts.len());
+            let mut placed = false;
+            for conjunct in entry.conjuncts.iter() {
+                if !before.iter().any(|c| c.same(conjunct)) {
+                    conjuncts.push(conjunct.clone());
+                } else if !placed {
+                    conjuncts.extend(after.conjuncts.iter().cloned());
+                    placed = true;
+                }
+            }
+            // The field no longer holds what `old` generated there.
+            if !placed {
+                continue;
+            }
+            let candidate = FieldEntry::with_conjuncts(entry.val, entry.optional, conjuncts);
+            let val = self.derive_field(&candidate, s, name)?.unwrap_or(entry.val);
+            let moved = val != entry.val
+                && compare_values(&self.eval.arena, val, entry.val) != Equivalence::Equal;
+            updates.push((
+                *section,
+                name.clone(),
+                FieldEntry { val, ..candidate },
+                moved,
+            ));
+        }
+        let wrote = !updates.is_empty();
+        for (section, name, entry, moved) in updates {
+            if moved {
+                changed.insert(name.clone());
+            }
+            section.map_mut(s).insert(name, entry);
+        }
+        // The rerun's recipes - its own, last, and those of the literals it
+        // generated - stand where `old` and its literals' stood.
+        let at = s.recipes.iter().position(|kept| kept == old);
+        s.recipes
+            .retain(|kept| kept != old && !old.outcome.recipes.contains(kept));
+        let at = at.map_or(s.recipes.len(), |at| at.min(s.recipes.len()));
+        s.recipes.splice(at..at, fresh.recipes);
+        Ok(wrote)
+    }
+
     /// Run one recipe in the scope its literal was written in, under a frame
     /// holding the merged values of the names that literal declares - as a
     /// field's recipe runs. `None` while it still waits on a reference.
@@ -1604,6 +1748,7 @@ impl<'a> RelaxationLoop<'a> {
         let saved_depth = self.eval.struct_scope_depth;
         let saved_field = self.eval.current_field.take();
 
+        let mut result = self.rebind_enclosing(env, s);
         self.eval.push_scope();
         self.eval.struct_scope_depth = self.eval.scopes.len().saturating_sub(1);
         for section in SECTIONS {
@@ -1613,8 +1758,10 @@ impl<'a> RelaxationLoop<'a> {
                 }
             }
         }
-        let mut result = Ok(());
         for (name, expr) in env.lets.clone() {
+            if result.is_err() {
+                break;
+            }
             match self.eval.eval_expr(&expr) {
                 Ok(val) => self.eval.insert_binding(&name, val),
                 Err(error) => {

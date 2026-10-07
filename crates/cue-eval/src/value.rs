@@ -422,6 +422,21 @@ impl DeclRecipe {
         self.outcome.incomplete.as_deref()
     }
 
+    /// Whether a clause binds a name its body reads (`for`, `let`): the values
+    /// it generated hold what that name was bound to when it ran.
+    pub(crate) fn binds_clause_names(&self) -> bool {
+        match &self.source {
+            DeclSource::Comprehension(comp) => comp.clauses.iter().any(|clause| {
+                matches!(
+                    clause,
+                    cue_syntax::ast::ComprehensionClause::For { .. }
+                        | cue_syntax::ast::ComprehensionClause::Let { .. }
+                )
+            }),
+            DeclSource::Field(_) => false,
+        }
+    }
+
     /// Whether running it again generated the same fields: the same
     /// declaration (syntax is interned), deciding the same way. The values of
     /// those fields are their own recipes' business.
@@ -513,6 +528,19 @@ pub struct ThunkEnv {
     /// The packages the file holding this literal imported. Shared with every
     /// other literal of that file, so capturing it is a refcount bump.
     pub imports: Rc<Imports>,
+    /// Set on a comprehension body: the literal the comprehension is written
+    /// in. The body declares into that literal's struct, so the names that
+    /// literal declares are read from the merged struct too, in the frame of
+    /// `scopes` they were bound in.
+    pub(crate) enclosing: Option<Enclosing>,
+}
+
+/// The literal around a comprehension body, and the index into the body's
+/// scope stack of the frame that literal's names are bound in.
+#[derive(Debug, Clone)]
+pub(crate) struct Enclosing {
+    pub(crate) env: Rc<ThunkEnv>,
+    pub(crate) frame: usize,
 }
 
 impl ThunkEnv {
@@ -527,11 +555,41 @@ impl ThunkEnv {
             lets,
             own_fields: RefCell::new(own_fields),
             imports,
+            enclosing: None,
         }
+    }
+
+    pub(crate) fn with_enclosing(mut self, enclosing: Option<Enclosing>) -> Self {
+        self.enclosing = enclosing;
+        self
     }
 
     pub fn owns_field(&self, name: &str) -> bool {
         self.own_fields.borrow().contains(name)
+    }
+
+    /// The literals a comprehension body is nested in, innermost first.
+    pub(crate) fn enclosing_literals(&self) -> impl Iterator<Item = &Enclosing> {
+        std::iter::successors(self.enclosing.as_ref(), |outer| {
+            outer.env.enclosing.as_ref()
+        })
+    }
+
+    /// The `let` bindings a recipe written here can read: this literal's, and,
+    /// in a comprehension body, those of every literal around it. A recipe
+    /// that reads one reads what the binding reads.
+    pub(crate) fn reachable_lets(&self) -> std::borrow::Cow<'_, [(String, Rc<Expr>)]> {
+        if self
+            .enclosing_literals()
+            .all(|outer| outer.env.lets.is_empty())
+        {
+            return std::borrow::Cow::Borrowed(&self.lets);
+        }
+        let mut lets = self.lets.clone();
+        for outer in self.enclosing_literals() {
+            lets.extend(outer.env.lets.iter().cloned());
+        }
+        std::borrow::Cow::Owned(lets)
     }
 }
 

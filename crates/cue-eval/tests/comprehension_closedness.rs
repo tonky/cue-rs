@@ -6,9 +6,10 @@
 //! with later, and in embedded, nested, listed, pattern-matched and disjoined
 //! definitions. A field the definition never adds stays refused. An error
 //! names the full path of the field that became bottom (`x.o.1.t: ...`), as
-//! cue does. The goldens under `fixtures/comprehension_closedness` and
-//! `fixtures/error_paths` come from the official `cue` binary; regenerate them
-//! with `regen.py` in each.
+//! cue does. A generated field reads the struct it was merged into, as any
+//! other field does. The goldens under `fixtures/comprehension_closedness`,
+//! `fixtures/comprehension_sibling_reads` and `fixtures/error_paths` come from
+//! the official `cue` binary; regenerate them with `regen.py` in each.
 
 use std::path::{Path, PathBuf};
 
@@ -25,12 +26,16 @@ fn fixtures(dir: &str) -> PathBuf {
 /// asserts they *still* differ, so a fix fails here and forces its entry out.
 const KNOWN_DIVERGENCES: &[(&str, &str)] = &[
     (
-        "sibling_read_no_def.cue",
-        "a comprehension-generated field reading a sibling of the enclosing literal keeps the value from before the merge when the guard decides the same way (`x: 0`, cue `x: 1`)",
+        "pattern_target_reads_sibling.cue",
+        "a pattern's target is met by the fields it matches without leaving a conjunct, so a field it declares that reads a sibling (`x: a`) is not derived again for the matched field's own `a` (`x: 0`, cue `x: 3`)",
     ),
     (
-        "sibling_read_in_def.cue",
-        "the same stale sibling read inside a definition (`create postgres`, cue `create app`)",
+        "pattern_target_comprehension.cue",
+        "the same through a comprehension in the pattern's target",
+    ),
+    (
+        "pattern_target_in_def.cue",
+        "the same through a definition's pattern",
     ),
     (
         "conflict_after_incomplete.cue",
@@ -122,6 +127,16 @@ fn match_cue_export(dir: &str, min_fixtures: usize) {
 #[test]
 fn comprehension_closedness_matches_cue_export() {
     match_cue_export("comprehension_closedness", 60);
+}
+
+/// A field a comprehension generates reads the merged struct: a sibling of the
+/// literal the comprehension is written in (`if c {x: a}` with `a` overridden),
+/// and what a `for` or `let` clause bound from one, when the merge leaves the
+/// clauses deciding as they did - in plain structs and definitions, nested
+/// comprehensions, several merges in a row and listed or embedded definitions.
+#[test]
+fn comprehension_sibling_reads_match_cue_export() {
+    match_cue_export("comprehension_sibling_reads", 30);
 }
 
 #[test]

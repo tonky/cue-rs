@@ -1,0 +1,12 @@
+{
+  "b": {
+    "database": "app",
+    "postInit": "create app owner admin",
+    "user": "admin"
+  },
+  "c": {
+    "database": "app",
+    "postInit": "create app owner bob",
+    "user": "bob"
+  }
+}
