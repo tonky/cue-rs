@@ -192,7 +192,10 @@ pub fn call_strings(
                 'outer: loop {
                     let mut changed = false;
                     for &elem in &elems {
+                        // An empty prefix strips nothing, and taking it for a change
+                        // would loop forever.
                         if let Some(Value::String(pfx)) = arena.get(elem)
+                            && !pfx.is_empty()
                             && let Some(stripped) = cur.strip_prefix(pfx.as_str())
                         {
                             cur = stripped.to_string();
@@ -219,6 +222,7 @@ pub fn call_strings(
                     let mut changed = false;
                     for &elem in &elems {
                         if let Some(Value::String(sfx)) = arena.get(elem)
+                            && !sfx.is_empty()
                             && let Some(stripped) = cur.strip_suffix(sfx.as_str())
                         {
                             cur = stripped.to_string();
@@ -260,11 +264,7 @@ pub fn call_strings(
                 && let (Some(Value::String(s)), Some(Value::String(sep))) =
                     (arena.get(args[0]), arena.get(args[1]))
             {
-                Some(
-                    s.split(sep.as_str())
-                        .map(|part| part.to_string())
-                        .collect::<Vec<String>>(),
-                )
+                Some(split(s, sep, None))
             } else {
                 None
             };
@@ -283,16 +283,7 @@ pub fn call_strings(
                     (arena.get(args[0]), arena.get(args[1]), arena.get(args[2]))
                 && let Some(n) = n_val.to_isize()
             {
-                let parts: Vec<String> = if n == 0 {
-                    vec![]
-                } else if n < 0 {
-                    s.split(sep.as_str()).map(|part| part.to_string()).collect()
-                } else {
-                    s.splitn(n as usize, sep.as_str())
-                        .map(|part| part.to_string())
-                        .collect()
-                };
-                Some(parts)
+                Some(split(s, sep, usize::try_from(n).ok()))
             } else {
                 None
             };
@@ -516,6 +507,36 @@ pub fn call_strings(
             Err("strings.MaxRunes requires 1 positive integer argument".to_string())
         }
         _ => Err(format!("unknown strings function: strings.{func_name}")),
+    }
+}
+
+/// Go's `strings.SplitN`, which `Split` is with no limit: at most `limit` parts, the last
+/// holding the rest.
+///
+/// An empty separator splits between characters — one part per UTF-8 character, and none
+/// for an empty string — where Rust's `split("")` also matches at both ends and yields an
+/// empty part before the first character and after the last.
+fn split(s: &str, sep: &str, limit: Option<usize>) -> Vec<String> {
+    match (sep.is_empty(), limit) {
+        (_, Some(0)) => Vec::new(),
+        (false, None) => s.split(sep).map(str::to_string).collect(),
+        (false, Some(n)) => s.splitn(n, sep).map(str::to_string).collect(),
+        (true, limit) => {
+            let n = limit.map_or(usize::MAX, |n| n.min(s.chars().count()));
+            let mut parts = Vec::new();
+            let mut rest = s;
+            while let Some(c) = rest.chars().next() {
+                if parts.len() + 1 == n {
+                    break;
+                }
+                parts.push(c.to_string());
+                rest = &rest[c.len_utf8()..];
+            }
+            if !rest.is_empty() {
+                parts.push(rest.to_string());
+            }
+            parts
+        }
     }
 }
 
