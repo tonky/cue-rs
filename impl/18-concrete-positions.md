@@ -23,6 +23,22 @@ struct and `export` fails with "incomplete value", as `cue export` does.
 Builtin arguments resolve defaults through list elements (`operators::argument`),
 so `list.Concat([l])` reads `l: *[1] | [...int]` as `[1]`.
 
+A builtin reads each argument one way - a string, an int, a list of strings
+or numbers, data, a schema - and that decides what an argument not concrete
+yet means (`stdlib::signature`). The parameters are generated from the pinned
+CUE's `pkg/**/pkg.go` by `tools/builtin-signatures.py`, so `CallCtxt`'s
+accessors are the reference. Before the call, an argument that is an error is
+the call's error, and one that is abstract but of a kind the parameter reads
+(`string` for a string, `_` for a list, `>1` for an int, `int` inside a list
+of numbers) makes the call incomplete - a merge may still supply it, so
+`_t: {n: string, u: strings.ToUpper(n)}` met with `{n: "a"}` exports `u: "A"`
+whatever else evaluated `u` first. A kind that can never fit (`int` for a
+string, `[int, ...string]` for a list of strings, `2.5` for an int) lets the
+builtin run, and its failure becomes a conflict. After a failure the judgement
+also looks where the builtin did: data inside a marshalled value, elements of
+any list. Sorting reads its comparator as a schema. `len` follows upstream's
+`lenBuiltin` (`tests/builtin_arguments.rs`, regressions `builtins/`).
+
 An interpolation operand that is abstract but could still interpolate
 (`string`, `int`, `>1024`, `_`) is incomplete, as an abstract arithmetic
 operand is (`operators::incomplete_interpolation_operand`): with

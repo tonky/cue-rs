@@ -1,0 +1,2 @@
+x.u: cannot use int (type int) as string in argument 1 to strings.ToUpper:
+    ./error_wrong_kind.cue:2:9

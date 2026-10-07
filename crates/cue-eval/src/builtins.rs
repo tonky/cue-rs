@@ -75,7 +75,8 @@ pub(crate) fn call(
                             let set = s.fields.values().filter(|e| !e.optional).count();
                             return arena.int(set as i64);
                         }
-                        _ => return arena.bottom("len: unsupported type"),
+                        Some(Value::Bottom(_)) => return arg0,
+                        _ => return len_of_abstract(arena, arg0),
                     }
                 }
                 return arena.bottom("len requires 1 argument");
@@ -152,13 +153,49 @@ pub(crate) fn call(
     if let E::Selector { expr, field } = func_expr
         && let E::Ident(pkg) = &**expr
     {
-        match crate::stdlib::call_stdlib_func(arena, imports.path_of(pkg), field, evaluated_args) {
-            Ok(res_id) => return res_id,
-            Err(err) => return arena.bottom(err),
+        use crate::stdlib::signature;
+        let path = imports.path_of(pkg);
+        let sig = signature::signature(path, field);
+        let name = || format!("{path}.{field}");
+        if let Some(sig) = sig
+            && let Some(early) = signature::before_call(arena, &name(), sig, evaluated_args)
+        {
+            return early;
         }
+        return match crate::stdlib::call_stdlib_func(arena, path, field, evaluated_args) {
+            Ok(res_id) => res_id,
+            Err(err) => match sig {
+                Some(sig) => signature::failed_call(arena, &name(), sig, evaluated_args, err),
+                None => arena.bottom(err),
+            },
+        };
     }
 
     arena.bottom("unsupported function call")
+}
+
+/// `len` of a value that is not a string, bytes, list or struct (upstream's
+/// `lenBuiltin`): incomplete while it may still become one, an error once it
+/// cannot.
+fn len_of_abstract(arena: &mut ValueArena, arg: ValueId) -> ValueId {
+    use crate::stdlib::signature::{Kinds, kind_name, kinds};
+    let supported = Kinds::STRING
+        .or(Kinds::BYTES)
+        .or(Kinds::LIST)
+        .or(Kinds::STRUCT);
+    let name = kind_name(arena, arg);
+    if kinds(arena, arg).meets(supported) {
+        return arena.bottom_of(
+            BottomKind::Incomplete,
+            format!("error in call to len: incomplete argument {name} (type {name})"),
+        );
+    }
+    arena.bottom_of(
+        BottomKind::Conflict,
+        format!(
+            "cannot use {name} (type {name}) as (string|bytes|list|struct) in argument 1 to len"
+        ),
+    )
 }
 
 #[cfg(test)]

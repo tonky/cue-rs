@@ -1,0 +1,2 @@
+x: cannot use 2.5 (type float) as int in argument 2 to strings.Repeat:
+    ./error_float_for_int.cue:2:24

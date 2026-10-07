@@ -1,0 +1,12 @@
+{
+  "jobs": {
+    "a": {
+      "lint": "lint A",
+      "worker": "mac"
+    },
+    "b": {
+      "lint": "lint B",
+      "worker": "mac"
+    }
+  }
+}

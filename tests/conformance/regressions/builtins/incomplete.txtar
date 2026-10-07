@@ -1,0 +1,28 @@
+An argument not concrete yet makes a builtin call incomplete when its kind can
+still satisfy the parameter, and an error when it never can.
+-- in.cue --
+import (
+	"encoding/json"
+	"list"
+	"strings"
+)
+
+s: string
+i: int
+t: _
+
+upper:      strings.ToUpper(s)          @test(err, code=incomplete)
+upperTop:   strings.ToUpper(t)          @test(err, code=incomplete)
+upperBound: strings.ToUpper(>"a")       @test(err, code=incomplete)
+joinElem:   strings.Join([s], "")       @test(err, code=incomplete)
+joinTop:    strings.Join(t, "")         @test(err, code=incomplete)
+maxElem:    list.Max([1, i])            @test(err, code=incomplete)
+repeatNum:  strings.Repeat("a", number) @test(err, code=incomplete)
+marshal:    json.Marshal({a: i})        @test(err, code=incomplete)
+lenString:  len(s)                      @test(err, code=incomplete)
+
+upperInt:   strings.ToUpper(i)                  @test(err, code=eval)
+joinInt:    strings.Join([int, ...string], " ") @test(err, code=eval)
+avgString:  list.Avg([string])                  @test(err, code=eval)
+repeatFrac: strings.Repeat("a", 2.5)            @test(err, code=eval)
+lenInt:     len(i)                              @test(err, code=eval)

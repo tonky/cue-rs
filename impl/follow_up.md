@@ -172,18 +172,17 @@ by the Unicode standard, one per invalid sequence, not one per byte.
 
 ## A builtin over an argument not concrete yet fails for good
 
-Open; the builtin sibling of the interpolation fix (`tests/interpolation_merge.rs`).
-`_t: {n: string, u: strings.ToUpper(n)}` met with `{n: "a"}` exports `u: "A"` in
-cue, but cue-rs fails `x.u: strings.ToUpper requires 1 string argument` whenever
-`u` is evaluated before `n` arrives (another conjunct of `u`, an embedding in
-`_t`): the builtin's error is a plain bottom the merge never re-derives. Making
-every failed call with an abstract argument incomplete passes 14 more upstream
-checks (`builtins_incomplete`, `fulleval_027/048/051/052`) but reports 7 `eval`
-errors as `incomplete`: cue answers `eval` when the abstract argument cannot
-have the parameter's kind (`strings.Join([int, ...string], " ")`,
-`list.Avg([string])`) and when the argument is a schema (`matchN(1, [_])`). The
-fix wants each builtin's parameter kinds, so a call is incomplete only for an
-abstract argument that could still match.
+Closed ([18](18-concrete-positions.md), `tests/builtin_arguments.rs`): each
+builtin's parameters come from the pinned implementation, so a call is
+incomplete only for an abstract argument that could still match, and stays an
+error for one that cannot (`strings.Join([int, ...string], " ")`,
+`list.Avg([string])`). Seven checks got worse, each exposing an older defect:
+`comprehensions/pushdown_inline_cyclic` (two) passed by accident - its postfix
+alias `~(KIND,_)` is skipped by the parser, so `list.Contains(["sm"], KIND)`
+met `reference not found` and answered `false`; `builtins_incomplete`
+`incompleteListError` (two) now inherits `y + []` (`y: _`) being a conflict
+here and incomplete upstream, and `list2` (three) inherits `_Top`'s
+comprehension error being typed a cycle.
 
 ## Optional struct and list fields are materialised
 

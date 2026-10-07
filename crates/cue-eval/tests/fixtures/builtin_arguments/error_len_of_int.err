@@ -1,0 +1,2 @@
+x: cannot use int (type int) as (string|bytes|list|struct) in argument 1 to len:
+    ./error_len_of_int.cue:1:8

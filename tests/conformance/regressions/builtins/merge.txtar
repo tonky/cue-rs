@@ -1,0 +1,24 @@
+A builtin evaluated before a merge supplies its argument waits for it.
+-- in.cue --
+import (
+	"encoding/json"
+	"list"
+	"strings"
+)
+
+_t: {n: string, u: strings.ToUpper(n)}
+meets: {u: string} & _t & {n: "a"}
+optional: {u?: _} & _t & {n: "a"}
+
+_e: {k: 1}
+_embeds: {_e, n: string, u: strings.ToUpper(n)}
+embeds: {u: string} & _embeds & {n: "a"}
+
+#T: {n: string, u: strings.ToUpper(n)}
+definition: {u: string} & #T & {n: "a"}
+
+_lists: {n: int, a: string, m: list.Max([n, 1]), j: strings.Join([a, "b"], ",")}
+lists: {m: int, j: string} & _lists & {n: 5, a: "x"}
+
+_data: {v: {a: string}, s: json.Marshal(v), l: len(v.a)}
+data: {s: string, l: int} & _data & {v: a: "x"}

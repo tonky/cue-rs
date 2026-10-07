@@ -1,0 +1,3 @@
+x.u: error in call to strings.ToUpper: non-concrete value string:
+    ./error_never_concrete.cue:2:20
+    ./error_never_concrete.cue:2:9
