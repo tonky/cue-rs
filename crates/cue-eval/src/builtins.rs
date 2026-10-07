@@ -56,6 +56,20 @@ pub(crate) fn call(
 
     // Top-level builtins: len(x), or(list), close(x)
     if let E::Ident(name) = func_expr {
+        // An argument that is an error is the call's error, as a stdlib
+        // argument is (`signature::before_call`): one not resolved yet keeps
+        // its kind, so the pass or merge that settles it retries the call.
+        // `error` makes something of a failed argument (its message), and a
+        // builtin cue-rs lacks (`and`) still says so below.
+        if matches!(
+            name.as_str(),
+            "len" | "or" | "close" | "div" | "mod" | "quo" | "rem"
+        ) && let Some(&failed) = evaluated_args
+            .iter()
+            .find(|&&arg| matches!(arena.get(arg), Some(Value::Bottom(_))))
+        {
+            return failed;
+        }
         match name.as_str() {
             "div" | "mod" | "quo" | "rem" => {
                 return crate::operators::integer_division(arena, name, evaluated_args);
@@ -75,18 +89,12 @@ pub(crate) fn call(
                             let set = s.fields.values().filter(|e| !e.optional).count();
                             return arena.int(set as i64);
                         }
-                        Some(Value::Bottom(_)) => return arg0,
                         _ => return len_of_abstract(arena, arg0),
                     }
                 }
                 return arena.bottom("len requires 1 argument");
             }
             "or" => {
-                if let Some(&arg0) = evaluated_args.first()
-                    && let Some(Value::Bottom(_)) = arena.get(arg0)
-                {
-                    return arg0;
-                }
                 let Some(Value::List { elements, .. }) =
                     evaluated_args.first().and_then(|&a| arena.get(a)).cloned()
                 else {

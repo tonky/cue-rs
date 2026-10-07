@@ -37,7 +37,13 @@ string, `[int, ...string]` for a list of strings, `2.5` for an int) lets the
 builtin run, and its failure becomes a conflict. After a failure the judgement
 also looks where the builtin did: data inside a marshalled value, elements of
 any list. Sorting reads its comparator as a schema. `len` follows upstream's
-`lenBuiltin` (`tests/builtin_arguments.rs`, regressions `builtins/`).
+`lenBuiltin` (`tests/builtin_arguments.rs`, regressions `builtins/`). The
+top-level builtins (`len`, `or`, `close`, `div`/`mod`/`quo`/`rem`) pass a
+failed argument on the same way, at the top of `builtins::call`; `error`
+makes a message of it, and an unimplemented builtin (`and`) still answers
+`unsupported function call`. A forward argument (`z: len(s)` above `s: [1]`) thus
+keeps its kind, and the relaxation pass that resolves it retries the call
+(`tests/pending_arguments.rs`, regressions `relaxation/pending`).
 
 An interpolation operand that is abstract but could still interpolate
 (`string`, `int`, `>1024`, `_`) is incomplete, as an abstract arithmetic

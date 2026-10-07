@@ -184,6 +184,10 @@ met `reference not found` and answered `false`; `builtins_incomplete`
 here and incomplete upstream, and `list2` (three) inherits `_Top`'s
 comprehension error being typed a cycle.
 
+A forward argument retries the call too ([18](18-concrete-positions.md)).
+`error("bad \(y)")` with `y` declared later still exports `incomplete value`,
+where cue says `bad z`; `and` is not implemented.
+
 ## Optional struct and list fields are materialised
 
 Closed by phase 07 stage 2. Export skips every optional field, whatever its

@@ -1,0 +1,2 @@
+z: reference "s" not found:
+    ./builtin_undefined_argument.cue:2:8

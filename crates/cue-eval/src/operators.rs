@@ -383,13 +383,6 @@ pub(crate) fn integer_division(arena: &mut ValueArena, name: &str, args: &[Value
             format!("{name} requires two integer arguments"),
         );
     };
-    if let Some(id) = args
-        .iter()
-        .copied()
-        .find(|id| matches!(arena.get(*id), Some(Value::Bottom(_))))
-    {
-        return id;
-    }
     let incomplete_integer = |id| {
         matches!(arena.get(id), Some(Value::Top | Value::Bounds { .. }))
             || matches!(arena.get(id), Some(Value::Type(t)) if t.is_integer() || *t == crate::value::TypeKind::Number(NumberKind::Number))

@@ -1,0 +1,17 @@
+{
+  "P": {
+    "features": [
+      "a"
+    ],
+    "joined": "a!",
+    "n": 1
+  },
+  "p": {
+    "features": [
+      "a",
+      "b"
+    ],
+    "joined": "a!,b!",
+    "n": 2
+  }
+}

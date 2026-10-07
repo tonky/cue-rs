@@ -1,0 +1,2 @@
+z: cannot use 1 (type int) as (string|bytes|list|struct) in argument 1 to len:
+    ./builtin_wrong_type_argument.cue:2:4

@@ -1,0 +1,5 @@
+x: bad: a.b:
+    ./error_message_failed_interpolation.cue:2:16
+    ./error_message_failed_interpolation.cue:2:4
+    ./error_message_failed_interpolation.cue:2:30
+    ./error_message_failed_interpolation.cue:3:4
