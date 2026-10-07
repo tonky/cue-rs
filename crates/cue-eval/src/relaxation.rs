@@ -13,6 +13,7 @@ use crate::schedule::{
     expand_field_aliases, merge_generated, pending_binding_name, refined_any, seed_moved,
     waits_only_on_external,
 };
+use crate::scope::ScopeFrame;
 use crate::unify::{Equivalence, compare_values, push_branch, unify};
 use crate::value::{
     BottomKind, Conjunct, DeclOutcome, DeclRecipe, DeclSource, DisjunctionBranch as ValueBranch,
@@ -118,7 +119,11 @@ impl<'a> RelaxationLoop<'a> {
         // struct was written in the same lexical scope.
         let env = Rc::new(
             ThunkEnv::new(
-                self.eval.scopes.clone(),
+                self.eval
+                    .scopes
+                    .iter_mut()
+                    .map(ScopeFrame::capture)
+                    .collect(),
                 self.collect_let_declarations(decls),
                 collect_field_names(decls),
                 self.eval.imports.clone(),
@@ -497,6 +502,7 @@ impl<'a> RelaxationLoop<'a> {
                     if f.label.is_definition() {
                         self.eval.in_definition = true;
                     }
+                    let waiting = self.eval.waiting_reruns;
                     let res = self.eval.eval_field_value(&f.value, env);
                     self.eval.in_definition = saved_in_definition;
                     self.eval.current_field = saved_field;
@@ -506,7 +512,9 @@ impl<'a> RelaxationLoop<'a> {
                     // Only at the top: inside a value it is how a recursive
                     // definition refers to itself.
                     let placeholder = self.eval.arena.is_placeholder(val_id);
-                    let is_unresolved = placeholder || self.eval.arena.is_unresolved(val_id);
+                    let is_unresolved = placeholder
+                        || self.eval.waiting_reruns != waiting
+                        || self.eval.arena.is_unresolved(val_id);
                     // A retry must not meet a transient unresolved-reference bottom
                     // with a resolved declaration: bottom would permanently win.
                     if is_unresolved && !final_pass {
@@ -527,14 +535,35 @@ impl<'a> RelaxationLoop<'a> {
                         if let Some(name) = f.label.name()
                             && self.eval.declares_field(name)
                             && !f.label.is_definition()
-                            && !f.label.is_hidden()
                             && !placeholder
                         {
-                            let partial = match target.structure.fields.get(name) {
+                            let section = if f.label.is_hidden() {
+                                &target.structure.hidden
+                            } else {
+                                &target.structure.fields
+                            };
+                            let partial = match section.get(name) {
                                 Some(entry) => unify(&mut self.eval.arena, entry.val, val_id),
                                 None => val_id,
                             };
                             self.eval.insert_binding(name, partial);
+                        }
+                        // A definition keeps its placeholder bound, which is
+                        // how a recursive definition refers to itself; a
+                        // selector through it reads the partial instead.
+                        if let Some(name) = f.label.name()
+                            && f.label.is_definition()
+                            && !placeholder
+                            && let Some(&placeholder_id) = self.eval.placeholders.get(name)
+                        {
+                            let partial = match target.structure.definitions.get(name) {
+                                Some(entry) => unify(&mut self.eval.arena, entry.val, val_id),
+                                None => val_id,
+                            };
+                            let closed = self.eval.closed.close(&mut self.eval.arena, partial);
+                            self.eval
+                                .arena
+                                .set_provisional(placeholder_id, Some(closed));
                         }
                         return Ok(false);
                     }
@@ -555,6 +584,7 @@ impl<'a> RelaxationLoop<'a> {
                             // A recursive reference reads the definition, so it
                             // meets the closed value like any other reader.
                             let closed = self.eval.closed.close(&mut self.eval.arena, val_id);
+                            self.eval.arena.set_provisional(placeholder_id, None);
                             if let Some(Value::RecursiveRef { target, .. }) =
                                 self.eval.arena.get_mut(placeholder_id)
                             {
@@ -1014,13 +1044,13 @@ impl<'a> RelaxationLoop<'a> {
                         *id
                     }
                 }
-                Conjunct::Thunk(thunk) => match self.derive_thunk(thunk, body)? {
-                    // This thunk came from an embedding declaration. Reapply
-                    // the same outer opening used on its first evaluation;
-                    // the receiving literal closes after adding its fields.
-                    Some(value) => open_for_embedding(&mut self.eval.arena, value).0,
-                    None => return Ok(None),
-                },
+                // This thunk came from an embedding declaration. Reapply the
+                // same outer opening used on its first evaluation; the
+                // receiving literal closes after adding its fields.
+                Conjunct::Thunk(thunk) => {
+                    let value = self.derive_thunk(thunk, body)?;
+                    open_for_embedding(&mut self.eval.arena, value).0
+                }
             };
             value = Some(match value {
                 Some(previous) => unify(&mut self.eval.arena, previous, next),
@@ -1283,10 +1313,7 @@ impl<'a> RelaxationLoop<'a> {
         for conjunct in entry.conjuncts.iter() {
             let conjunct_val = match conjunct {
                 Conjunct::Value(val) | Conjunct::Closed(val) => *val,
-                Conjunct::Thunk(thunk) => match self.derive_thunk(thunk, s)? {
-                    Some(derived) => derived,
-                    None => return Ok(None),
-                },
+                Conjunct::Thunk(thunk) => self.derive_thunk(thunk, s)?,
             };
             let group = if conjunct.closes() {
                 &mut definition
@@ -1336,21 +1363,15 @@ impl<'a> RelaxationLoop<'a> {
     /// means the `policy` of the scope it was written in, not one a repeated
     /// declaration contributed. A nested literal needs no frame of its own,
     /// because deriving this field evaluates that literal again from here.
-    fn derive_thunk(
-        &mut self,
-        thunk: &Thunk,
-        s: &StructValue,
-    ) -> Result<Option<ValueId>, EvalError> {
-        let saved_scopes = std::mem::replace(&mut self.eval.scopes, thunk.env.scopes.clone());
+    fn derive_thunk(&mut self, thunk: &Thunk, s: &StructValue) -> Result<ValueId, EvalError> {
+        let saved_scopes = std::mem::replace(&mut self.eval.scopes, current_scopes(&thunk.env));
         let saved_env = self.eval.current_env.replace(thunk.env.clone());
         // The recipe may have been written in another file, and `pkg.Name` means
         // what `pkg` names there.
         let saved_imports = std::mem::replace(&mut self.eval.imports, thunk.env.imports.clone());
         let saved_depth = self.eval.struct_scope_depth;
 
-        let mut result = self
-            .rebind_enclosing(&thunk.env, s, Some(&thunk.deps))
-            .map(|()| None);
+        let rebound = self.rebind_enclosing(&thunk.env, s, Some(&thunk.deps));
         self.eval.push_scope();
         self.eval.struct_scope_depth = self.eval.scopes.len().saturating_sub(1);
         for section in SECTIONS {
@@ -1362,22 +1383,14 @@ impl<'a> RelaxationLoop<'a> {
         }
 
         // A binding is a recipe too, and reads the merged values beside it.
-        // One that cannot be derived here keeps the value it was captured
-        // with; deriving again may only improve it.
-        if result.is_ok() {
-            result = self
-                .derive_lets(&thunk.env.lets, |_| true, false)
-                .map(|()| None);
-        }
-        if result.is_ok() {
-            // While a loop around can still retry, the value this recipe had
-            // is stale - it was derived before the merge - so the reference it
-            // waits on is the answer: keeping the stale value would pass the
-            // partial off as resolved.
-            result = self.eval.eval_expr(&thunk.expr).map(|val| {
-                (self.eval.deferring || !self.eval.arena.is_unresolved(val)).then_some(val)
-            });
-        }
+        // The value this recipe had is from before the merge: what it derives
+        // now is the answer, also when it still waits on a reference - while a
+        // loop around can retry, keeping the stale value would pass the
+        // partial off as resolved, and after, it would hide the error
+        // (`r.fetch.z: undefined field: z` exported as `fetch: {}`).
+        let result = rebound
+            .and_then(|()| self.derive_lets(&thunk.env.lets, |_| true))
+            .and_then(|()| self.eval.eval_expr(&thunk.expr));
 
         self.eval.scopes = saved_scopes;
         self.eval.current_env = saved_env;
@@ -1444,9 +1457,7 @@ impl<'a> RelaxationLoop<'a> {
                     self.eval.insert_binding(name, entry.val);
                 }
             }
-            // As in `derive_thunk`: one that cannot be derived here keeps the
-            // value it was captured with.
-            result = self.derive_lets(&outer.env.lets, read, false);
+            result = self.derive_lets(&outer.env.lets, read);
             self.eval.scopes.extend(inner);
             if result.is_err() {
                 break;
@@ -1476,14 +1487,12 @@ impl<'a> RelaxationLoop<'a> {
     /// in declaration order, the frame would still hold the value `a2` was
     /// captured with, and `b` would derive from that stale value. A pass that
     /// binds something retries those still waiting, as the declaration loop
-    /// does for fields. What never resolves is left unbound - it keeps the
-    /// value it was captured with - unless `bind_unresolved`, when its last
-    /// derivation is bound as is.
+    /// does for fields. What never resolves is bound at its last derivation:
+    /// the value it was captured with is from before the merge.
     fn derive_lets(
         &mut self,
         lets: &[(String, Rc<Expr>)],
         read: impl Fn(&str) -> bool,
-        bind_unresolved: bool,
     ) -> Result<(), EvalError> {
         let selected: Vec<&(String, Rc<Expr>)> =
             lets.iter().filter(|(name, _)| read(name)).collect();
@@ -1507,11 +1516,9 @@ impl<'a> RelaxationLoop<'a> {
                 break;
             }
         }
-        if bind_unresolved {
-            for (name, _, val) in waiting {
-                if let Some(val) = val {
-                    self.eval.insert_binding(name, val);
-                }
+        for (name, _, val) in waiting {
+            if let Some(val) = val {
+                self.eval.insert_binding(name, val);
             }
         }
         Ok(())
@@ -1755,7 +1762,11 @@ impl<'a> RelaxationLoop<'a> {
                 .structure
                 .recipes
                 .last()
-                .is_some_and(|rerun| rerun.same_decision(&recipe));
+                // Undecided for another reason is a different answer: the
+                // struct reports the reason that holds after the merge.
+                .is_some_and(|rerun| {
+                    rerun.same_decision(&recipe) && rerun.incomplete() == recipe.incomplete()
+                });
             if decided_alike {
                 // The same fields, but what a clause bound for them - `v` of
                 // `for v in l`, `y` of `let y = a` - is the value from before
@@ -1897,7 +1908,7 @@ impl<'a> RelaxationLoop<'a> {
         s: &StructValue,
     ) -> Result<Option<DeclarationValue>, EvalError> {
         let env = &recipe.env;
-        let saved_scopes = std::mem::replace(&mut self.eval.scopes, env.scopes.clone());
+        let saved_scopes = std::mem::replace(&mut self.eval.scopes, current_scopes(env));
         let saved_env = self.eval.current_env.replace(env.clone());
         let saved_imports = std::mem::replace(&mut self.eval.imports, env.imports.clone());
         let saved_depth = self.eval.struct_scope_depth;
@@ -1914,7 +1925,7 @@ impl<'a> RelaxationLoop<'a> {
             }
         }
         if result.is_ok() {
-            result = self.derive_lets(&env.lets, |_| true, true);
+            result = self.derive_lets(&env.lets, |_| true);
         }
         let result = result.and_then(|()| match &recipe.source {
             DeclSource::Comprehension(comp) => self.run_comprehension(comp, recipe.deps.clone()),
@@ -1928,7 +1939,29 @@ impl<'a> RelaxationLoop<'a> {
         self.eval.current_field = saved_field;
         match result {
             Ok(fresh) => Ok(Some(fresh)),
-            Err(EvalError::Unresolved(_)) => Ok(None),
+            // A loop around can still retry: the field this merge is part of
+            // waits with it, keeping the decision from before for now.
+            Err(EvalError::Unresolved(_)) if self.eval.deferring => {
+                self.eval.waiting_reruns += 1;
+                Ok(None)
+            }
+            // Nothing will bind it any more. What it generated before the
+            // merge is not what it generates after: the struct is incomplete
+            // until a later merge decides it, as for a guard not concrete.
+            Err(EvalError::Unresolved(reason)) => {
+                let mut undecided = DeclarationValue::default();
+                undecided.structure.add_recipe(DeclRecipe {
+                    source: recipe.source.clone(),
+                    env: recipe.env.clone(),
+                    deps: recipe.deps.clone(),
+                    outcome: Rc::new(DeclOutcome {
+                        incomplete: Some(reason),
+                        ..DeclOutcome::default()
+                    }),
+                    closes: recipe.closes,
+                });
+                Ok(Some(undecided))
+            }
             Err(error) => Err(error),
         }
     }
@@ -2068,4 +2101,11 @@ fn dependency_order<'a>(lets: &[&'a (String, Rc<Expr>)]) -> Vec<&'a (String, Rc<
         visit(index, lets, &mut state, &mut ordered);
     }
     ordered
+}
+
+/// The scope stack a recipe is derived again in: its literal's, as each frame
+/// stands now. A name bound after the literal was evaluated - declared further
+/// down, or settled on a later pass - is read at its final value.
+fn current_scopes(env: &ThunkEnv) -> Vec<ScopeFrame> {
+    env.scopes.iter().map(ScopeFrame::current).collect()
 }

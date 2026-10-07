@@ -28,11 +28,11 @@ pub(crate) struct Sweep {
 }
 
 /// The name a pending declaration binds its partial value to, if any. The
-/// same three conditions as the binding itself: a definition or a hidden
-/// field is not read this way.
+/// same conditions as the binding itself: a definition is read through its
+/// placeholder instead.
 pub(crate) fn pending_binding_name(decl: &Decl) -> Option<&str> {
     match decl {
-        Decl::Field(f) if !f.label.is_definition() && !f.label.is_hidden() => f.label.ident_name(),
+        Decl::Field(f) if !f.label.is_definition() => f.label.ident_name(),
         _ => None,
     }
 }

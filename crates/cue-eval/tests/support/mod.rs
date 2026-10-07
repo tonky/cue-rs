@@ -31,11 +31,13 @@ fn agrees(actual: &Result<Value, EvalError>, golden: &Path, cue_error: &Path) ->
             let path = cue_error_path(&cue);
             // cue checks a definition on its own and reports its error there
             // (`#P.b: ...`); cue-rs reports it where the definition is used.
-            // An incomplete value names its path as `at 'x.name'`.
+            // An incomplete value names its path as `at 'x.name'`, and an
+            // undecided struct as `incomplete value at 'x': <reason>`.
             !golden.exists()
                 && (path.starts_with('#')
                     || message.starts_with(&format!("{path}: "))
-                    || message.contains(&format!(" at '{path}' ")))
+                    || message.contains(&format!(" at '{path}' "))
+                    || message.contains(&format!(" at '{path}': ")))
         }
         Err(_) => false,
     }

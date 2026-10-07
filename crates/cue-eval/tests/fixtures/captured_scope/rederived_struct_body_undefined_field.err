@@ -1,0 +1,2 @@
+r.fetch.z: undefined field: z:
+    ./rederived_struct_body_undefined_field.cue:4:49

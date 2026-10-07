@@ -1,0 +1,13 @@
+{
+  "r": {
+    "buildInputs": [
+      "patchelf",
+      "glibc",
+      "nss"
+    ],
+    "features": [
+      "chromium",
+      "ffmpeg"
+    ]
+  }
+}

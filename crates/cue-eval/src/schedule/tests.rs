@@ -139,8 +139,9 @@ fn arriving_at_a_cycle_is_not_refinement() {
 }
 
 #[test]
-fn only_ordinary_fields_bind_scope_names() {
+fn regular_and_hidden_fields_bind_partial_values() {
+    // A definition reads through its placeholder instead.
     let file = cue_syntax::parse_file("a: 1\n#D: 2\n_h: 3\n").unwrap();
     let names: Vec<_> = file.decls.iter().filter_map(pending_binding_name).collect();
-    assert_eq!(names, ["a"]);
+    assert_eq!(names, ["a", "_h"]);
 }

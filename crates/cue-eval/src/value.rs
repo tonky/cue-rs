@@ -796,6 +796,11 @@ pub struct ValueArena {
     /// How many times an operation chose a default over other alternatives.
     /// A decision read through one is provisional: a merge may override it.
     defaults_chosen: usize,
+    /// The partial value of a definition still pending, by its placeholder: a
+    /// field of the definition that selects through its own name (`#L: {a: 1,
+    /// b: #L.a}`) reads it on the next pass, as a regular field reads the
+    /// partial its name is bound to.
+    provisional: HashMap<ValueId, ValueId>,
 }
 
 #[derive(Debug, Clone)]
@@ -847,7 +852,27 @@ impl ValueArena {
             booleans: [None; 2],
             strings: HashMap::new(),
             defaults_chosen: 0,
+            provisional: HashMap::new(),
         }
+    }
+
+    /// What a selector reads through a definition's placeholder while the
+    /// definition is still pending: its partial value, if a pass produced one.
+    pub(crate) fn provisional(&self, placeholder: ValueId) -> Option<ValueId> {
+        if !self.is_placeholder(placeholder) {
+            return None;
+        }
+        self.provisional
+            .get(&placeholder)
+            .copied()
+            .filter(|&partial| self.get(partial).is_some())
+    }
+
+    pub(crate) fn set_provisional(&mut self, placeholder: ValueId, partial: Option<ValueId>) {
+        match partial {
+            Some(partial) => self.provisional.insert(placeholder, partial),
+            None => self.provisional.remove(&placeholder),
+        };
     }
 
     pub(crate) fn defaults_chosen(&self) -> usize {

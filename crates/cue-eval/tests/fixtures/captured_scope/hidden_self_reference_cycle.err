@@ -1,0 +1,5 @@
+x.a: incomplete value _:
+    ./hidden_self_reference_cycle.cue:1:9
+    ./hidden_self_reference_cycle.cue:2:4
+x.b: incomplete value _:
+    ./hidden_self_reference_cycle.cue:2:4

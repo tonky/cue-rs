@@ -85,6 +85,11 @@ pub struct Evaluator {
     /// that has not resolved yet is then not an answer: an existence check or a
     /// comprehension's condition stays pending instead of deciding on it.
     pub(crate) deferring: bool,
+    /// How many recipes a merge derived again while one of them still waited
+    /// on a reference, with a loop around that can retry. The field whose
+    /// evaluation counted one is pending: the decision it kept is the one
+    /// from before the merge.
+    pub(crate) waiting_reruns: usize,
     /// Set while evaluating a definition's body, including nested literals.
     /// A select whose base lacks the field is then decided, not pending: a
     /// template cannot grow the field the way an open value may.
@@ -136,6 +141,7 @@ impl Evaluator {
             reading_root_embedding: false,
             origin: None,
             deferring: false,
+            waiting_reruns: 0,
             in_definition: false,
             comprehensions: HashMap::new(),
             comprehension_body: None,

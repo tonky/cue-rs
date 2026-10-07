@@ -1,0 +1,2 @@
+out.m.c: undefined field: c:
+    ./rederived_let_undefined_version_struct.cue:3:83

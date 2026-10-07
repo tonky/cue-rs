@@ -293,6 +293,9 @@ pub(crate) fn kind_name(value: &Value) -> String {
 /// Select a unique default at a concrete operation boundary. Constraints passed
 /// to unification do not go through this function.
 pub(crate) fn operand(arena: &mut ValueArena, mut id: ValueId) -> ValueId {
+    if let Some(partial) = arena.provisional(id) {
+        id = partial;
+    }
     let mut seen = HashSet::new();
     while let Some(Value::Disjunction { branches }) = arena.get(id) {
         if !seen.insert(id) {
@@ -641,6 +644,7 @@ pub(crate) fn select(
     base_id: ValueId,
     field: &str,
 ) -> ValueId {
+    let base_id = arena.provisional(base_id).unwrap_or(base_id);
     // A selector reads the default of a choice. A choice with no unique
     // default can still answer for the fields its alternatives share.
     let base_id = match arena.get(base_id) {
@@ -708,6 +712,11 @@ pub(crate) fn index(
     let index_id = operand(arena, index_id);
     if let Some(Value::Bottom(_)) = arena.get(target_id) {
         return target_id;
+    }
+    // As for a selector: a definition not evaluated yet has no fields *yet*.
+    if let Some(Value::RecursiveRef { name, target: None }) = arena.get(target_id) {
+        let message = format!("{name} not evaluated yet");
+        return arena.bottom_of(BottomKind::Unresolved, message);
     }
     if let Some(Value::Bottom(_)) = arena.get(index_id) {
         return index_id;
