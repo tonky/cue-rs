@@ -1,0 +1,2 @@
+P.let[]: cyclic references in let clause or alias:
+    ./let_cycle.cue:2:10

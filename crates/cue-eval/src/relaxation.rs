@@ -707,6 +707,25 @@ impl<'a> RelaxationLoop<'a> {
                     Err(EvalError::Unresolved(_)) if !final_pass => return Ok(false),
                     other => other?,
                 };
+                // A generated field that reads a name of this literal not
+                // resolved yet (`if c {x: a}` above `a: 1`, or `let d = a + 1`
+                // above it) waits for the pass that resolves it, as a declared
+                // field holding the same reference does. Kept now, the
+                // placeholder would be the field's value for good. One that
+                // waits on anything else keeps waiting as it did: no pass of
+                // this literal settles that, and rerunning the comprehension
+                // on each would only repeat it.
+                if !final_pass
+                    && SECTIONS.iter().any(|section| {
+                        section
+                            .map(&own.structure)
+                            .values()
+                            .any(|entry| self.eval.arena.is_unresolved(entry.val))
+                    })
+                    && self.waits_on_own_name(&comp, env)
+                {
+                    return Ok(false);
+                }
                 scratch.merge_constraints(&mut self.eval.arena, &own, self.eval.at_file_root);
                 let mut body_labels = Vec::new();
                 crate::arc_order::decl_literal_labels(&comp.struct_lit.decls, &mut body_labels);
@@ -1343,22 +1362,12 @@ impl<'a> RelaxationLoop<'a> {
         }
 
         // A binding is a recipe too, and reads the merged values beside it.
-        for (name, expr) in thunk.env.lets.clone() {
-            if result.is_err() {
-                break;
-            }
-            match self.eval.eval_expr(&expr) {
-                // A binding that cannot be derived here keeps the value it was
-                // captured with; deriving again may only improve it.
-                Ok(val) if !self.eval.arena.is_unresolved(val) => {
-                    self.eval.insert_binding(&name, val)
-                }
-                Ok(_) => {}
-                Err(error) => {
-                    result = Err(error);
-                    break;
-                }
-            }
+        // One that cannot be derived here keeps the value it was captured
+        // with; deriving again may only improve it.
+        if result.is_ok() {
+            result = self
+                .derive_lets(&thunk.env.lets, |_| true, false)
+                .map(|()| None);
         }
         if result.is_ok() {
             // While a loop around can still retry, the value this recipe had
@@ -1435,23 +1444,9 @@ impl<'a> RelaxationLoop<'a> {
                     self.eval.insert_binding(name, entry.val);
                 }
             }
-            for (name, expr) in &outer.env.lets {
-                if !read(name) {
-                    continue;
-                }
-                match self.eval.eval_expr(expr) {
-                    // As in `derive_thunk`: one that cannot be derived here
-                    // keeps the value it was captured with.
-                    Ok(val) if !self.eval.arena.is_unresolved(val) => {
-                        self.eval.insert_binding(name, val)
-                    }
-                    Ok(_) => {}
-                    Err(error) => result = Err(error),
-                }
-                if result.is_err() {
-                    break;
-                }
-            }
+            // As in `derive_thunk`: one that cannot be derived here keeps the
+            // value it was captured with.
+            result = self.derive_lets(&outer.env.lets, read, false);
             self.eval.scopes.extend(inner);
             if result.is_err() {
                 break;
@@ -1460,6 +1455,66 @@ impl<'a> RelaxationLoop<'a> {
         self.eval.current_env = saved_env;
         self.eval.struct_scope_depth = saved_depth;
         result
+    }
+
+    /// Whether the body of `comp`, written in the literal `env` belongs to,
+    /// reads a field or `let` of that literal still unbound or unresolved.
+    fn waits_on_own_name(&self, comp: &ComprehensionDecl, env: &ThunkEnv) -> bool {
+        crate::deps::expand_lets(crate::deps::body_deps(comp), &env.lets)
+            .iter()
+            .filter(|name| env.owns_field(name) || env.lets.iter().any(|(own, _)| own == *name))
+            .any(|name| {
+                self.eval
+                    .lookup_binding(name)
+                    .is_none_or(|val| self.eval.arena.is_unresolved(val))
+            })
+    }
+
+    /// Derive a literal's `let` bindings (those `read` selects) again, into
+    /// the current frame. A binding may read one written below it (`let b =
+    /// a2` above `let a2 = p`), so each is derived after the bindings it reads:
+    /// in declaration order, the frame would still hold the value `a2` was
+    /// captured with, and `b` would derive from that stale value. A pass that
+    /// binds something retries those still waiting, as the declaration loop
+    /// does for fields. What never resolves is left unbound - it keeps the
+    /// value it was captured with - unless `bind_unresolved`, when its last
+    /// derivation is bound as is.
+    fn derive_lets(
+        &mut self,
+        lets: &[(String, Rc<Expr>)],
+        read: impl Fn(&str) -> bool,
+        bind_unresolved: bool,
+    ) -> Result<(), EvalError> {
+        let selected: Vec<&(String, Rc<Expr>)> =
+            lets.iter().filter(|(name, _)| read(name)).collect();
+        let mut waiting: Vec<(&str, &Expr, Option<ValueId>)> = dependency_order(&selected)
+            .into_iter()
+            .map(|(name, expr)| (name.as_str(), expr.as_ref(), None))
+            .collect();
+        loop {
+            let before = waiting.len();
+            let mut still = Vec::new();
+            for (name, expr, _) in waiting {
+                let val = self.eval.eval_expr(expr)?;
+                if self.eval.arena.is_unresolved(val) {
+                    still.push((name, expr, Some(val)));
+                } else {
+                    self.eval.insert_binding(name, val);
+                }
+            }
+            waiting = still;
+            if waiting.is_empty() || waiting.len() == before {
+                break;
+            }
+        }
+        if bind_unresolved {
+            for (name, _, val) in waiting {
+                if let Some(val) = val {
+                    self.eval.insert_binding(name, val);
+                }
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn eval_comprehension(
@@ -1858,17 +1913,8 @@ impl<'a> RelaxationLoop<'a> {
                 }
             }
         }
-        for (name, expr) in env.lets.clone() {
-            if result.is_err() {
-                break;
-            }
-            match self.eval.eval_expr(&expr) {
-                Ok(val) => self.eval.insert_binding(&name, val),
-                Err(error) => {
-                    result = Err(error);
-                    break;
-                }
-            }
+        if result.is_ok() {
+            result = self.derive_lets(&env.lets, |_| true, true);
         }
         let result = result.and_then(|()| match &recipe.source {
             DeclSource::Comprehension(comp) => self.run_comprehension(comp, recipe.deps.clone()),
@@ -1987,4 +2033,39 @@ fn put_literal_fields_first(target: &mut DeclarationValue, decls: &[Decl]) {
     let mut labels = Vec::new();
     crate::arc_order::decl_literal_labels(decls, &mut labels);
     crate::arc_order::put_literal_fields_first(&mut target.structure, &labels, &target.late_fields);
+}
+
+/// `lets` with each binding after the bindings of the list it reads, and
+/// otherwise in declaration order. A cycle (an error either way) keeps the
+/// order it is written in.
+fn dependency_order<'a>(lets: &[&'a (String, Rc<Expr>)]) -> Vec<&'a (String, Rc<Expr>)> {
+    fn visit<'a>(
+        index: usize,
+        lets: &[&'a (String, Rc<Expr>)],
+        state: &mut [u8],
+        ordered: &mut Vec<&'a (String, Rc<Expr>)>,
+    ) {
+        // 0 unvisited, 1 on the path, 2 placed.
+        if state[index] != 0 {
+            return;
+        }
+        state[index] = 1;
+        let reads = crate::deps::direct_deps(&lets[index].1);
+        for (dep, (name, _)) in lets.iter().map(|entry| &**entry).enumerate() {
+            if dep != index && reads.contains(name) {
+                visit(dep, lets, state, ordered);
+            }
+        }
+        state[index] = 2;
+        ordered.push(lets[index]);
+    }
+    if lets.len() < 2 {
+        return lets.to_vec();
+    }
+    let mut state = vec![0; lets.len()];
+    let mut ordered = Vec::with_capacity(lets.len());
+    for index in 0..lets.len() {
+        visit(index, lets, &mut state, &mut ordered);
+    }
+    ordered
 }

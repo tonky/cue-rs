@@ -398,9 +398,9 @@ fn an_import_that_cannot_be_loaded_leaves_the_importer_intact() {
 /// A disjunction used to hide such a reference from that test, so the default
 /// branch was written as bottom and the field exported as `_|_`.
 ///
-/// `let b = a2` above `let a2 = p` is the open forward-`let` gap, so upstream's
-/// `"v9"` is still out of reach here; what this pins is that the value stays a
-/// string rather than becoming an export failure.
+/// `let b = a2` above `let a2 = p` reads a forward `let`: re-derivation derives
+/// the lets in dependency order, so `b` sees the merged `p` and the field takes
+/// upstream's `"v9"` rather than an export failure or the stale `"v5"`.
 #[test]
 fn an_unresolved_reference_inside_a_disjunction_keeps_the_previous_value() {
     assert_eq!(
@@ -415,6 +415,6 @@ x: {
 "#
         )
         .unwrap(),
-        json!({"x": {"p": 9, "c": "v5"}})
+        json!({"x": {"p": 9, "c": "v9"}})
     );
 }

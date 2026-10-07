@@ -46,6 +46,13 @@ pub(crate) fn clause_deps(comp: &ComprehensionDecl) -> HashSet<String> {
     names
 }
 
+/// Names a comprehension's body could resolve in its enclosing scopes.
+pub(crate) fn body_deps(comp: &ComprehensionDecl) -> HashSet<String> {
+    let mut names = HashSet::new();
+    walk_struct(&comp.struct_lit, &mut names);
+    names
+}
+
 pub(crate) fn expand_lets(
     mut names: HashSet<String>,
     lets: &[(String, Rc<Expr>)],

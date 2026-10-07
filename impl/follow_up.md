@@ -118,13 +118,28 @@ all of those semantics.
 
 ## A forward let is dropped rather than relaxed
 
-Open. `derive_thunk` evaluates a literal's `let` bindings in one declaration-order
-pass, so `let b = a2` written above `let a2 = p` never resolves, its reader
-derives to an unresolved reference, and `derive_field` keeps the pre-merge value
-with no diagnostic. Upstream derives it. HEAD is wrong here too. The binding loop
-wants the same relaxation the declaration loop uses, and "unresolved because the
-relaxation loop has not got there" wants telling apart from "unresolved because
-of the merge", which upstream reports as an error.
+Closed. Re-derivation (`derive_thunk`, `rebind_enclosing`, `rerun_recipe`)
+derives a literal's lets through `derive_lets`: in dependency order
+(`dependency_order`, declaration order inside a cycle), retrying a let that is
+still unresolved while another one progresses. `let b = a2` above
+`let a2 = p` sees the merged `p`. In the first evaluation, a comprehension
+whose generated fields hold an unresolved value is retried by a later pass when
+its body reads a name of its own literal that is still pending
+(`waits_on_own_name`): `if true {x: a}` above `a: 1`. `tests/forward_lets.rs`
+holds 30 cue v0.17.1 goldens. A let cycle (`let a = b; let b = a`) still fails
+at its use (`P.x: reference "b" not found`), where cue names
+`P.let[]: cyclic references in let clause or alias`.
+
+## A field selected through its own value is a cycle
+
+Open, on master too. `a: {zone: "z"}` beside `a: _z[a.zone]` (directly or in an
+`if` body) exports `a: {zone: "z", r: 1}` in cue; cue-rs reports a cycle and
+drops the struct, as in upstream `comprehensions/issue4423` `selfInsert` (which
+failed earlier, on the forward `_zones`, before the forward-let fix). The index
+reads `a` while `a` is being evaluated; upstream reads the partial arc.
+`a: {r: a.zone}` and `a: {r: 1} & {s: a.zone}` work, since a struct literal
+binds its fields before the reference. An index or selector over another struct
+does not.
 
 ## Value is no longer Send
 
