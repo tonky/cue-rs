@@ -73,11 +73,24 @@ reader of that field, not a wrong value in it; a content hash cached per
 
 ## Re-derivation through lists and disjunctions
 
-Open, and the same bug phases 03-04 exist to fix. `rederive_value` only descends
-into structs, so a merge inside a list element or a disjunction branch never
-re-derives its readers: `svcs: [...#Svc]` with `svcs: [{port: 9090}]` exports the
-default URL beside the overridden port. HEAD is wrong here too. The fix is to
-descend into `Value::List` and `Value::Disjunction` with the same copy-on-write.
+Lists are fixed ([19](19-comprehension-closedness.md)): `rederive_value`
+descends into list elements, so `svcs: [...#Svc]` with `svcs: [{port: 9090}]`
+exports the overridden URL. A disjunction branch is descended into only when it
+holds a field on credit; a merge inside any other plain branch still does not
+re-derive its readers.
+
+## A comprehension's sibling read is stale after a merge
+
+`P: {a: int | *0, if true {x: a}}` with `p1: P & {a: 1}` exports `x: 0`; cue
+says `x: 1`. Also inside definitions (`create postgres` for
+`#P & {database: "app"}` in an enve-shaped preset), and on master. When the
+merge leaves the guard deciding the same way, the generated field's thunk is
+derived again, but its environment is the comprehension body's, which owns
+only the body's fields: `a` resolves from the frame captured when the enclosing
+literal was first evaluated. The fix is to rebind, in that captured frame
+(`thunk.env.scopes[recipe.env.scopes.len()]`), the names `recipe.env` owns to
+the merged struct's values. Pinned as known divergences in
+`tests/comprehension_closedness.rs` (`sibling_read_*`).
 
 ## Validation re-derivation and nested verdicts
 
@@ -176,12 +189,10 @@ because optional fields are dropped first - which is what upstream does with
 
 ## A bottom's path is not subsumed the way upstream's is
 
-Open, and presentation rather than verdict. `BottomReason` carries a `path` that
-nothing populates consistently, so cue-rs reports
-`cannot export bottom at 'a.x': _|_ (reference "nope" not found)` where upstream
-reports `a.x: reference "nope" not found`. Phase 07 made the *paths* agree, which
-is the part that was wrong; what is left is the envelope around them. Worth doing
-once, now that the kind is on the type.
+The envelope is fixed ([19](19-comprehension-closedness.md)): `BottomReason.path`
+is filled where a field collapses its struct, and export reports
+`a.x: reference "nope" not found` as upstream does. Incomplete values still say
+`cannot export ... at 'x.name'` where upstream says `x.name: incomplete value`.
 
 Beside it, one wording row still differs: `a: {b: c}, c: a.b` says `reference "c"
 not found` where upstream says `incomplete value _`, because `declares_field`
@@ -268,11 +279,6 @@ collapses branches that fail for the same reason into one message.
 evaluated, every definition it reads stays open, not only the embedded value.
 This matches the corpus (`definitions_root5`, `root7`, `root8`) and the probes,
 but it is not how upstream reasons about it.
-
-**Error paths are leaf-only.** `bogus: field not allowed` where upstream says
-`a.b.bogus: field not allowed`. The unifier does not know the path it is
-working at. Threading one through would help every conflict message, not only
-closedness.
 
 ## A pending disjunction branch is dropped when another branch survives
 

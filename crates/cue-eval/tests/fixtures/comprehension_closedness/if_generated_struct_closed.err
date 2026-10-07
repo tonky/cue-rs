@@ -1,0 +1,2 @@
+x.s.y: field not allowed:
+    ./if_generated_struct_closed.cue:2:22

@@ -1,0 +1,2 @@
+x.o.extra: field not allowed:
+    ./closed_nested_extra.cue:2:26

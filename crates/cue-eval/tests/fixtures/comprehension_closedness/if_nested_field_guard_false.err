@@ -1,0 +1,2 @@
+x.n.c: field not allowed:
+    ./if_nested_field_guard_false.cue:5:13

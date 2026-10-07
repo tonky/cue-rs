@@ -1,0 +1,2 @@
+x.env.OTHER: field not allowed:
+    ./for_over_map_undeclared.cue:2:29

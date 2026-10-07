@@ -1,0 +1,8 @@
+task.o.timeout: conflicting values "x" and int (mismatched types string and int):
+    ./def_and_list_of_defs.cue:1:19
+    ./def_and_list_of_defs.cue:2:7
+    ./def_and_list_of_defs.cue:2:25
+y.0.o.timeout: conflicting values "z" and int (mismatched types string and int):
+    ./def_and_list_of_defs.cue:1:19
+    ./def_and_list_of_defs.cue:3:8
+    ./def_and_list_of_defs.cue:4:18

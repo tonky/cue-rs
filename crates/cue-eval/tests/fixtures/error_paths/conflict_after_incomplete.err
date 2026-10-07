@@ -1,0 +1,4 @@
+t.a.b: conflicting values "x" and int (mismatched types string and int):
+    ./conflict_after_incomplete.cue:1:12
+    ./conflict_after_incomplete.cue:2:4
+    ./conflict_after_incomplete.cue:2:15

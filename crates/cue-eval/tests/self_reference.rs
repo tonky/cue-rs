@@ -184,7 +184,9 @@ fn a_reference_that_never_resolves_is_refused_where_it_is_written() {
             .unwrap_or_else(|| panic!("{source:?} was accepted"))
             .to_string();
         assert!(
-            error.contains(&format!("'{path}'")) && error.contains(message),
+            (error.contains(&format!("Evaluation error: {path}: "))
+                || error.contains(&format!(" at '{path}' ")))
+                && error.contains(message),
             "{source:?} was refused, but not as {path}: {message}\n  got: {error}"
         );
     }
@@ -192,16 +194,13 @@ fn a_reference_that_never_resolves_is_refused_where_it_is_written() {
 
 /// Keeping a pending reference at its own field must not keep a *conflict* there:
 /// two values that cannot both hold make the struct bottom, which every caller
-/// relies on.
+/// relies on. The error names the field that conflicts, as cue's does.
 #[test]
 fn a_conflict_still_collapses_the_struct_that_holds_it() {
     let error = eval_to_json("a: {b: 1}\na: {b: 2}")
         .unwrap_err()
         .to_string();
-    assert!(
-        error.contains("conflicting values") && error.contains("'a'"),
-        "{error}"
-    );
+    assert!(error.contains("a.b: conflicting values"), "{error}");
 }
 
 /// A required field that is still the lazy node a recursive definition expands

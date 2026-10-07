@@ -1,0 +1,22 @@
+{
+  "a": {
+    "database": "postgres",
+    "lifecycle": {
+      "postInit": []
+    }
+  },
+  "b": {
+    "database": "app",
+    "lifecycle": {
+      "postInit": [
+        "create app"
+      ]
+    }
+  },
+  "c": {
+    "database": "app",
+    "lifecycle": {
+      "postInit": "mine"
+    }
+  }
+}

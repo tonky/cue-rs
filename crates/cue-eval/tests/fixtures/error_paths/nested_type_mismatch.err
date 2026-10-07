@@ -1,0 +1,3 @@
+x.a: conflicting values int and "s" (mismatched types int and string):
+    ./nested_type_mismatch.cue:1:8
+    ./nested_type_mismatch.cue:1:19

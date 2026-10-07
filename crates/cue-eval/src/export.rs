@@ -22,7 +22,12 @@ pub(crate) fn to_json_at_path(
         Some(Value::List { elements, .. }) => {
             let mut arr = Vec::with_capacity(elements.len());
             for (idx, &elem) in elements.iter().enumerate() {
-                let elem_path = format!("{}[{}]", path, idx);
+                // Upstream's spelling: `l.0.o`, not `l[0].o`.
+                let elem_path = if path == "$" {
+                    idx.to_string()
+                } else {
+                    format!("{path}.{idx}")
+                };
                 arr.push(to_json_at_path(arena, elem, &elem_path)?);
             }
             Ok(serde_json::Value::Array(arr))
@@ -35,6 +40,15 @@ pub(crate) fn to_json_at_path(
                     format!("incomplete value: {reason}")
                 } else {
                     format!("incomplete value at '{path}': {reason}")
+                });
+            }
+            // A field a closed struct admitted on credit of a declaration
+            // that, once decided, did not generate it.
+            if let Some(credit) = s.provisional.first() {
+                return Err(if path == "$" {
+                    format!("{}: field not allowed", credit.name)
+                } else {
+                    format!("{path}.{}: field not allowed", credit.name)
                 });
             }
             let mut map = serde_json::Map::new();
@@ -58,6 +72,15 @@ pub(crate) fn to_json_at_path(
             Ok(serde_json::Value::Object(map))
         }
         Some(Value::Disjunction { branches }) => {
+            let allowed = crate::closedness::allowed_branches(arena, branches);
+            // Every branch failing reports the first one's failure.
+            let Some(&first) = allowed.first() else {
+                return to_json_at_path(arena, branches[0].val, path);
+            };
+            if allowed.len() == 1 {
+                return to_json_at_path(arena, first.val, path);
+            }
+            let branches: Vec<_> = allowed.into_iter().cloned().collect();
             let mut defaults = branches.iter().filter(|branch| branch.default);
             let first = defaults.next();
             if defaults.next().is_some() {
@@ -80,11 +103,18 @@ pub(crate) fn to_json_at_path(
                 ))
             }
         }
+        // Reported as upstream does, at the field that failed: the path export
+        // reached it by, then the path inside it where it arose.
         Some(Value::Bottom(b)) => {
-            if path == "$" {
+            let at = std::iter::once(path)
+                .filter(|path| *path != "$")
+                .chain(b.path.iter().map(String::as_str))
+                .collect::<Vec<_>>()
+                .join(".");
+            if at.is_empty() {
                 Err(format!("cannot export bottom: {b}"))
             } else {
-                Err(format!("cannot export bottom at '{path}': {b}"))
+                Err(format!("{at}: {}", b.message))
             }
         }
         Some(Value::Top) => {

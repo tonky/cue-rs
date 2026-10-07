@@ -1,0 +1,4 @@
+task.timeout: conflicting values 1 and =~"^[0-9]+s$" (mismatched types int and string):
+    ./task_timeout_regex.cue:1:15
+    ./task_timeout_regex.cue:2:7
+    ./task_timeout_regex.cue:2:36

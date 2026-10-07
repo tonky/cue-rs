@@ -1,0 +1,4 @@
+x.o.k.t: conflicting values "s" and int (mismatched types string and int):
+    ./pattern_constraint_field.cue:1:23
+    ./pattern_constraint_field.cue:2:4
+    ./pattern_constraint_field.cue:2:19

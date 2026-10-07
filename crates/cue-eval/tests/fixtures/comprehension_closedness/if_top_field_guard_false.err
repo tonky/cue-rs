@@ -1,0 +1,2 @@
+x.b: field not allowed:
+    ./if_top_field_guard_false.cue:2:10

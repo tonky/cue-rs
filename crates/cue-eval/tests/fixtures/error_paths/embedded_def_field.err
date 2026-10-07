@@ -1,0 +1,5 @@
+x.o.timeout: conflicting values "x" and int (mismatched types string and int):
+    ./embedded_def_field.cue:1:19
+    ./embedded_def_field.cue:2:4
+    ./embedded_def_field.cue:2:5
+    ./embedded_def_field.cue:2:21

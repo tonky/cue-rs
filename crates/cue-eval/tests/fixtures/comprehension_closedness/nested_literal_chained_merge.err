@@ -1,0 +1,2 @@
+x.n.d: field not allowed:
+    ./nested_literal_chained_merge.cue:2:22

@@ -391,6 +391,7 @@ impl Evaluator {
             expr: source.expr,
             env: env.clone(),
             deps: source.deps,
+            closes: false,
         })
     }
 

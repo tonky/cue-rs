@@ -1,0 +1,9 @@
+x: 2 errors in empty disjunction:
+x.kind: conflicting values "b" and "a":
+    ./disjunction_no_branch.cue:2:12
+    ./disjunction_no_branch.cue:3:9
+    ./disjunction_no_branch.cue:4:11
+x.v: conflicting values "s" and int (mismatched types string and int):
+    ./disjunction_no_branch.cue:1:20
+    ./disjunction_no_branch.cue:3:4
+    ./disjunction_no_branch.cue:4:19

@@ -78,7 +78,9 @@ language conformance.
   branch trials, field merging, bounds, validators and budgeted value comparison.
   Field recipes remain distinct from semantic value equivalence.
 - [closedness.rs](crates/cue-eval/src/closedness.rs) produces and caches closed
-  copies when definitions are referenced.
+  copies when definitions are referenced, and admits a field a definition's
+  comprehension may generate on credit until re-derivation settles it
+  (impl/19-comprehension-closedness.md).
 - [export.rs](crates/cue-eval/src/export.rs) implements concrete JSON export and
   the exact-number YAML bridge. Evaluator exports and builtin encoders share
   defaults/optionality policy. Bytes become base64 and large integers stay numbers.

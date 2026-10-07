@@ -76,6 +76,12 @@ pub fn validate_json(schema_source: &str, data: &serde_json::Value) -> Result<()
     if let Some(Value::Bottom(b)) = evaluator.arena.get(res_id) {
         return Err(EvalError::Evaluation(format!("Validation failed: {b}")));
     }
+    if let Some(path) = closedness::unvouched_field(&evaluator.arena, res_id) {
+        return Err(EvalError::Evaluation(format!(
+            "Validation failed: {}: field not allowed",
+            path.join(".")
+        )));
+    }
 
     Ok(())
 }

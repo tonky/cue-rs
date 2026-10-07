@@ -1,0 +1,5 @@
+x.a: conflicting values 1 and 2:
+    ./comprehension_field_conflict.cue:1:4
+    ./comprehension_field_conflict.cue:1:5
+    ./comprehension_field_conflict.cue:1:26
+    ./comprehension_field_conflict.cue:1:36

@@ -1,0 +1,2 @@
+x.n.c: field not allowed:
+    ./if_nested_guard_zero.cue:5:19

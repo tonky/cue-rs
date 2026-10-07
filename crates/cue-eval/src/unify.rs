@@ -52,6 +52,12 @@ pub struct UnifyContext {
     pub active_structs: BTreeSet<(ValueId, ValueId)>,
     pub active_disjunctions: BTreeSet<(ValueId, ValueId)>,
     pub active_metadata_choices: BTreeSet<(ValueId, ValueId)>,
+    /// The undecided declarations of the closed structs this merge is inside
+    /// (see [`crate::closedness::Voucher`]).
+    pub(crate) vouchers: Vec<crate::closedness::Voucher>,
+    /// The labels of the fields this merge descended through, kept while a
+    /// voucher needs them.
+    pub(crate) path: Vec<String>,
 }
 
 impl UnifyContext {
@@ -1072,28 +1078,26 @@ pub(crate) fn collapses_struct(arena: &ValueArena, val: ValueId) -> bool {
     }
 }
 
-/// The first regular field of `other` that closed struct `closed` does not
-/// allow, if any. A field is allowed when `closed` declares it or one of its
-/// pattern constraints matches the label. An optional field adds no value, so
-/// upstream lets a closed struct meet one it does not declare.
-fn disallowed_field<'a>(
-    arena: &ValueArena,
-    closed: &StructValue,
+/// The regular fields of `other` that closed struct `closed` does not declare.
+/// A field is declared when `closed` has it or one of its pattern constraints
+/// matches the label. An optional field adds no value, so upstream lets a
+/// closed struct meet one it does not declare.
+fn undeclared_fields<'a>(
+    arena: &'a ValueArena,
+    closed: &'a StructValue,
     other: &'a StructValue,
-) -> Option<&'a str> {
+) -> impl Iterator<Item = &'a str> {
     // Only a postfix spread reopens: an open literal unified with a closed
     // struct leaves it closed (`#x & {...}` still rejects new fields), while
     // a spread value keeps accepting them (`#Def... & {a, b}` accepts `b`,
     // and so does a later `& {c}`). `is_open` alone only blocks auto-closing.
-    if !closed.is_closed || closed.spread_open {
-        return None;
-    }
+    let checked = closed.is_closed && !closed.spread_open;
     other
         .fields
         .iter()
-        .filter(|(_, entry)| !entry.optional)
+        .filter(move |(_, entry)| checked && !entry.optional)
         .map(|(name, _)| name.as_str())
-        .find(|name| {
+        .filter(move |name| {
             !closed.fields.contains_key(*name)
                 && !closed
                     .pattern_constraints
@@ -1117,13 +1121,77 @@ fn unify_structs_inner(
     s2: &StructValue,
     ctx: &mut UnifyContext,
 ) -> ValueId {
+    // A field a closed side does not declare is refused, unless a declaration
+    // that has not decided yet could generate it: that one is admitted on
+    // credit, and settled when the declaration runs again.
+    let mut provisional = Vec::new();
     for (closed, other) in [(s1, s2), (s2, s1)] {
-        if let Some(name) = disallowed_field(arena, closed, other) {
-            return conflict(arena, format!("{name}: field not allowed"));
+        let refused = undeclared_fields(arena, closed, other).find(|name| {
+            match crate::closedness::admit_on_credit(closed, &ctx.vouchers, &ctx.path, name) {
+                Some(credit) => {
+                    provisional.push(credit);
+                    false
+                }
+                None => true,
+            }
+        });
+        if let Some(name) = refused.map(str::to_string) {
+            let not_allowed = conflict(arena, "field not allowed");
+            return arena.bottom_at(&name, not_allowed);
         }
     }
 
+    // What the closed sides have not decided yet may generate fields below
+    // them too, so their fields merge with these declarations in view.
+    let mark = ctx.vouchers.len();
+    for side in [s1, s2] {
+        if side.is_closed {
+            let depth = ctx.path.len();
+            ctx.vouchers.extend(
+                side.recipes
+                    .iter()
+                    .map(|recipe| crate::closedness::Voucher::new(recipe, depth)),
+            );
+        }
+    }
+    let merged = merge_struct_fields(arena, s1, s2, provisional, ctx);
+    ctx.vouchers.truncate(mark);
+    merged
+}
+
+/// Unify a field of both sides, at its label in the merge's path while a
+/// voucher needs the path.
+fn unify_field(
+    arena: &mut ValueArena,
+    key: &str,
+    v1: ValueId,
+    v2: ValueId,
+    ctx: &mut UnifyContext,
+) -> ValueId {
+    if ctx.vouchers.is_empty() {
+        return unify_internal(arena, v1, v2, ctx);
+    }
+    ctx.path.push(key.to_string());
+    let unified = unify_internal(arena, v1, v2, ctx);
+    ctx.path.pop();
+    unified
+}
+
+fn merge_struct_fields(
+    arena: &mut ValueArena,
+    s1: &StructValue,
+    s2: &StructValue,
+    provisional: Vec<Provisional>,
+    ctx: &mut UnifyContext,
+) -> ValueId {
     let mut merged = StructValue::new(s1.is_closed || s2.is_closed);
+    merged.provisional = s1
+        .provisional
+        .iter()
+        .chain(&s2.provisional)
+        .cloned()
+        .chain(provisional)
+        .collect();
     // A closed result carries no open marker: `#x & {...}` stays closed
     // (the marker is consumed by the merge), while an open result keeps it
     // (`#ServiceSpec & {port}` stays open through a definition boundary).
@@ -1148,9 +1216,9 @@ fn unify_structs_inner(
     for key in arc_order(&s1.fields, &s2.fields) {
         let entry = match (s1.fields.get(&key), s2.fields.get(&key)) {
             (Some(e1), Some(e2)) => {
-                let unified_val = unify_internal(arena, e1.val, e2.val, ctx);
+                let unified_val = unify_field(arena, &key, e1.val, e2.val, ctx);
                 if collapses_struct(arena, unified_val) && !(e1.optional && e2.optional) {
-                    return unified_val;
+                    return arena.bottom_at(&key, unified_val);
                 }
                 FieldEntry::with_conjuncts(
                     unified_val,
@@ -1173,7 +1241,7 @@ fn unify_structs_inner(
                 if collapses_struct(arena, cur_val) {
                     continue;
                 }
-                cur_val = unify_internal(arena, cur_val, pc.target_val, ctx);
+                cur_val = unify_field(arena, &key, cur_val, pc.target_val, ctx);
                 // A pattern-induced failure stays on the field: the error
                 // belongs to this path, and collapsing would hide it from
                 // the walk that reports it. A retryable bottom keeps meeting
@@ -1196,7 +1264,7 @@ fn unify_structs_inner(
             (Some(e1), Some(e2)) => {
                 let unified_val = unify_internal(arena, e1.val, e2.val, ctx);
                 if collapses_struct(arena, unified_val) {
-                    return unified_val;
+                    return arena.bottom_at(&key, unified_val);
                 }
                 FieldEntry::with_conjuncts(
                     unified_val,
@@ -1217,7 +1285,7 @@ fn unify_structs_inner(
             (Some(e1), Some(e2)) => {
                 let unified_val = unify_internal(arena, e1.val, e2.val, ctx);
                 if collapses_struct(arena, unified_val) {
-                    return unified_val;
+                    return arena.bottom_at(&key, unified_val);
                 }
                 FieldEntry::with_conjuncts(
                     unified_val,
@@ -1289,7 +1357,7 @@ fn unify_lists(
             (Some(v1), Some(v2)) => {
                 let u = unify_internal(arena, v1, v2, ctx);
                 if let Some(Value::Bottom(_)) = arena.get(u) {
-                    return u;
+                    return arena.bottom_at(&idx.to_string(), u);
                 }
                 unified_elements.push(u);
             }
@@ -1890,6 +1958,7 @@ fn equivalent_payload(
     match (left, right) {
         (Value::Struct(left), Value::Struct(right)) => {
             if left.is_closed != right.is_closed
+                || left.provisional != right.provisional
                 || left.is_open != right.is_open
                 || left.spread_open != right.spread_open
                 || left.pattern_constraints.len() != right.pattern_constraints.len()

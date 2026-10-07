@@ -1,0 +1,8 @@
+{
+  "services": {
+    "s": {
+      "extra": 1,
+      "name": "x"
+    }
+  }
+}

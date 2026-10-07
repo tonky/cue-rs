@@ -1,0 +1,2 @@
+x.l.0.c: field not allowed:
+    ./list_literal_element_guard_false.cue:2:15

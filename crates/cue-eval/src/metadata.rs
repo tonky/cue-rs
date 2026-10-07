@@ -44,7 +44,7 @@ pub(crate) fn payload(arena: &mut ValueArena, id: ValueId) -> ValueId {
 /// the predeclared frame, with no local declaration or captured shadowing.
 fn fixed_conjunct(arena: &ValueArena, conjunct: &Conjunct) -> bool {
     match conjunct {
-        Conjunct::Value(id) => !arena
+        Conjunct::Value(id) | Conjunct::Closed(id) => !arena
             .metadata(*id)
             .is_some_and(|m| matches!(m.source, MetadataSource::Closed { .. })),
         Conjunct::Thunk(thunk) => thunk.deps.iter().all(|name| {
@@ -128,16 +128,16 @@ fn finish_fixed(
     context: &mut UnifyContext,
 ) -> ValueId {
     let body = arena.fields(fields).expect("metadata fields are a struct");
-    if let Some(error) = body
+    if let Some((label, error)) = body
         .fields
-        .values()
-        .filter(|entry| !entry.optional)
-        .chain(body.definitions.values())
-        .chain(body.hidden.values())
-        .find(|entry| crate::unify::collapses_struct(arena, entry.val))
-        .map(|entry| entry.val)
+        .iter()
+        .filter(|(_, entry)| !entry.optional)
+        .chain(body.definitions.iter())
+        .chain(body.hidden.iter())
+        .find(|(_, entry)| crate::unify::collapses_struct(arena, entry.val))
+        .map(|(label, entry)| (label.clone(), entry.val))
     {
-        return error;
+        return arena.bottom_at(&label, error);
     }
     // Once constrained to struct kind, its normal field storage is sufficient.
     // The literal's own fields come before what its embeddings resolve to.

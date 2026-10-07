@@ -1,0 +1,4 @@
+x.o.1.t: conflicting values "s" and int (mismatched types string and int):
+    ./list_element_field.cue:1:17
+    ./list_element_field.cue:2:4
+    ./list_element_field.cue:2:26

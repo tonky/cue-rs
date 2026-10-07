@@ -44,6 +44,7 @@ fn derivation_orders_readers_after_what_they_read() {
                 Rc::new(Imports::default()),
             )),
             deps: Rc::new(deps.iter().map(|s| s.to_string()).collect()),
+            closes: false,
         };
         let val = arena.top();
         let mut entry = FieldEntry::value(val, false);

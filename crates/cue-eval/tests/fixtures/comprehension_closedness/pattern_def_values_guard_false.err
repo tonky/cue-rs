@@ -1,0 +1,2 @@
+services.s.extra: field not allowed:
+    ./pattern_def_values_guard_false.cue:3:26

@@ -5,7 +5,7 @@
 //! It borrows the evaluator, so every value and binding operation stays on
 //! `Evaluator`; what moved here is the scheduling of declarations.
 
-use crate::closedness::{open_for_embedding, reclose};
+use crate::closedness::{Closure, open_for_embedding, reclose};
 use crate::declaration::DeclarationValue;
 use crate::eval::{Clause, EvalError, Evaluator};
 use crate::schedule::{
@@ -639,10 +639,13 @@ impl<'a> RelaxationLoop<'a> {
                         unified_id
                     };
                     let unified_id = match embed_violation {
-                        Some(name) => self
-                            .eval
-                            .arena
-                            .bottom_of(BottomKind::Conflict, format!("{name}: field not allowed")),
+                        Some(name) => {
+                            let not_allowed = self
+                                .eval
+                                .arena
+                                .bottom_of(BottomKind::Conflict, "field not allowed");
+                            self.eval.arena.bottom_at(&name, not_allowed)
+                        }
                         None => unified_id,
                     };
                     if let Some(Value::Struct(s)) = self.eval.arena.get(unified_id) {
@@ -779,9 +782,15 @@ impl<'a> RelaxationLoop<'a> {
                 .arena
                 .metadata(id)
                 .is_some_and(|metadata| metadata.is_choice_view())
-                || branches
-                    .iter()
-                    .any(|branch| self.eval.arena.metadata(branch.val).is_some()))
+                || branches.iter().any(|branch| {
+                    self.eval.arena.metadata(branch.val).is_some()
+                        // A branch holding a field on credit settles it as a
+                        // merged struct does (`#A & ({b: 3} | {})`).
+                        || matches!(
+                            self.eval.arena.get(branch.val),
+                            Some(Value::Struct(s)) if !s.provisional.is_empty()
+                        )
+                }))
         {
             if !visiting.insert(id) {
                 return Ok(id);
@@ -797,6 +806,41 @@ impl<'a> RelaxationLoop<'a> {
             let result = self.rederive_metadata(id, metadata, visiting);
             visiting.remove(&id);
             return result;
+        }
+        // A list's elements are merged one by one (`[...#Svc] & [{port: 9}]`),
+        // and each settles as a merged struct does.
+        if let Some(Value::List { elements, ellipsis }) = self.eval.arena.get(id).cloned() {
+            if !visiting.insert(id) {
+                return Ok(id);
+            }
+            let mut derived = Vec::with_capacity(elements.len());
+            for &element in &elements {
+                match self.rederive_value(element, visiting) {
+                    // An element derived again to the same value keeps its id,
+                    // or the list would count as moved on every pass.
+                    Ok(new)
+                        if new != element
+                            && crate::unify::compare_values(&self.eval.arena, element, new)
+                                == crate::unify::Equivalence::Equal =>
+                    {
+                        derived.push(element)
+                    }
+                    Ok(element) => derived.push(element),
+                    Err(error) => {
+                        visiting.remove(&id);
+                        return Err(error);
+                    }
+                }
+            }
+            visiting.remove(&id);
+            return Ok(if derived == elements {
+                id
+            } else {
+                self.eval.arena.alloc(Value::List {
+                    elements: derived,
+                    ellipsis,
+                })
+            });
         }
         let Some(Value::Struct(s)) = self.eval.arena.get(id) else {
             return Ok(id);
@@ -934,7 +978,7 @@ impl<'a> RelaxationLoop<'a> {
             .expect("embedded metadata has conjuncts")
         {
             let next = match conjunct {
-                Conjunct::Value(id) => {
+                Conjunct::Value(id) | Conjunct::Closed(id) => {
                     if let Some(group) = self.eval.arena.metadata(*id).cloned()
                         && matches!(group.source, crate::value::MetadataSource::Closed { .. })
                     {
@@ -1078,7 +1122,24 @@ impl<'a> RelaxationLoop<'a> {
                 let Some(entry) = section.map(s).get(&name) else {
                     continue;
                 };
-                if entry.conjuncts.len() < 2 {
+                // A pattern meets the fields it matches without leaving a
+                // conjunct. What it merged holds a field on credit only if a
+                // closed value met one it does not declare, and only a
+                // comprehension the pattern brought can settle it, so only
+                // then does it settle below as any merge does. Descending into
+                // every matched field would derive nested patterns again on
+                // every pass.
+                if entry.conjuncts.len() < 2
+                    && (!s.pattern_constraints.iter().any(|pc| {
+                        crate::closedness::holds_recipe(&self.eval.arena, pc.target_val)
+                            && crate::unify::field_matches_pattern(
+                                &self.eval.arena,
+                                pc.pattern_val,
+                                &name,
+                            )
+                    }) || crate::closedness::unvouched_field(&self.eval.arena, entry.val)
+                        .is_none())
+                {
                     continue;
                 }
                 let val = entry.val;
@@ -1172,22 +1233,35 @@ impl<'a> RelaxationLoop<'a> {
         s: &StructValue,
         name: &str,
     ) -> Result<Option<ValueId>, EvalError> {
-        let mut val: Option<ValueId> = None;
+        // A definition's contributions derive together and close once: it is
+        // closed over all of its declarations of the field. What the merge
+        // added meets that closed value after.
+        let mut definition: Option<ValueId> = None;
+        let mut rest: Option<ValueId> = None;
         for conjunct in entry.conjuncts.iter() {
             let conjunct_val = match conjunct {
-                Conjunct::Value(val) => *val,
+                Conjunct::Value(val) | Conjunct::Closed(val) => *val,
                 Conjunct::Thunk(thunk) => match self.derive_thunk(thunk, s)? {
                     Some(derived) => derived,
                     None => return Ok(None),
                 },
             };
-            val = Some(match val {
+            let group = if conjunct.closes() {
+                &mut definition
+            } else {
+                &mut rest
+            };
+            *group = Some(match *group {
                 None => conjunct_val,
                 Some(previous) => unify(&mut self.eval.arena, previous, conjunct_val),
             });
         }
-        let Some(mut val) = val else {
-            return Ok(None);
+        let definition =
+            definition.map(|definition| Closure::Recursive.apply(&mut self.eval.arena, definition));
+        let mut val = match (definition, rest) {
+            (Some(definition), Some(rest)) => unify(&mut self.eval.arena, definition, rest),
+            (Some(val), None) | (None, Some(val)) => val,
+            (None, None) => return Ok(None),
         };
 
         // Pattern constraints are part of the field's value, not of its recipe.
@@ -1455,6 +1529,7 @@ impl<'a> RelaxationLoop<'a> {
             env,
             deps,
             outcome: Rc::new(outcome),
+            closes: false,
         });
         Ok(())
     }
@@ -1476,9 +1551,12 @@ impl<'a> RelaxationLoop<'a> {
             {
                 continue;
             }
-            let Some(fresh) = self.rerun_recipe(&recipe, s)? else {
+            let Some(mut fresh) = self.rerun_recipe(&recipe, s)? else {
                 continue;
             };
+            if recipe.closes {
+                definition_generation(&mut self.eval.arena, &mut fresh.structure, s);
+            }
             let decided_alike = fresh
                 .structure
                 .recipes
@@ -1494,7 +1572,19 @@ impl<'a> RelaxationLoop<'a> {
                     .iter()
                     .flat_map(|section| section.map(&fresh.structure).keys().cloned()),
             );
+            // What it generates now is part of the struct it was declared in,
+            // so the fields a merge admitted on its credit are settled.
+            let generated = self
+                .eval
+                .arena
+                .alloc(Value::Struct(Box::new(fresh.structure.clone())));
             merge_generated(&mut self.eval.arena, s, fresh.structure);
+            crate::closedness::vouch_struct(
+                &mut self.eval.arena,
+                s,
+                generated,
+                recipe.source_ptr(),
+            );
         }
         Ok(wrote.then_some(changed))
     }
@@ -1584,6 +1674,33 @@ impl<'a> RelaxationLoop<'a> {
         }
         s.recipes
             .retain(|kept| kept != recipe && !recipe.outcome.recipes.contains(kept));
+    }
+}
+
+/// Mark what a definition's declaration generated as the definition's: its
+/// recipes, and each field's conjuncts, so deriving them again closes them.
+/// A field the definition declares nowhere else - absent from `target`, or
+/// there only on credit - is the definition's whole declaration of it, so it
+/// is closed now and what the merge put there meets it closed. A field it
+/// declares elsewhere too merges open: closing one declaration on its own
+/// would refuse what the others declare.
+fn definition_generation(
+    arena: &mut crate::value::ValueArena,
+    generated: &mut StructValue,
+    target: &StructValue,
+) {
+    for recipe in &mut generated.recipes {
+        recipe.closes = true;
+    }
+    for (name, entry) in generated.fields.iter_mut() {
+        if let Some(conjuncts) = crate::closedness::definition_conjuncts(&entry.conjuncts) {
+            entry.conjuncts = conjuncts;
+        }
+        let declared_elsewhere = target.fields.contains_key(name)
+            && !target.provisional.iter().any(|credit| credit.name == *name);
+        if !declared_elsewhere {
+            entry.val = Closure::Recursive.apply(arena, entry.val);
+        }
     }
 }
 

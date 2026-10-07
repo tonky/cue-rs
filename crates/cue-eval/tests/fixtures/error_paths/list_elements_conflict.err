@@ -1,0 +1,3 @@
+x.0.a: conflicting values 2 and 1:
+    ./list_elements_conflict.cue:1:9
+    ./list_elements_conflict.cue:1:20

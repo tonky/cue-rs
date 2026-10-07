@@ -1,0 +1,5 @@
+#P.b: field not allowed:
+    ./defs_unified_guard_reads_other.cue:2:14
+x.b: field not allowed:
+    ./defs_unified_guard_reads_other.cue:2:14
+    ./defs_unified_guard_reads_other.cue:4:16

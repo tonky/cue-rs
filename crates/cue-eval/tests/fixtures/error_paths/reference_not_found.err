@@ -1,0 +1,2 @@
+a.x: reference "nope" not found:
+    ./reference_not_found.cue:1:8

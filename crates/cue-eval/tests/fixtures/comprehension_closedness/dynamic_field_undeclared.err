@@ -1,0 +1,2 @@
+x.y: field not allowed:
+    ./dynamic_field_undeclared.cue:2:18

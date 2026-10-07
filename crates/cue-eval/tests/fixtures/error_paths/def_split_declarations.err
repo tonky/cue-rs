@@ -1,0 +1,4 @@
+x.o.timeout: conflicting values "x" and int (mismatched types string and int):
+    ./def_split_declarations.cue:1:19
+    ./def_split_declarations.cue:2:4
+    ./def_split_declarations.cue:3:16

@@ -1,0 +1,2 @@
+x.n.d: field not allowed:
+    ./nested_literal_split_decls.cue:3:7

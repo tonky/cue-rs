@@ -1,0 +1,10 @@
+#P.a: field not allowed:
+    ./defs_unified_unconditional.cue:1:6
+#P.b: field not allowed:
+    ./defs_unified_unconditional.cue:2:6
+x.a: field not allowed:
+    ./defs_unified_unconditional.cue:1:6
+    ./defs_unified_unconditional.cue:4:10
+x.b: field not allowed:
+    ./defs_unified_unconditional.cue:2:6
+    ./defs_unified_unconditional.cue:4:16

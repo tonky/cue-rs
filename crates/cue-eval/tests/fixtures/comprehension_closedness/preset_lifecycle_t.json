@@ -1,0 +1,46 @@
+{
+  "a": {
+    "database": "postgres",
+    "lifecycle": {
+      "init": [
+        "initdb"
+      ],
+      "postInit": [
+        "[ \"postgres\" = postgres ] || create postgres"
+      ]
+    }
+  },
+  "b": {
+    "database": "app",
+    "lifecycle": {
+      "init": [
+        "initdb"
+      ],
+      "postInit": [
+        "[ \"app\" = postgres ] || create app"
+      ]
+    }
+  },
+  "c": {
+    "database": "app",
+    "lifecycle": {
+      "init": [
+        "x",
+        "y"
+      ],
+      "postInit": "mine"
+    }
+  },
+  "d": {
+    "database": "postgres",
+    "lifecycle": {
+      "init": {
+        "run": "z",
+        "timeout": "1m"
+      },
+      "postInit": [
+        "[ \"postgres\" = postgres ] || create postgres"
+      ]
+    }
+  }
+}

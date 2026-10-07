@@ -1,0 +1,2 @@
+c.a.other: field not allowed:
+    ./for_generated_struct_undeclared.cue:2:48

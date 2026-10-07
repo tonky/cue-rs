@@ -1,0 +1,3 @@
+x.a.b: conflicting values 2 and 1:
+    ./split_nested_field.cue:1:11
+    ./split_nested_field.cue:2:10

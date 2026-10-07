@@ -259,6 +259,10 @@ impl BottomKind {
 pub struct BottomReason {
     pub kind: BottomKind,
     pub message: String,
+    /// Where, below the value holding this bottom, it arose: the labels (and
+    /// list indexes) of the fields that collapsed into it, outermost first.
+    /// `#T & {o: timeout: "x"}` is bottom with path `o.timeout`, which export
+    /// joins to the path it found the bottom at, as upstream reports it.
     pub path: Vec<String>,
 }
 
@@ -346,6 +350,22 @@ pub struct StructValue {
     /// it again: a default overridden, a value made concrete, a source that
     /// grew. One that could not decide yet leaves the struct incomplete.
     pub recipes: Vec<DeclRecipe>,
+    /// Fields this closed struct admitted on credit: a merge brought them, the
+    /// struct does not declare them, but a comprehension or dynamic field of
+    /// its own (or of a closed struct around it) had not decided yet and could
+    /// generate them. Running that declaration again settles each one (see
+    /// [`crate::closedness::vouch`]); a field still here at export is not
+    /// allowed.
+    pub(crate) provisional: Vec<Provisional>,
+}
+
+/// A field a closed struct admitted before its declarations decided whether
+/// they generate it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Provisional {
+    pub(crate) name: String,
+    /// The declarations that could still generate it, by source.
+    pub(crate) vouchers: Rc<[*const ()]>,
 }
 
 /// A declaration whose fields depend on values a merge can still change.
@@ -360,6 +380,9 @@ pub struct DeclRecipe {
     pub(crate) deps: Rc<HashSet<String>>,
     /// What it generated the last time it ran.
     pub(crate) outcome: Rc<DeclOutcome>,
+    /// Read through a definition: what it generates when it runs again is
+    /// closed, as the fields it generated the first time were.
+    pub(crate) closes: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -380,12 +403,19 @@ pub(crate) struct DeclOutcome {
     pub incomplete: Option<String>,
 }
 
-impl DeclRecipe {
-    pub(crate) fn source_ptr(&self) -> *const () {
-        match &self.source {
+impl DeclSource {
+    /// The declaration's identity: syntax is shared, never copied.
+    pub(crate) fn ptr(&self) -> *const () {
+        match self {
             DeclSource::Comprehension(comp) => Rc::as_ptr(comp).cast(),
             DeclSource::Field(field) => Rc::as_ptr(field).cast(),
         }
+    }
+}
+
+impl DeclRecipe {
+    pub(crate) fn source_ptr(&self) -> *const () {
+        self.source.ptr()
     }
 
     pub fn incomplete(&self) -> Option<&str> {
@@ -419,7 +449,12 @@ impl Conjunct {
     /// The same recipe, not merely an equal one: what a retraction removes.
     pub(crate) fn same(&self, other: &Self) -> bool {
         match (self, other) {
-            (Conjunct::Value(a), Conjunct::Value(b)) => a == b,
+            // A definition's contribution is the same one, closed or not:
+            // a recipe records it before the definition is closed.
+            (
+                Conjunct::Value(a) | Conjunct::Closed(a),
+                Conjunct::Value(b) | Conjunct::Closed(b),
+            ) => a == b,
             (Conjunct::Thunk(a), Conjunct::Thunk(b)) => {
                 Rc::ptr_eq(&a.expr, &b.expr) && Rc::ptr_eq(&a.env, &b.env)
             }
@@ -510,6 +545,9 @@ pub struct Thunk {
     /// new if one of these moved, so a merge elsewhere in the struct leaves it
     /// alone. Over-approximate by construction - see [`crate::deps`].
     pub deps: Rc<HashSet<String>>,
+    /// Read through a definition: what it derives is closed, as the value it
+    /// derives again was (see [`crate::closedness`]).
+    pub(crate) closes: bool,
 }
 
 impl Thunk {
@@ -532,6 +570,23 @@ impl Thunk {
 pub enum Conjunct {
     Value(ValueId),
     Thunk(Thunk),
+    /// A value a definition contributed, as written (open). The field derives
+    /// again as the union of what its definition conjuncts give, closed once,
+    /// and then meets the rest: a definition is closed over all of its
+    /// declarations for a field, not over each one.
+    Closed(ValueId),
+}
+
+impl Conjunct {
+    /// Whether this is a definition's contribution to the field (see
+    /// [`Conjunct::Closed`] and [`Thunk::closes`]).
+    pub(crate) fn closes(&self) -> bool {
+        match self {
+            Conjunct::Value(_) => false,
+            Conjunct::Closed(_) => true,
+            Conjunct::Thunk(thunk) => thunk.closes,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -581,7 +636,7 @@ impl FieldEntry {
     /// Whether any recipe of this field could read one of the given names.
     pub fn reads_any(&self, names: &HashSet<String>) -> bool {
         self.conjuncts.iter().any(|conjunct| match conjunct {
-            Conjunct::Value(_) => false,
+            Conjunct::Value(_) | Conjunct::Closed(_) => false,
             Conjunct::Thunk(thunk) => thunk.reads_any(names),
         })
     }
@@ -591,7 +646,7 @@ impl FieldEntry {
         self.conjuncts
             .iter()
             .filter_map(|conjunct| match conjunct {
-                Conjunct::Value(_) => None,
+                Conjunct::Value(_) | Conjunct::Closed(_) => None,
                 Conjunct::Thunk(thunk) => Some(thunk.deps.iter().map(String::as_str)),
             })
             .flatten()
@@ -618,6 +673,7 @@ impl StructValue {
             is_open: false,
             spread_open: false,
             recipes: Vec::new(),
+            provisional: Vec::new(),
         }
     }
 
@@ -872,7 +928,7 @@ impl ValueArena {
                     .flatten()
                     .any(|conjunct| match conjunct {
                         Conjunct::Thunk(_) => true,
-                        Conjunct::Value(id) => self
+                        Conjunct::Value(id) | Conjunct::Closed(id) => self
                             .metadata(*id)
                             .is_some_and(|m| matches!(m.source, MetadataSource::Closed { .. })),
                     })
@@ -952,6 +1008,18 @@ impl ValueArena {
             message: msg.into(),
             path: Vec::new(),
         }))
+    }
+
+    /// A bottom that collapses the struct or list holding it, reported at the
+    /// field it came from: the holder's error, with `label` in front of its path.
+    /// Anything else is returned as it is.
+    pub(crate) fn bottom_at(&mut self, label: &str, val: ValueId) -> ValueId {
+        let Some(Value::Bottom(reason)) = self.get(val) else {
+            return val;
+        };
+        let mut reason = reason.clone();
+        reason.path.insert(0, label.to_string());
+        self.alloc(Value::Bottom(reason))
     }
 
     pub fn top(&mut self) -> ValueId {

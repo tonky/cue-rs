@@ -98,4 +98,5 @@ in `tests/closedness.rs`.
   field named per branch. Upstream names the field once.
 - **Root-embedding suppression** is an approximation: every definition read
   while evaluating a file-root embedding stays open, not only the embedded one.
-- **Error paths** name the leaf (`bogus`), not the path (`a.bogus`).
+- **Error paths** named the leaf (`bogus`), not the path (`a.bogus`). Fixed in
+  [19](19-comprehension-closedness.md).

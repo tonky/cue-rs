@@ -1,0 +1,2 @@
+x.inner.n.c: field not allowed:
+    ./def_in_def_field_guard_false.cue:3:21
