@@ -1,0 +1,6 @@
+#T.out1: invalid interpolation: undefined field: y:
+    ./interp_error_after_incomplete_part.cue:3:8
+    ./interp_error_after_incomplete_part.cue:3:24
+t.out1: invalid interpolation: undefined field: y:
+    ./interp_error_after_incomplete_part.cue:3:8
+    ./interp_error_after_incomplete_part.cue:3:24

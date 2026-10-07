@@ -1,0 +1,15 @@
+{
+  "a": {
+    "class": "admin",
+    "objects": {
+      "Service": {
+        "admin-x": {
+          "labels": {
+            "c": "admin"
+          },
+          "spec": 1
+        }
+      }
+    }
+  }
+}

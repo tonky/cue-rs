@@ -8,8 +8,9 @@
 //! incomplete then, not a conflict. Hidden, regular and definition embeddings,
 //! embeddings under a guard and templates instantiated in comprehensions,
 //! dynamic labels, guards, list elements and `let` bindings are covered. An
-//! operand never made concrete still fails (`x.l: invalid interpolation`), and
-//! a struct operand is still an error. The goldens under
+//! operand never made concrete still fails (`x.l: invalid interpolation`), a
+//! struct operand is still an error, and a later operand's error wins over an
+//! earlier incomplete one (`"\(arg.x) \(arg.y)"` with `arg.y` undefined). The goldens under
 //! `fixtures/interpolation_merge` come from the official `cue` binary;
 //! regenerate them with its `regen.py`.
 

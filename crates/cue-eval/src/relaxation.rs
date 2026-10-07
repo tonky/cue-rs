@@ -1724,7 +1724,37 @@ impl<'a> RelaxationLoop<'a> {
                 .eval
                 .arena
                 .alloc(Value::Struct(Box::new(fresh.structure.clone())));
+            // A definition's declaration adds to a field the definition
+            // declares elsewhere as one more of its conjuncts: the field is
+            // derived again from all of them and closed once, as the
+            // definition's own fields are, rather than meeting the closed value
+            // (`s: admin: lab: 1` from a `for` beside `s: admin: {spec: 1}`).
+            let rejoined: Vec<(Section, String)> = if recipe.closes {
+                SECTIONS
+                    .iter()
+                    .flat_map(|section| {
+                        section
+                            .map(&fresh.structure)
+                            .keys()
+                            .filter(|name| section.map(s).contains_key(*name))
+                            .map(|name| (*section, name.clone()))
+                            .collect::<Vec<_>>()
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
             merge_generated(&mut self.eval.arena, s, fresh.structure);
+            for (section, name) in rejoined {
+                let Some(entry) = section.map(s).get(&name).cloned() else {
+                    continue;
+                };
+                if let Some(val) = self.derive_field(&entry, s, section, &name)?
+                    && let Some(slot) = section.map_mut(s).get_mut(&name)
+                {
+                    slot.val = val;
+                }
+            }
             crate::closedness::vouch_struct(
                 &mut self.eval.arena,
                 s,

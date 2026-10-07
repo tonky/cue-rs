@@ -985,6 +985,10 @@ impl Evaluator {
             }
             Expr::Interpolation { parts, .. } => {
                 let mut result_str = String::new();
+                // An operand not concrete yet makes the result incomplete, but a
+                // later operand's error still decides it (`"\(a.x) \(a.y)"` with
+                // `a.y` undefined is that error), as upstream reports.
+                let mut incomplete = None;
                 for part in parts {
                     match part {
                         InterpolationPart::Lit(s) => result_str.push_str(s),
@@ -996,6 +1000,11 @@ impl Evaluator {
                                 Some(Value::Int(i)) => result_str.push_str(&i.to_string()),
                                 Some(Value::Float(f)) => result_str.push_str(&f.to_string()),
                                 Some(Value::Bool(b)) => result_str.push_str(&b.to_string()),
+                                Some(Value::Bottom(reason))
+                                    if reason.kind == BottomKind::Incomplete =>
+                                {
+                                    incomplete.get_or_insert(val_id);
+                                }
                                 // A propagated error is already the cause. Decorating it
                                 // on each derivation changes the value forever, preventing
                                 // the merge from settling and retaining growing messages.
@@ -1008,10 +1017,12 @@ impl Evaluator {
                                         value,
                                     ) =>
                                 {
-                                    return Ok(self.arena.bottom_of(
-                                        BottomKind::Incomplete,
-                                        "invalid interpolation: non-concrete value",
-                                    ));
+                                    if incomplete.is_none() {
+                                        incomplete = Some(self.arena.bottom_of(
+                                            BottomKind::Incomplete,
+                                            "invalid interpolation: non-concrete value",
+                                        ));
+                                    }
                                 }
                                 other => {
                                     return Ok(self.arena.bottom(format!(
@@ -1022,7 +1033,7 @@ impl Evaluator {
                         }
                     }
                 }
-                Ok(self.arena.string(result_str))
+                Ok(incomplete.unwrap_or_else(|| self.arena.string(result_str)))
             }
             // Only a hand-built tree puts a comprehension outside a list; it
             // stands for the closed list of its yields.

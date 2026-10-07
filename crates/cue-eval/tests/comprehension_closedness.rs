@@ -15,10 +15,16 @@ mod support;
 
 /// Fixtures cue-rs still evaluates differently, each with the reason. The test
 /// asserts they *still* differ, so a fix fails here and forces its entry out.
-const KNOWN_DIVERGENCES: &[(&str, &str)] = &[(
-    "conflict_after_incomplete.cue",
-    "cue reports the conflict at `t.a.b` before the incomplete `s.a.b`; cue-rs reports the first field it exports",
-)];
+const KNOWN_DIVERGENCES: &[(&str, &str)] = &[
+    (
+        "conflict_after_incomplete.cue",
+        "cue reports the conflict at `t.a.b` before the incomplete `s.a.b`; cue-rs reports the first field it exports",
+    ),
+    (
+        "def_for_adds_under_dynamic_nested_def.cue",
+        "both refuse `lab` under the nested #X; cue-rs fails the whole evaluation (the `for` source re-derived to that error) instead of naming `a.s.admin.lab`",
+    ),
+];
 
 #[test]
 fn comprehension_closedness_matches_cue_export() {

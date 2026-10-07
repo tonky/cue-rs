@@ -40,6 +40,10 @@ what the merge added: closing each conjunct alone would intersect them.
 `definition_generation` does the same for what a definition's comprehension
 generates; a generated field the definition declares nowhere else is closed
 at once, so a user's subfield under it is checked (`#R & {a: true, s: y: 2}`).
+A field it declares elsewhere too is derived again from all its conjuncts
+(`derive_recipes`), not met as a closed value: `#G: {s: admin: {spec: 1}, if
+class == "admin" {s: admin: lab: 1}}` allows `lab`, and a nested `#X` in its
+place still refuses it.
 `Conjunct::same` treats `Value(id)` and `Closed(id)` as one contribution, so a
 retraction still finds a field the guard no longer generates.
 
