@@ -116,3 +116,53 @@ fn a_large_imported_definition_beside_an_override_is_not_rederived() {
         evaluator.derivations
     );
 }
+
+/// What a comprehension generates follows the merge (an `if` body reading a
+/// sibling, a `for` body reading its loop value and a literal `let`), and a
+/// pattern's target meets each field it matches; each costs the recipes that
+/// read what moved, once per merge, not once per sweep or per field beside it.
+#[test]
+fn generated_and_pattern_matched_fields_derive_once_per_merge() {
+    let services = 200;
+    let mut source = String::from(
+        r#"#Svc: {
+	name: string | *"n"
+	port: int | *80
+	let host = "\(name).local"
+	if port > 0 {url: "http://\(host):\(port)"}
+	for i, r in [1, 2] {"r\(i)": "\(host)-\(r)"}
+}
+merged: {
+"#,
+    );
+    for i in 0..services {
+        source.push_str(&format!("\ts{i}: #Svc & {{name: \"s{i}\"}}\n"));
+    }
+    source.push_str("}\nmatched: [string]: #Svc\nmatched: {\n");
+    for i in 0..services {
+        source.push_str(&format!("\ts{i}: {{name: \"s{i}\", port: {i}}}\n"));
+    }
+    source.push_str("}\n");
+
+    let (json, derivations, unsettled) = eval(&source);
+    assert_eq!(
+        json["merged"]["s7"],
+        serde_json::json!({
+            "name": "s7", "port": 80, "url": "http://s7.local:80",
+            "r0": "s7.local-1", "r1": "s7.local-2",
+        })
+    );
+    assert_eq!(
+        json["matched"]["s7"],
+        serde_json::json!({
+            "name": "s7", "port": 7, "url": "http://s7.local:7",
+            "r0": "s7.local-1", "r1": "s7.local-2",
+        })
+    );
+    assert_eq!(unsettled, 0);
+    // `url`, `r0` and `r1` of each service in both maps.
+    assert!(
+        derivations <= 3 * 2 * services,
+        "{services} services in two maps derived {derivations} recipes"
+    );
+}

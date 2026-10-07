@@ -1121,6 +1121,20 @@ impl<'a> RelaxationLoop<'a> {
         visiting: &mut HashSet<ValueId>,
     ) -> Result<Sweep, EvalError> {
         let mut descent = Sweep::default();
+        // Per pattern: whether its target reads its own fields, and whether it
+        // holds a recipe. Both are properties of the target alone.
+        let patterns: Vec<(ValueId, bool, bool)> = s
+            .pattern_constraints
+            .iter()
+            .map(|pc| {
+                (
+                    pc.pattern_val,
+                    reads_own_fields(&self.eval.arena, pc.target_val),
+                    crate::closedness::holds_recipe(&self.eval.arena, pc.target_val),
+                )
+            })
+            .filter(|(_, reads, holds)| *reads || *holds)
+            .collect();
         for section in SECTIONS {
             let names: Vec<String> = section.map(s).keys().cloned().collect();
             for name in names {
@@ -1128,22 +1142,24 @@ impl<'a> RelaxationLoop<'a> {
                     continue;
                 };
                 // A pattern meets the fields it matches without leaving a
-                // conjunct. What it merged holds a field on credit only if a
-                // closed value met one it does not declare, and only a
-                // comprehension the pattern brought can settle it, so only
-                // then does it settle below as any merge does. Descending into
-                // every matched field would derive nested patterns again on
-                // every pass.
+                // conjunct. What it merged settles below as any merge does
+                // when the pattern's target has a field that reads its
+                // siblings (`[string]: {a: int | *0, x: a}` meeting `{a: 3}`),
+                // or holds a field on credit - a closed value met one it does
+                // not declare, which only a comprehension the pattern brought
+                // can settle. Descending into every matched field would derive
+                // nested patterns again on every pass.
                 if entry.conjuncts.len() < 2
-                    && (!s.pattern_constraints.iter().any(|pc| {
-                        crate::closedness::holds_recipe(&self.eval.arena, pc.target_val)
-                            && crate::unify::field_matches_pattern(
-                                &self.eval.arena,
-                                pc.pattern_val,
-                                &name,
-                            )
-                    }) || crate::closedness::unvouched_field(&self.eval.arena, entry.val)
-                        .is_none())
+                    && !patterns.iter().any(|&(pattern, reads, holds)| {
+                        crate::unify::field_matches_pattern(&self.eval.arena, pattern, &name)
+                            && (reads
+                                || holds
+                                    && crate::closedness::unvouched_field(
+                                        &self.eval.arena,
+                                        entry.val,
+                                    )
+                                    .is_some())
+                    })
                 {
                     continue;
                 }
@@ -1297,7 +1313,9 @@ impl<'a> RelaxationLoop<'a> {
         let saved_imports = std::mem::replace(&mut self.eval.imports, thunk.env.imports.clone());
         let saved_depth = self.eval.struct_scope_depth;
 
-        let mut result = self.rebind_enclosing(&thunk.env, s).map(|()| None);
+        let mut result = self
+            .rebind_enclosing(&thunk.env, s, Some(&thunk.deps))
+            .map(|()| None);
         self.eval.push_scope();
         self.eval.struct_scope_depth = self.eval.scopes.len().saturating_sub(1);
         for section in SECTIONS {
@@ -1352,11 +1370,33 @@ impl<'a> RelaxationLoop<'a> {
     /// means the merged `a`, not the one captured when the body first ran. A
     /// guard or `for` source that changes reruns the comprehension instead;
     /// this is what keeps a body right when the merge leaves those alone.
-    fn rebind_enclosing(&mut self, env: &ThunkEnv, s: &StructValue) -> Result<(), EvalError> {
+    ///
+    /// With `reads`, only the names a recipe could read are bound, and only
+    /// the `let`s among them derived: a field's recipe reads few of them. A
+    /// rerun comprehension evaluates its whole body, so it binds them all.
+    fn rebind_enclosing(
+        &mut self,
+        env: &ThunkEnv,
+        s: &StructValue,
+        reads: Option<&HashSet<String>>,
+    ) -> Result<(), EvalError> {
         if env.enclosing.is_none() {
             return Ok(());
         }
-        let mut chain: Vec<_> = env.enclosing_literals().cloned().collect();
+        let read = |name: &str| reads.is_none_or(|reads| reads.contains(name));
+        let mut chain: Vec<_> = env
+            .enclosing_literals()
+            .filter(|outer| {
+                reads.is_none_or(|reads| {
+                    outer.env.lets.iter().any(|(name, _)| reads.contains(name))
+                        || reads.iter().any(|name| outer.env.owns_field(name))
+                })
+            })
+            .cloned()
+            .collect();
+        if chain.is_empty() {
+            return Ok(());
+        }
         // Outermost first: a literal's `let` may read the literal around it.
         chain.reverse();
         let saved_env = self.eval.current_env.clone();
@@ -1372,11 +1412,17 @@ impl<'a> RelaxationLoop<'a> {
             self.eval.current_env = Some(outer.env.clone());
             self.eval.struct_scope_depth = outer.frame;
             for name in outer.env.own_fields.borrow().iter() {
+                if !read(name) {
+                    continue;
+                }
                 if let Some(entry) = SECTIONS.iter().find_map(|section| section.map(s).get(name)) {
                     self.eval.insert_binding(name, entry.val);
                 }
             }
             for (name, expr) in &outer.env.lets {
+                if !read(name) {
+                    continue;
+                }
                 match self.eval.eval_expr(expr) {
                     // As in `derive_thunk`: one that cannot be derived here
                     // keeps the value it was captured with.
@@ -1705,8 +1751,21 @@ impl<'a> RelaxationLoop<'a> {
             if !placed {
                 continue;
             }
+            let only_rerun = conjuncts.len() == after.conjuncts.len();
             let candidate = FieldEntry::with_conjuncts(entry.val, entry.optional, conjuncts);
-            let val = self.derive_field(&candidate, s, name)?.unwrap_or(entry.val);
+            let val = if only_rerun {
+                // Nothing else declares the field: the rerun derived it already,
+                // and only the struct's patterns are left to meet it.
+                let mut val = after.val;
+                for pc in &s.pattern_constraints {
+                    if crate::unify::field_matches_pattern(&self.eval.arena, pc.pattern_val, name) {
+                        val = unify(&mut self.eval.arena, val, pc.target_val);
+                    }
+                }
+                val
+            } else {
+                self.derive_field(&candidate, s, name)?.unwrap_or(entry.val)
+            };
             let moved = val != entry.val
                 && compare_values(&self.eval.arena, val, entry.val) != Equivalence::Equal;
             updates.push((
@@ -1748,7 +1807,7 @@ impl<'a> RelaxationLoop<'a> {
         let saved_depth = self.eval.struct_scope_depth;
         let saved_field = self.eval.current_field.take();
 
-        let mut result = self.rebind_enclosing(env, s);
+        let mut result = self.rebind_enclosing(env, s, None);
         self.eval.push_scope();
         self.eval.struct_scope_depth = self.eval.scopes.len().saturating_sub(1);
         for section in SECTIONS {
@@ -1822,6 +1881,34 @@ impl<'a> RelaxationLoop<'a> {
         s.recipes
             .retain(|kept| kept != recipe && !recipe.outcome.recipes.contains(kept));
     }
+}
+
+/// Whether a struct has a field whose recipe reads a name - possibly a sibling,
+/// which a merge into the struct moves - or a declaration still to run, or a
+/// pattern whose target does: a field that pattern matches at the merge reads
+/// its own siblings too (`[string]: [string]: #Svc`).
+fn reads_own_fields(arena: &ValueArena, id: ValueId) -> bool {
+    fn walk(arena: &ValueArena, id: ValueId, seen: &mut HashSet<ValueId>) -> bool {
+        if !seen.insert(id) {
+            return false;
+        }
+        let Some(Value::Struct(s)) = arena.get(id) else {
+            return false;
+        };
+        !s.recipes.is_empty()
+            || SECTIONS.iter().any(|section| {
+                section.map(s).values().any(|entry| {
+                    entry
+                        .conjuncts
+                        .iter()
+                        .any(|conjunct| matches!(conjunct, Conjunct::Thunk(_)))
+                })
+            })
+            || s.pattern_constraints
+                .iter()
+                .any(|pc| walk(arena, pc.target_val, seen))
+    }
+    walk(arena, id, &mut HashSet::new())
 }
 
 /// Mark what a definition's declaration generated as the definition's: its

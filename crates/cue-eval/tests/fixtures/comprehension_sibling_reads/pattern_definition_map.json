@@ -1,0 +1,19 @@
+{
+  "svcs": {
+    "a": {
+      "name": "a",
+      "port": 80,
+      "url": "http://a:80"
+    },
+    "b": {
+      "name": "b",
+      "port": 90,
+      "url": "http://b:90"
+    },
+    "c": {
+      "name": "n",
+      "port": 80,
+      "url": "http://n:80"
+    }
+  }
+}

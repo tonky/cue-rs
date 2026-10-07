@@ -170,3 +170,71 @@ out: base & {p: 9}
     assert_eq!(out["base"]["c"], json!("outer"));
     assert_eq!(out["out"]["c"], json!("outer"));
 }
+
+/// An imported preset whose comprehensions read its own fields - the `if`
+/// body a sibling and a literal `let`, the `for` body its loop value - follows
+/// the importer's overrides through one merge and the next. Expectations are
+/// cue v0.17.1's output for the same module.
+#[test]
+fn an_imported_preset_generates_from_the_importers_overrides() {
+    let module = tempfile::tempdir().expect("temp dir");
+    let root = module.path();
+    std::fs::create_dir_all(root.join("cue.mod")).unwrap();
+    std::fs::create_dir_all(root.join("presets")).unwrap();
+    std::fs::write(
+        root.join("cue.mod/module.cue"),
+        "module: \"example.com/m@v0\"\nlanguage: version: \"v0.16.1\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("presets/presets.cue"),
+        r#"package presets
+
+#Postgres: {
+	database: string | *"postgres"
+	user:     string | *"admin"
+	let owner = "owner \(user)"
+	if database != "" {
+		postInit: "create \(database) \(owner)"
+	}
+	ports: [...int] | *[5432]
+	for i, p in ports {"port\(i)": p}
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("use.cue"),
+        r#"package use
+
+import "example.com/m/presets"
+
+db:    presets.#Postgres & {database: "app"}
+other: db & {user: "bob", ports: [1, 2]}
+"#,
+    )
+    .unwrap();
+
+    let (evaluator, value) =
+        cue_eval::PackageLoader::load_file(root.join("use.cue")).expect("loads");
+    assert_eq!(
+        evaluator.to_json(value).expect("exports"),
+        json!({
+            "db": {
+                "database": "app",
+                "user": "admin",
+                "postInit": "create app owner admin",
+                "ports": [5432],
+                "port0": 5432,
+            },
+            "other": {
+                "database": "app",
+                "user": "bob",
+                "postInit": "create app owner bob",
+                "ports": [1, 2],
+                "port0": 1,
+                "port1": 2,
+            },
+        })
+    );
+}

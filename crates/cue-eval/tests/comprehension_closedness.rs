@@ -24,24 +24,10 @@ fn fixtures(dir: &str) -> PathBuf {
 
 /// Fixtures cue-rs still evaluates differently, each with the reason. The test
 /// asserts they *still* differ, so a fix fails here and forces its entry out.
-const KNOWN_DIVERGENCES: &[(&str, &str)] = &[
-    (
-        "pattern_target_reads_sibling.cue",
-        "a pattern's target is met by the fields it matches without leaving a conjunct, so a field it declares that reads a sibling (`x: a`) is not derived again for the matched field's own `a` (`x: 0`, cue `x: 3`)",
-    ),
-    (
-        "pattern_target_comprehension.cue",
-        "the same through a comprehension in the pattern's target",
-    ),
-    (
-        "pattern_target_in_def.cue",
-        "the same through a definition's pattern",
-    ),
-    (
-        "conflict_after_incomplete.cue",
-        "cue reports the conflict at `t.a.b` before the incomplete `s.a.b`; cue-rs reports the first field it exports",
-    ),
-];
+const KNOWN_DIVERGENCES: &[(&str, &str)] = &[(
+    "conflict_after_incomplete.cue",
+    "cue reports the conflict at `t.a.b` before the incomplete `s.a.b`; cue-rs reports the first field it exports",
+)];
 
 /// The path cue's diagnostic names: its first line up to the first `: `.
 fn cue_error_path(diagnostic: &str) -> &str {
@@ -133,7 +119,8 @@ fn comprehension_closedness_matches_cue_export() {
 /// literal the comprehension is written in (`if c {x: a}` with `a` overridden),
 /// and what a `for` or `let` clause bound from one, when the merge leaves the
 /// clauses deciding as they did - in plain structs and definitions, nested
-/// comprehensions, several merges in a row and listed or embedded definitions.
+/// comprehensions, several merges in a row and listed or embedded definitions;
+/// and a pattern's target meeting the fields it matches the same way.
 #[test]
 fn comprehension_sibling_reads_match_cue_export() {
     match_cue_export("comprehension_sibling_reads", 30);
