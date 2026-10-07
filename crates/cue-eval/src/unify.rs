@@ -1214,26 +1214,35 @@ fn merge_struct_fields(
 
     // Merge regular fields
     for key in arc_order(&s1.fields, &s2.fields) {
-        let entry = match (s1.fields.get(&key), s2.fields.get(&key)) {
+        // A side's fields have met that side's own patterns already (the
+        // literal declaring them applies its patterns, and a merge applies
+        // both sides'), so a field meets only the other side's. Meeting its
+        // own again is not idempotent for a value derived from defaults:
+        // `svcs: [string]: #Svc` with `svcs: a: {name: "a"}` and then
+        // `svcs: b: {...}` met `a`'s derived `url: "http://a"` with a fresh
+        // `#Svc`'s `"http://n"`, and each further declaration of `svcs` met
+        // every field so far again.
+        let (entry, unmet) = match (s1.fields.get(&key), s2.fields.get(&key)) {
             (Some(e1), Some(e2)) => {
                 let unified_val = unify_field(arena, &key, e1.val, e2.val, ctx);
                 if collapses_struct(arena, unified_val) && !(e1.optional && e2.optional) {
                     return arena.bottom_at(&key, unified_val);
                 }
-                FieldEntry::with_conjuncts(
+                let entry = FieldEntry::with_conjuncts(
                     unified_val,
                     e1.optional && e2.optional,
                     merge_conjuncts(e1, e2),
-                )
+                );
+                (entry, &[][..])
             }
-            (Some(e1), None) => e1.clone(),
-            (None, Some(e2)) => e2.clone(),
+            (Some(e1), None) => (e1.clone(), &s2.pattern_constraints[..]),
+            (None, Some(e2)) => (e2.clone(), &s1.pattern_constraints[..]),
             (None, None) => unreachable!(),
         };
 
-        // Apply all pattern constraints matching this field
+        // Apply the pattern constraints this field has not met yet
         let mut cur_val = entry.val;
-        for pc in &merged.pattern_constraints {
+        for pc in unmet {
             if field_matches_pattern(arena, pc.pattern_val, &key) {
                 // A field that already failed keeps its own error: meeting it
                 // with the pattern again would widen the failure to the whole

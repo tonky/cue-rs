@@ -111,6 +111,10 @@ pub(crate) fn collect_field_declarations(decls: &[Decl]) -> Cow<'_, [Decl]> {
 
     let mut collected: Vec<Decl> = Vec::with_capacity(decls.len());
     let mut positions: HashMap<(&str, bool, bool), usize> = HashMap::new();
+    // The later declarations' values of each repeated field, by the index of
+    // its first declaration. The conjunction is built once at the end: built
+    // as it grows, every declaration cloned the whole chain so far.
+    let mut repeats: HashMap<usize, Vec<&Expr>> = HashMap::new();
     for decl in decls {
         if let Decl::Field(field) = decl
             && let Some(name) = field.label.name()
@@ -126,18 +130,43 @@ pub(crate) fn collect_field_declarations(decls: &[Decl]) -> Cow<'_, [Decl]> {
                     previous.label = field.label.clone();
                 }
                 previous.optional &= field.optional;
-                previous.value = Expr::Binary {
-                    op: BinaryOp::Unify,
-                    left: Box::new(previous.value.clone()),
-                    right: Box::new(field.value.clone()),
-                };
+                repeats.entry(index).or_default().push(&field.value);
                 continue;
             }
             positions.insert(key, collected.len());
         }
         collected.push(decl.clone());
     }
+    for (index, mut values) in repeats {
+        let Decl::Field(field) = &mut collected[index] else {
+            unreachable!();
+        };
+        let first = std::mem::replace(&mut field.value, Expr::Top);
+        values.insert(0, &first);
+        field.value = balanced_conjunction(&values);
+    }
     Cow::Owned(collected)
+}
+
+/// `a: x, a: y, a: z` is `a: x & y & z`. Unification is associative, so the
+/// conjunction is nested as a balanced tree, in declaration order: nested to
+/// the left as the parser nests a chain, each merge copies everything the
+/// declarations so far merged, and n declarations cost n² (3000 of
+/// `svcs: sN: {...}` beside a `[string]: #Svc` pattern took 9 s). Up to three
+/// declarations the two shapes are the same.
+fn balanced_conjunction(values: &[&Expr]) -> Expr {
+    match values {
+        [] => Expr::Top,
+        [value] => (*value).clone(),
+        _ => {
+            let (left, right) = values.split_at(values.len().div_ceil(2));
+            Expr::Binary {
+                op: BinaryOp::Unify,
+                left: Box::new(balanced_conjunction(left)),
+                right: Box::new(balanced_conjunction(right)),
+            }
+        }
+    }
 }
 
 /// Whether a pass that resolved no declaration nevertheless left one of them

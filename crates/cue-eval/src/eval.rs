@@ -627,6 +627,50 @@ impl Evaluator {
         res
     }
 
+    /// Apply binary operator `op` of `expr` to its evaluated operands.
+    fn apply_binary(
+        &mut self,
+        expr: &Expr,
+        op: BinaryOp,
+        left: &Expr,
+        left_id: ValueId,
+        right: &Expr,
+        right_id: ValueId,
+    ) -> Result<ValueId, EvalError> {
+        match op {
+            BinaryOp::Unify => {
+                if self.is_unbound_self_reference(left, left_id) {
+                    return Ok(right_id);
+                }
+                if self.is_unbound_self_reference(right, right_id) {
+                    return Ok(left_id);
+                }
+                let merged = unify(&mut self.arena, left_id, right_id);
+                let merged = RelaxationLoop::new(self).rederive(merged)?;
+                Ok(self.literal_fields_first(expr, merged))
+            }
+            BinaryOp::Disjoin => {
+                let branches = vec![
+                    ValueBranch {
+                        default: false,
+                        val: left_id,
+                    },
+                    ValueBranch {
+                        default: false,
+                        val: right_id,
+                    },
+                ];
+                Ok(self.arena.alloc(Value::Disjunction { branches }))
+            }
+            _ => Ok(crate::operators::binary(
+                &mut self.arena,
+                op,
+                left_id,
+                right_id,
+            )),
+        }
+    }
+
     /// A bare reference to the field being defined contributes no new
     /// constraint in a conjunction: x: x & 1 is simply x: 1. Restrict this to
     /// the reference itself; a cycle inside arithmetic or interpolation is
@@ -777,42 +821,31 @@ impl Evaluator {
                 };
                 self.eval_bottom_check(*op, operand)
             }
-            Expr::Binary { op, left, right } => {
-                let left_id = self.eval_expr(left)?;
-                let right_id = self.eval_expr(right)?;
-
-                match op {
-                    BinaryOp::Unify => {
-                        if self.is_unbound_self_reference(left, left_id) {
-                            return Ok(right_id);
-                        }
-                        if self.is_unbound_self_reference(right, right_id) {
-                            return Ok(left_id);
-                        }
-                        let merged = unify(&mut self.arena, left_id, right_id);
-                        let merged = RelaxationLoop::new(self).rederive(merged)?;
-                        Ok(self.literal_fields_first(expr, merged))
+            Expr::Binary { .. } => {
+                // A chain of binary operators (`a & b & c`, and the repeated
+                // declarations of one field, merged into one) nests to the
+                // left as deep as it is long, so it is walked down its left
+                // spine and folded back up here instead of recursing, at one
+                // depth whatever its length: recursing put a cap of 64
+                // operands on it ("recursion depth limit exceeded").
+                let mut spine: Vec<&Expr> = vec![expr];
+                let mut innermost = expr;
+                while let Expr::Binary { left, .. } = innermost {
+                    innermost = left;
+                    if !is_chained_binary(innermost) {
+                        break;
                     }
-                    BinaryOp::Disjoin => {
-                        let branches = vec![
-                            ValueBranch {
-                                default: false,
-                                val: left_id,
-                            },
-                            ValueBranch {
-                                default: false,
-                                val: right_id,
-                            },
-                        ];
-                        Ok(self.arena.alloc(Value::Disjunction { branches }))
-                    }
-                    _ => Ok(crate::operators::binary(
-                        &mut self.arena,
-                        *op,
-                        left_id,
-                        right_id,
-                    )),
+                    spine.push(innermost);
                 }
+                let mut acc = self.eval_expr(innermost)?;
+                for node in spine.into_iter().rev() {
+                    let Expr::Binary { op, left, right } = node else {
+                        unreachable!("the spine holds binary nodes");
+                    };
+                    let right_id = self.eval_expr(right)?;
+                    acc = self.apply_binary(node, *op, left, acc, right, right_id)?;
+                }
+                Ok(acc)
             }
             Expr::Unary { op, expr } => {
                 let target_id = self.eval_expr(expr)?;
@@ -1140,5 +1173,18 @@ impl Evaluator {
         path: &str,
     ) -> Result<serde_json::Value, String> {
         crate::export::to_json_at_path(&self.arena, val_id, path)
+    }
+}
+
+/// Whether `expr` is a binary operation the generic arm of
+/// [`Evaluator::eval_expr`] evaluates, so a chain can be folded through it.
+/// `x == _|_` is a bottom check with its own rules, evaluated as a leaf.
+fn is_chained_binary(expr: &Expr) -> bool {
+    match expr {
+        Expr::Binary { op, left, right } => {
+            !(matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
+                && (matches!(**left, Expr::Bottom) || matches!(**right, Expr::Bottom)))
+        }
+        _ => false,
     }
 }

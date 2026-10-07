@@ -1,0 +1,3 @@
+a: conflicting values 2 and 1:
+    ./repeated_declarations_conflict.cue:1:4
+    ./repeated_declarations_conflict.cue:200:4
