@@ -1,0 +1,3 @@
+x.l: invalid interpolation: cannot use {a:1} (type struct) as type (bool|string|bytes|number):
+    ./interp_error_struct_operand.cue:1:19
+    ./interp_error_struct_operand.cue:1:8

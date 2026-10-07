@@ -1,0 +1,16 @@
+{
+  "components": {
+    "a": {
+      "lint": {
+        "command": "cargo clippy -p a"
+      },
+      "worker": "mac"
+    },
+    "b": {
+      "lint": {
+        "command": "cargo clippy -p b"
+      },
+      "worker": "mac"
+    }
+  }
+}

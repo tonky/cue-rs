@@ -1000,6 +1000,19 @@ impl Evaluator {
                                 // on each derivation changes the value forever, preventing
                                 // the merge from settling and retaining growing messages.
                                 Some(Value::Bottom(_)) => return Ok(val_id),
+                                // Not concrete yet: a merge may still supply the value
+                                // (`t & {p: "x"}` for `t: {p: string, l: "\(p)"}`), so
+                                // the field stays incomplete instead of conflicting.
+                                Some(value)
+                                    if crate::operators::incomplete_interpolation_operand(
+                                        value,
+                                    ) =>
+                                {
+                                    return Ok(self.arena.bottom_of(
+                                        BottomKind::Incomplete,
+                                        "invalid interpolation: non-concrete value",
+                                    ));
+                                }
                                 other => {
                                     return Ok(self.arena.bottom(format!(
                                         "string interpolation requires concrete scalar value, got {other:?} for expr {e:?}"

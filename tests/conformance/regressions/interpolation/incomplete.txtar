@@ -1,0 +1,8 @@
+-- in.cue --
+p: string
+q: int
+a: "c \(p)" @test(err, code=incomplete)
+b: {
+	l: string
+	l: "port \(q)" @test(err, code=incomplete)
+}

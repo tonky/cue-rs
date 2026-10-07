@@ -1,0 +1,6 @@
+{
+  "x": {
+    "lint": "cargo clippy -p x",
+    "worker": "mac"
+  }
+}

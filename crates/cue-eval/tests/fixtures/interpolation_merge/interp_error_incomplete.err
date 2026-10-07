@@ -1,0 +1,5 @@
+x.p: incomplete value string:
+    ./interp_error_incomplete.cue:1:8
+x.l: invalid interpolation: non-concrete value string (type string):
+    ./interp_error_incomplete.cue:1:19
+    ./interp_error_incomplete.cue:1:8

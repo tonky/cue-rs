@@ -1,0 +1,9 @@
+{
+  "x": {
+    "a-job": {
+      "cmd": "run a"
+    },
+    "k": "a",
+    "worker": "mac"
+  }
+}

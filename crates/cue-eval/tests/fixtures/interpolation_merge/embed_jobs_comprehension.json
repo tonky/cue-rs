@@ -1,0 +1,32 @@
+{
+  "pipeline": {
+    "components": {
+      "x": {
+        "lint": {
+          "command": "cargo clippy -p x",
+          "name": "clippy"
+        },
+        "test": "cargo test -p x",
+        "worker": "mac"
+      },
+      "y": {
+        "jobs": {
+          "ready": {}
+        }
+      }
+    },
+    "workflows": {
+      "local": {
+        "stages": [
+          {
+            "select": [
+              "lint",
+              "test",
+              "ready"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

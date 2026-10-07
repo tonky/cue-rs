@@ -1,0 +1,8 @@
+{
+  "x": {
+    "lint": {
+      "command": "cargo clippy -p x",
+      "name": "clippy"
+    }
+  }
+}

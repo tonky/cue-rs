@@ -161,6 +161,18 @@ fn plain_embedding_regressions_match_the_pinned_reference() {
 
 #[test]
 #[ignore = "requires pinned Go oracle; run just conformance-test under just safe"]
+fn interpolation_merge_regressions_match_the_pinned_reference() {
+    for source in [
+        include_str!("../../../tests/conformance/regressions/interpolation/merge.txtar"),
+        include_str!("../../../tests/conformance/regressions/interpolation/incomplete.txtar"),
+    ] {
+        let (ok, report) = oracle_case(source);
+        assert!(ok, "{report}");
+    }
+}
+
+#[test]
+#[ignore = "requires pinned Go oracle; run just conformance-test under just safe"]
 fn scalar_metadata_regressions_match_the_pinned_reference() {
     for source in [
         include_str!("../../../tests/conformance/regressions/metadata/values.txtar"),

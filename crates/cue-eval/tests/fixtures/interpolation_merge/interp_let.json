@@ -1,0 +1,6 @@
+{
+  "x": {
+    "test": "cargo test -p a",
+    "worker": "mac"
+  }
+}

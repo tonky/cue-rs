@@ -629,6 +629,14 @@ fn abstract_value(value: &Value) -> bool {
     )
 }
 
+/// An interpolation operand that is not concrete yet but may still become a
+/// string, number, bool or bytes: incomplete, like an abstract arithmetic
+/// operand, so a later merge can supply the value.
+pub(crate) fn incomplete_interpolation_operand(value: &Value) -> bool {
+    use OperandKind::*;
+    abstract_value(value) && matches!(kind(value), Any | Number | String | Bytes | Bool)
+}
+
 /// Resolve an already-evaluated selector base: total function of the arena.
 /// A definition read before its declaration was evaluated has no fields
 /// *yet*; the relaxation loop retries those.

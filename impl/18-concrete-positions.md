@@ -23,6 +23,14 @@ struct and `export` fails with "incomplete value", as `cue export` does.
 Builtin arguments resolve defaults through list elements (`operators::argument`),
 so `list.Concat([l])` reads `l: *[1] | [...int]` as `[1]`.
 
+An interpolation operand that is abstract but could still interpolate
+(`string`, `int`, `>1024`, `_`) is incomplete, as an abstract arithmetic
+operand is (`operators::incomplete_interpolation_operand`): with
+`t: {p: string, l: "c \(p)"}`, `{l: string} & t & {p: "x"}` and a `t` that
+embeds anything evaluate `l` before `p` arrives, and a conflict there would
+outlive the merge. A struct, list or null operand stays an error
+(`tests/interpolation_merge.rs`).
+
 ## Equality and ordering
 
 `operators::equal` compares null/bool/string/bytes by value, lists element by
