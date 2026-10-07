@@ -215,7 +215,12 @@ and `c?: [...string]` as `[]` while the scalar `e?: int` was correctly dropped.
 Closed by phase 07 stages 3, 4 and 6. A pending declaration binds the partial
 value its pass produced, an unresolved reference no longer collapses the struct
 that holds it, and a pass that refines a partial counts as progress - which is
-what lets a chain of them resolve a link at a time.
+what lets a chain of them resolve a link at a time. A hidden field binds its
+partial the same way, and a definition's partial sits behind its placeholder
+(`ValueArena::provisional`). A recipe derived again after a merge reads its
+scope as it stands then (`ScopeFrame::current`), not as captured, and one still
+waiting on a reference keeps its field pending, then fails, instead of keeping
+what it generated before the merge (`tests/captured_scope.rs`).
 
 Two limits remain, both stated rather than hidden. **A chain longer than eight
 links does not resolve**, where upstream resolves any length: the allowance is
