@@ -300,3 +300,24 @@ fn a_case_runs_with_nothing_on_path() {
         "{report}"
     );
 }
+
+/// Quoted selectors and labels that spell a definition, a hidden field or a
+/// keyword, and preference marks as disjuncts. A misplaced mark fails the
+/// whole package, which the worker cannot attribute to a path yet
+/// (`open/misplaced-marks.txtar`).
+#[test]
+#[ignore = "requires pinned Go oracle; run just conformance-test under just safe"]
+fn label_and_mark_regressions_match_the_pinned_reference() {
+    for source in [
+        include_str!("../../../tests/conformance/regressions/labels/quoted.txtar"),
+        include_str!("../../../tests/conformance/regressions/labels/quoted-errors.txtar"),
+        include_str!("../../../tests/conformance/regressions/marks/disjuncts.txtar"),
+    ] {
+        let (ok, report) = oracle_case(source);
+        let checks = report["cases"][0]["checks"].as_array().unwrap();
+        assert!(
+            ok && !checks.is_empty() && checks.iter().all(|check| check["status"] == "passed"),
+            "{report}"
+        );
+    }
+}

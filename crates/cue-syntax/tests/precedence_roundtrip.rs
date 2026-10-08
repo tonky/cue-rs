@@ -67,6 +67,14 @@ const AS_UPSTREAM: &[&str] = &[
     r#"a."b-c""#,
     r#"a."true""#,
     r#"a."""#,
+    r#"a."d""#,
+    r##"a."#e""##,
+    r#"a."_x""#,
+    r##"a."_#x""##,
+    r#"a."if""#,
+    "a.#e",
+    "a._x",
+    "a._#x",
     "a.in",
     "true || (false & false)",
     "(a | b) & c",
@@ -79,8 +87,15 @@ const AS_UPSTREAM: &[&str] = &[
     "(a < b) + c",
     "(a + b) * c",
     "a * (b + c)",
-    "x & (*a)",
     "(*a | b) & c",
+    "*a & b | c",
+    "*a | b & c",
+    "*(a | b) | c",
+    "*(a & b) | c",
+    "*(*a | b) | c",
+    "**a | b",
+    "-*a | b",
+    "*a",
     "a | (b | c)",
     "[for x in s {y: x}]",
     "[for x in s {x}]",
@@ -109,7 +124,11 @@ const DIVERGENT: &[(&str, &str, &str)] = &[
     // Upstream reads `1.f` as the number `1.` and a stray `f`.
     ("a selector on a number", "1.f", "(1).f"),
     ("a selector under a unary", "-(a.b)", "-a.b"),
-    ("a quoted selector that is an identifier", r#"a."d""#, "a.d"),
+    (
+        "nor a pair around a misplaced preference mark",
+        "x & (*a)",
+        "x & *a",
+    ),
     ("a double negation", "-(-1)", "- -1"),
     ("a double not", "!(!a)", "!!a"),
 ];
@@ -214,4 +233,85 @@ fn every_operator_nested_in_every_other_survives_a_format() {
         let source = format!("v: {}\n", expr(&mut rng, 4));
         round_trip(&source);
     }
+}
+
+/// A quoted selector names a regular field, whatever its text looks like: `a."#e"` is the
+/// field `"#e"`, `a.#e` the definition. Reading both to one tree made the formatter write
+/// the definition for the field, and the evaluator select it.
+#[test]
+fn a_quoted_selector_is_not_the_identifier_it_spells() {
+    for (quoted, bare) in [
+        (r##"a."#e""##, "a.#e"),
+        (r#"a."_x""#, "a._x"),
+        (r##"a."_#x""##, "a._#x"),
+        (r#"a."if""#, "a.if"),
+        (r#"a."d""#, "a.d"),
+    ] {
+        let tree = |source: &str| parse(&format!("v: {source}\n"));
+        assert_ne!(tree(quoted), tree(bare), "{quoted} and {bare}");
+    }
+}
+
+/// Quoted labels that spell an identifier, a keyword or a number stay quoted, as `cue fmt`
+/// v0.17.1 writes them.
+#[test]
+fn quoted_labels_keep_their_quotes() {
+    let source = "\"#e\":  1\n\"_x\":  2\n\"if\":  3\n\"1a\":  4\n\"_#y\": 5\n#e:    1\n";
+    assert_eq!(round_trip(source), source);
+}
+
+/// `*` is a unary operator, binding tighter than `&` and `|` as every unary does; only a
+/// mark that is itself a disjunct makes a default (upstream's `addDisjunctionElem`).
+#[test]
+fn a_preference_mark_binds_as_a_unary_operator() {
+    use cue_syntax::ast::UnaryOp;
+    let branches = |source: &str| match parse(&format!("v: {source}\n")).decls.as_slice() {
+        [Decl::Field(field)] => match &field.value {
+            Expr::Disjunction { branches } => branches.clone(),
+            other => panic!("{source}: {other:?}"),
+        },
+        decls => panic!("{decls:?}"),
+    };
+    let marked = |expr: &Expr| {
+        matches!(
+            expr,
+            Expr::Unary {
+                op: UnaryOp::Default,
+                ..
+            }
+        )
+    };
+
+    // `(*a & b) | c`: no branch is a default; the mark sits inside a conjunction.
+    let b = branches("*a & b | c");
+    assert!(b.iter().all(|b| !b.default), "{b:?}");
+    let Expr::Binary {
+        op: BinaryOp::Unify,
+        left,
+        ..
+    } = &b[0].expr
+    else {
+        panic!("{b:?}");
+    };
+    assert!(marked(left), "{b:?}");
+
+    // `*a | (b & c)`: the first branch is the default, and it is `a` alone.
+    let b = branches("*a | b & c");
+    assert!(b[0].default && matches!(&b[0].expr, Expr::Ident(a) if a == "a"));
+    assert!(!b[1].default && matches!(b[1].expr, Expr::Binary { .. }));
+
+    // `*(a | b) | c`: the default is the nested disjunction.
+    let b = branches("*(a | b) | c");
+    assert!(b[0].default && matches!(b[0].expr, Expr::Disjunction { .. }));
+
+    // `**a | b`: one mark makes the default, the other stays a disjunct's mark.
+    let b = branches("**a | b");
+    assert!(b[0].default && marked(&b[0].expr), "{b:?}");
+
+    // A lone `*a` is no disjunction at all.
+    let value = match parse("v: *a\n").decls.as_slice() {
+        [Decl::Field(field)] => field.value.clone(),
+        decls => panic!("{decls:?}"),
+    };
+    assert!(marked(&value), "{value:?}");
 }

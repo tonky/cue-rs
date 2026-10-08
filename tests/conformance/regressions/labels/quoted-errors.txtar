@@ -1,0 +1,6 @@
+-- in.cue --
+s: {"#e": {a: 1}, #e: {c: 3}, f: 1}
+closed: s.#e & {b: 2} @test(err, code=eval)
+missingField: s."#e2" @test(err, code=incomplete)
+noRegularField: {#e: 2}."#e" @test(err, code=incomplete)
+noDefinition: {"#f": 2}.#f @test(err, code=incomplete)

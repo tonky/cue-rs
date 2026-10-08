@@ -1249,15 +1249,18 @@ impl<'a> Parser<'a> {
         res
     }
 
+    /// `*` is a unary operator like any other, binding tighter than `&`, so
+    /// `*a & b | c` is `(*a & b) | c`. A branch that is itself marked (`*a`,
+    /// `*(a | b)`) is a default, which takes one mark off it; a mark anywhere
+    /// else stays in the tree, where upstream's compiler rejects it.
     fn parse_disjunction(&mut self) -> Result<Expr, ParseError> {
         let mut branches = Vec::new();
         let mut on_new_line = false;
 
         loop {
-            let default = self.match_token(&Token::Star);
             let expr = self.parse_unification()?;
             branches.push(DisjunctionBranch {
-                default,
+                default: false,
                 expr,
                 on_new_line,
             });
@@ -1269,11 +1272,19 @@ impl<'a> Parser<'a> {
             on_new_line = !self.opens_inline(&pipe);
         }
 
-        if branches.len() == 1 && !branches[0].default {
-            Ok(branches.pop().unwrap().expr)
-        } else {
-            Ok(Expr::Disjunction { branches })
+        if branches.len() == 1 {
+            return Ok(branches.pop().unwrap().expr);
         }
+        for branch in &mut branches {
+            (branch.expr, branch.default) = match std::mem::replace(&mut branch.expr, Expr::Top) {
+                Expr::Unary {
+                    op: UnaryOp::Default,
+                    expr,
+                } => (*expr, true),
+                expr => (expr, false),
+            };
+        }
+        Ok(Expr::Disjunction { branches })
     }
 
     fn parse_unification(&mut self) -> Result<Expr, ParseError> {

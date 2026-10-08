@@ -556,12 +556,16 @@ fn format_expr(expr_node: &Expr, out: &mut String, indent: usize) {
                         false => out.push(' '),
                     }
                 }
+                // A default is the operand of a unary `*`: `*(a & b) | c`, since
+                // `*a & b | c` marks only `a`. Any other branch binds at least as
+                // tightly as the disjunction holding it, so only something looser —
+                // another bare disjunction — needs the parentheses.
                 if b.default {
                     out.push('*');
+                    format_operand(&b.expr, UNARY, out, indent);
+                } else {
+                    format_operand(&b.expr, 2, out, indent);
                 }
-                // A branch binds at least as tightly as the disjunction holding it, so
-                // only something looser — another bare disjunction — needs the parentheses.
-                format_operand(&b.expr, 2, out, indent);
             }
         }
         // A postfix operator binds tighter than anything but a term, so its operand is
@@ -773,10 +777,13 @@ fn binding_strength(expr: &Expr) -> u8 {
             BinaryOp::Add | BinaryOp::Sub => 6,
             BinaryOp::Mul | BinaryOp::Div => 7,
         },
-        Expr::Unary { .. } => 8,
+        Expr::Unary { .. } => UNARY,
         _ => u8::MAX,
     }
 }
+
+/// How tightly a unary operator binds its operand: tighter than any binary one.
+const UNARY: u8 = 8;
 
 /// Writes a literal back in the spelling it was read in.
 ///

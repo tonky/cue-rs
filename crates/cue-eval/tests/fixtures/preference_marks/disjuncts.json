@@ -1,0 +1,21 @@
+{
+  "b": 1,
+  "d": {
+    "mode": "fast"
+  },
+  "dslow": {
+    "mode": "slow"
+  },
+  "field": {
+    "f": 1
+  },
+  "grouped": 1,
+  "inner": 1,
+  "nested": 1,
+  "over": {
+    "f": "y"
+  },
+  "read": 1,
+  "sum": 1,
+  "twice": 1
+}

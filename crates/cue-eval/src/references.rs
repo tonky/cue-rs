@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 /// The first unreferenced `let`, alias or import in `file`, as upstream words
 /// it.
 pub fn check_file(file: &SourceFile) -> Result<(), String> {
+    crate::preference::check(&file.decls)?;
     let used = identifiers(&file.decls);
     for import in &file.imports {
         let name = import

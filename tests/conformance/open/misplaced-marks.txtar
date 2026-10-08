@@ -1,0 +1,8 @@
+-- in.cue --
+conjunctionLeft: *1 & int | 2 @test(err, code=eval)
+conjunctionRight: *1 | 2 & *1 @test(err, code=eval)
+lone: *1 @test(err, code=eval)
+list: [*1, 2] @test(err, code=eval)
+negated: -*1 | 2 @test(err, code=eval)
+unified: x & *2 @test(err, code=eval)
+x: *1 | 2

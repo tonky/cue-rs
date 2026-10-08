@@ -13,6 +13,7 @@ pub mod manifest;
 mod metadata;
 mod operators;
 pub mod package;
+mod preference;
 pub mod references;
 mod relaxation;
 mod schedule;

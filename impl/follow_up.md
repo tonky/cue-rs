@@ -500,3 +500,18 @@ not justify another cache yet: after deduplication they would still leave the
 arena in its current capacity band, and the key vectors add ownership overhead.
 Focus next on retained struct/field storage and root-safe reclamation, including
 saved evaluator frames and externally held ValueIds before collecting any node.
+
+## A compile error fails every check of its archive
+
+Open, harness-side. Upstream rejects a whole file at compile time for a
+misplaced preference mark (`*1 & int | 2`, `x: *1`, `[*1]`), and its plan
+then reports code `eval` at every `@test(err)` path. cue-rs rejects the file
+too (`preference.rs`, through `references::check_file`), but the worker reports
+`package load failed` for every check, so `open/misplaced-marks.txtar` cannot
+pass; the cue-eval goldens in `fixtures/preference_marks` hold the coverage.
+Attributing a compile error to each error check is the fix, limited to
+compile errors so an unsupported construct does not pass error checks.
+
+One mark is still accepted that upstream rejects: `(*1) | 2`. The parser keeps
+no parentheses, so it reads as `*1 | 2`; upstream sees a parenthesised mark,
+which is not a disjunct.

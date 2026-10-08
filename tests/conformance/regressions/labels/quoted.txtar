@@ -1,0 +1,24 @@
+-- in.cue --
+a: {"#e": 1, #e: 2, "_x": 3, _x: 4, "if": 5, "1a": 6}
+b: a."#e"
+c: a.#e
+d: a."_x"
+e: a._x
+f: a."if"
+g: a."1a"
+h: a.if
+s: {"#e": {a: 1}, #e: {c: 3}, "_x": {a: 1}, _x: {c: 3}, "_#y": 5, _#y: 6}
+open: s."#e" & {b: 2}
+openHidden: s."_x" & {b: 2}
+hidden: s._x
+hiddenDef: s._#y
+quotedHiddenDef: s."_#y"
+k: "#e"
+dyn: {(k): 1, #e: 2}
+dynQuoted: dyn."#e"
+dynDef: dyn.#e
+index: s["#e"]
+#D: {"#e": {a: int}, #e: {d: string}}
+x: #D & {"#e": {a: 1}, #e: {d: "s"}}
+y: x."#e"
+z: x.#e
