@@ -21,8 +21,10 @@ migration baseline; its success is **not** conformance acceptance. Use
 `just conformance` for narrower investigations.
 
 The adapter loads root CUE files as a package with isolated overlays, preserving
-module metadata and local imported packages. It reads inline attributes using
-the pinned parser. It checks literal equality, kinds, closedness and selected
+module metadata and local imported packages. It reads inline attributes from
+the files as the pinned loader parsed them, at the archive module's language
+version (the pinned parser's own default, v0.18.0, refuses a v0.17 module's
+prefix aliases). It checks literal equality, kinds, closedness and selected
 error properties against the reference before requesting a Rust observation.
 It also requests concrete JSON export where upstream supports it. The Rust
 worker receives independent requests; it cannot set its own pass verdict.

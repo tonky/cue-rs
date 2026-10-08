@@ -1,0 +1,51 @@
+-- in.cue --
+// Without a module the oracle's language version is v0.18.0, where aliases
+// are postfix.
+
+// A pattern's label alias is the label each field it matches has.
+pattern: {
+	[string]~(N, _): {name: N}
+	a: _
+	b: {}
+}
+
+// Its field alias is the field's value, including what the pattern adds.
+patternField: {
+	[string]~(K, V): {key: K, n: V.a + 1}
+	x: a: 1
+}
+patternSelf: {
+	[string]~X: {a: 1, b: X.a + 1}
+	x: {}
+}
+
+// A pattern a definition declares closes the fields it matches over what it
+// adds for their label.
+definition: {
+	#T: [string]~(N, _): {path: string, content: string, n: N}
+	#Mid: #T & {o: path: "/o"}
+	val: #Mid & {o: content: "foo"}
+	direct: #T & {p: {path: "/p", content: "bar"}}
+}
+field: {
+	src~S: {v: 2}
+	dst: S.v
+}
+dual: {
+	src~(K, V): {k: K}
+	key: K
+	v: V.k
+}
+quoted: {
+	"a-b"~(K, V): 3
+	k: K
+	v: V
+}
+dynamic: {
+	_name: "dyn"
+	(_name)~(_, V): 4
+	v: V
+}
+
+let L = 5
+letRef: L

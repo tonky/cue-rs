@@ -1,0 +1,5 @@
+-- in.cue --
+// A pattern a definition declares refuses a field its value does not add,
+// whatever its aliases bind.
+#T: [string]~(N, _): {path: string, n: N}
+bad: #T & {p: {path: "a", extra: 1}} @test(err, code=eval)

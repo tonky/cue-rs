@@ -82,6 +82,15 @@ func buildPlan(data []byte, dir string) Plan {
 		p.add("", nil, "compile", nil, "unsupported", "archive has no root CUE input")
 	} else {
 		instances := load.Instances(args, &load.Config{Dir: dir, ModuleRoot: dir, Overlay: overlay, Env: []string{}})
+		// The files as the instance parsed them, at its module's language
+		// version: a module at v0.17.0 accepts the prefix aliases that the
+		// parser's default version rejects.
+		loaded := map[string]*ast.File{}
+		if len(instances) == 1 && instances[0].Err == nil {
+			for _, f := range instances[0].Files {
+				loaded[filepath.Base(f.Filename)] = f
+			}
+		}
 		if len(instances) != 1 || instances[0].Err != nil {
 			reason := "expected one package instance"
 			if len(instances) > 0 && instances[0].Err != nil {
@@ -102,7 +111,10 @@ func buildPlan(data []byte, dir string) Plan {
 			if strings.Contains(f.Name, "/") || !strings.HasSuffix(f.Name, ".cue") {
 				continue
 			}
-			parsed, e := parser.ParseFile(f.Name, f.Data, parser.ParseComments)
+			parsed, e := loaded[f.Name], error(nil)
+			if parsed == nil {
+				parsed, e = parser.ParseFile(f.Name, f.Data, parser.ParseComments)
+			}
 			if e != nil {
 				p.add(f.Name, nil, "compile", nil, "unsupported", "reference parse error: "+e.Error())
 				continue

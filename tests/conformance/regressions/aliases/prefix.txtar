@@ -1,0 +1,36 @@
+-- cue.mod/module.cue --
+module: "example.com/aliases"
+language: version: "v0.17.0"
+-- in.cue --
+// Before v0.18.0 aliases are prefix: `X=label`, `[X=pattern]` and `label: X=value`.
+
+pattern: {
+	[N=string]: {name: N}
+	a: _
+	b: {}
+}
+definition: {
+	#T: [N=string]: {path: string, content: string, n: N}
+	#Mid: #T & {o: path: "/o"}
+	val: #Mid & {o: content: "foo"}
+}
+
+field: {
+	S=src: {v: 2}
+	dst: S.v
+}
+quoted: {
+	Q="a-b": 3
+	q: Q
+}
+dynamic: {
+	_name: "dyn"
+	D=(_name): 4
+	d: D
+}
+value: {
+	f: X={a: 1, b: X.a + 1}
+}
+
+let L = 5
+letRef: L

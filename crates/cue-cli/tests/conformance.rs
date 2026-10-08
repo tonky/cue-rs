@@ -232,3 +232,20 @@ fn relaxation_regressions_match_the_pinned_reference() {
         );
     }
 }
+
+#[test]
+#[ignore = "requires pinned Go oracle; run just conformance-test under just safe"]
+fn alias_regressions_match_the_pinned_reference() {
+    for source in [
+        include_str!("../../../tests/conformance/regressions/aliases/postfix.txtar"),
+        include_str!("../../../tests/conformance/regressions/aliases/prefix.txtar"),
+        include_str!("../../../tests/conformance/regressions/aliases/closed.txtar"),
+    ] {
+        let (ok, report) = oracle_case(source);
+        let checks = report["cases"][0]["checks"].as_array().unwrap();
+        assert!(
+            ok && !checks.is_empty() && checks.iter().all(|check| check["status"] == "passed"),
+            "{report}"
+        );
+    }
+}
