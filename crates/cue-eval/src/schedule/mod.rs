@@ -32,9 +32,28 @@ pub(crate) struct Sweep {
 /// placeholder instead.
 pub(crate) fn pending_binding_name(decl: &Decl) -> Option<&str> {
     match decl {
-        Decl::Field(f) if !f.label.is_definition() => f.label.ident_name(),
+        Decl::Field(f) if !f.label.is_definition() => f.label.ident_name().or_else(|| {
+            bound_alias(f)
+                .and_then(|_| f.label.name())
+                .filter(|_| matches!(f.label, Label::String(_)))
+        }),
         _ => None,
     }
+}
+
+/// Marks a field whose aliases [`expand_field_aliases`] has already turned
+/// into bindings: its `alias` holds this prefix and the name it bound, so a
+/// literal evaluated again does not bind it twice, and a dynamic label that
+/// resolves can point its binding at the field it named.
+pub(crate) const BOUND_ALIAS: char = '\u{0}';
+
+/// The binding a dynamic label's field alias reads until the label resolves:
+/// no field has this name, so a reader waits.
+const UNRESOLVED_LABEL: &str = "\u{0}unresolved label";
+
+/// The field alias an expanded field bound, if any.
+pub(crate) fn bound_alias(field: &FieldDecl) -> Option<&str> {
+    field.alias.as_deref()?.strip_prefix(BOUND_ALIAS)
 }
 
 /// Field names one literal declares with an identifier label. A reference
@@ -42,55 +61,123 @@ pub(crate) fn pending_binding_name(decl: &Decl) -> Option<&str> {
 /// anything else it names - a quoted or dynamic label, a field an embedding or
 /// a comprehension contributed - belongs to an enclosing scope and keeps
 /// resolving there, as upstream scopes references.
+///
+/// A quoted or resolved dynamic label with a field alias is named here too:
+/// the alias reads the field under its label. No identifier can spell most
+/// such labels; one that can (`X="a": 1`) is read by `a` in this literal,
+/// where upstream reads an enclosing `a`.
 pub(crate) fn collect_field_names(decls: &[Decl]) -> HashSet<String> {
     decls
         .iter()
         .filter_map(|decl| match decl {
-            Decl::Field(field) => field.label.ident_name().map(str::to_string),
+            Decl::Field(field) => field.label.ident_name().or_else(|| {
+                bound_alias(field)
+                    .and_then(|_| field.label.name())
+                    .filter(|_| matches!(field.label, Label::String(_)))
+            }),
             _ => None,
         })
+        .map(str::to_string)
         .collect()
 }
 
-/// `X=a: v` names the field `a` within its literal: the alias reads what `a`
-/// reads, the field's merged value, so it is the binding `let X = a`. An alias
-/// on a quoted or dynamic label names a field no identifier reaches, which the
-/// evaluator does not model, so it is refused rather than left unbound - an
-/// unbound `X` would silently read an enclosing `X`.
+/// Turn the aliases of one literal's fields into the bindings they mean.
+///
+/// `X=a: v`, `a~X: v` and `a: X=v` name the field `a` within its literal: the
+/// alias reads what `a` reads, the field's merged value, so it is the binding
+/// `let X = a`. On a quoted label the field is bound under its label (see
+/// [`collect_field_names`]); on a dynamic one, under the label it resolves
+/// to, once it does (see [`resolve_bound_alias`]). The label alias of
+/// `a~(K,V)` is the label itself: `let K = "a"`, or the label's expression
+/// for a dynamic one.
+///
+/// A pattern's aliases name a different field for every label it matches,
+/// so they stay on the pattern, which binds them as it meets each field.
 pub(crate) fn expand_field_aliases(decls: &[Decl]) -> Result<Cow<'_, [Decl]>, String> {
-    if !decls
-        .iter()
-        .any(|decl| matches!(decl, Decl::Field(field) if field.alias.is_some()))
-    {
+    if !decls.iter().any(|decl| {
+        matches!(decl, Decl::Field(field) if !matches!(field.label, Label::Pattern(_))
+            && (field.alias.as_deref().is_some_and(|a| !a.starts_with(BOUND_ALIAS))
+                || field.label_alias.is_some()
+                || field.value_alias.is_some()))
+    }) {
         return Ok(Cow::Borrowed(decls));
     }
     let mut expanded = Vec::with_capacity(decls.len() + 1);
     for decl in decls {
-        expanded.push(decl.clone());
-        let Decl::Field(field) = decl else { continue };
-        let Some(alias) = &field.alias else { continue };
-        let reference = match &field.label {
-            Label::Ident(name) => Expr::Ident(name.clone()),
-            Label::DefIdent(name) => Expr::DefIdent(name.clone()),
-            Label::HiddenIdent(name) => Expr::HiddenIdent(name.clone()),
-            Label::HiddenDefIdent(name) => Expr::HiddenDefIdent(name.clone()),
-            Label::String(name) => {
-                return Err(format!(
-                    "alias {alias} on the quoted label \"{name}\" is not supported"
-                ));
-            }
-            Label::Pattern(_) | Label::Dynamic(_) => {
-                return Err(format!(
-                    "alias {alias} on a pattern or dynamic label is not supported"
-                ));
-            }
+        let Decl::Field(field) = decl else {
+            expanded.push(decl.clone());
+            continue;
         };
-        expanded.push(Decl::Let {
-            ident: alias.clone(),
-            expr: reference,
-        });
+        if matches!(field.label, Label::Pattern(_)) {
+            expanded.push(decl.clone());
+            continue;
+        }
+        let mut field = field.clone();
+        let mut lets = Vec::new();
+        if let Some(label_alias) = field.label_alias.take() {
+            let label = match &field.label {
+                Label::Ident(name) | Label::String(name) => {
+                    Expr::String(StringLit::quoted(name.clone()))
+                }
+                Label::DefIdent(_) | Label::HiddenIdent(_) | Label::HiddenDefIdent(_) => {
+                    return Err("label alias cannot reference definition or hidden field".into());
+                }
+                Label::Dynamic(expr) => expr.clone(),
+                Label::Pattern(_) => unreachable!(),
+            };
+            lets.push(Decl::Let {
+                ident: label_alias,
+                expr: label,
+            });
+        }
+        let aliases: Vec<String> = [field.alias.take(), field.value_alias.take()]
+            .into_iter()
+            .flatten()
+            .collect();
+        let mut bound = None;
+        for alias in aliases {
+            if let Some(name) = alias.strip_prefix(BOUND_ALIAS) {
+                bound = Some(name.to_string());
+                continue;
+            }
+            let reference = match &field.label {
+                Label::Ident(name) => Expr::Ident(name.clone()),
+                Label::DefIdent(name) => Expr::DefIdent(name.clone()),
+                Label::HiddenIdent(name) => Expr::HiddenIdent(name.clone()),
+                Label::HiddenDefIdent(name) => Expr::HiddenDefIdent(name.clone()),
+                Label::String(name) => {
+                    bound = Some(alias.clone());
+                    Expr::Ident(name.clone())
+                }
+                Label::Dynamic(_) => {
+                    bound = Some(alias.clone());
+                    Expr::Ident(UNRESOLVED_LABEL.to_string())
+                }
+                Label::Pattern(_) => unreachable!(),
+            };
+            lets.push(Decl::Let {
+                ident: alias,
+                expr: reference,
+            });
+        }
+        field.alias = bound.map(|name| format!("{BOUND_ALIAS}{name}"));
+        expanded.push(Decl::Field(field));
+        expanded.extend(lets);
     }
     Ok(Cow::Owned(expanded))
+}
+
+/// A dynamic label with a field alias resolved to `name`: point the alias's
+/// binding at the field it names.
+pub(crate) fn resolve_bound_alias(decls: &mut [Decl], alias: &str, name: &str) {
+    for decl in decls {
+        if let Decl::Let { ident, expr } = decl
+            && ident == alias
+            && matches!(expr, Expr::Ident(pending) if pending == UNRESOLVED_LABEL)
+        {
+            *expr = Expr::Ident(name.to_string());
+        }
+    }
 }
 
 /// Merge repeated fields of one literal into unification conjuncts.

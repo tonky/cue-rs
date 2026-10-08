@@ -322,7 +322,36 @@ pub struct DisjunctionBranch {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PatternConstraint {
     pub pattern_val: ValueId,
+    /// What the pattern adds to a field it matches. With aliases, this is the
+    /// pattern evaluated with its label alias standing for the pattern itself
+    /// (`{name: string}` for `[N=string]: {name: N}`): what any field it
+    /// matches is at least. The evaluator derives the exact value per label.
     pub target_val: ValueId,
+    /// Set when the pattern names the label it matches or the field it meets:
+    /// its value is a different one for every label.
+    pub aliases: Option<PatternAliases>,
+}
+
+/// The aliases of a pattern constraint (`[K=string]`, `[string]~(K,V)`,
+/// `[string]: V=value`) and the value they are bound in.
+#[derive(Debug, Clone)]
+pub struct PatternAliases {
+    /// Bound to the label a field matched with.
+    pub label: Option<String>,
+    /// Bound to the value of the field the pattern meets.
+    pub field: Option<String>,
+    /// The pattern's value, in the literal it was written in.
+    pub recipe: Thunk,
+}
+
+/// The same pattern of the same literal: its value is shared, never copied.
+impl PartialEq for PatternAliases {
+    fn eq(&self, other: &Self) -> bool {
+        self.label == other.label
+            && self.field == other.field
+            && Rc::ptr_eq(&self.recipe.expr, &other.recipe.expr)
+            && Rc::ptr_eq(&self.recipe.env, &other.recipe.env)
+    }
 }
 
 /// A struct's fields in arc order: the order upstream creates them while
@@ -764,6 +793,7 @@ impl StructValue {
         self.pattern_constraints.push(PatternConstraint {
             pattern_val,
             target_val,
+            aliases: None,
         });
     }
 }

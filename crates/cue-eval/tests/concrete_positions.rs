@@ -18,28 +18,7 @@ fn fixtures() -> PathBuf {
 /// Fixtures cue-rs still evaluates differently, each with the reason. The test
 /// asserts they *still* differ, so a fix fails here and forces its entry out.
 /// Each one fails loudly rather than giving a wrong value.
-const KNOWN_DIVERGENCES: &[(&str, &str)] = &[
-    (
-        "alias_field.cue",
-        "an alias on a quoted label (`X=\"a-b\": 1`) is refused: a quoted label declares no identifier, and the alias would need one",
-    ),
-    (
-        "alias_quoted_nested.cue",
-        "an alias on a quoted label is refused",
-    ),
-    (
-        "alias_quoted_top.cue",
-        "an alias on a quoted label is refused",
-    ),
-    (
-        "alias_shadow.cue",
-        "upstream rejects an alias named like a field of an enclosing scope; cue-rs lets the alias shadow it",
-    ),
-    (
-        "alias_value.cue",
-        "value aliases (`a: V={...}`) do not parse",
-    ),
-];
+const KNOWN_DIVERGENCES: &[(&str, &str)] = &[];
 
 /// Every `<name>.cue` exports to `<name>.json`, or fails when cue failed
 /// (`<name>.err` holds cue's diagnostic).

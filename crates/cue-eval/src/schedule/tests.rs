@@ -106,6 +106,7 @@ fn moved_seeds_merges_and_pattern_matches_only() {
     s.pattern_constraints.push(PatternConstraint {
         pattern_val: pattern,
         target_val: target,
+        aliases: None,
     });
     let moved = seed_moved(&arena, &s);
     assert!(moved.contains("merged"), "{moved:?}");

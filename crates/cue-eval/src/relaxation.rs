@@ -9,15 +9,16 @@ use crate::closedness::{Closure, open_for_embedding, reclose};
 use crate::declaration::DeclarationValue;
 use crate::eval::{Clause, EvalError, Evaluator};
 use crate::schedule::{
-    SECTIONS, Section, Sweep, collect_field_declarations, collect_field_names, derivation_order,
-    expand_field_aliases, merge_generated, pending_binding_name, refined_any, seed_moved,
-    waits_only_on_external,
+    SECTIONS, Section, Sweep, bound_alias, collect_field_declarations, collect_field_names,
+    derivation_order, expand_field_aliases, merge_generated, pending_binding_name, refined_any,
+    resolve_bound_alias, seed_moved, waits_only_on_external,
 };
 use crate::scope::ScopeFrame;
 use crate::unify::{Equivalence, compare_values, push_branch, unify};
 use crate::value::{
     BottomKind, Conjunct, DeclOutcome, DeclRecipe, DeclSource, DisjunctionBranch as ValueBranch,
-    FieldEntry, StructValue, Thunk, ThunkEnv, Value, ValueArena, ValueId,
+    FieldEntry, PatternAliases, PatternConstraint, StructValue, Thunk, ThunkEnv, Value, ValueArena,
+    ValueId,
 };
 use cue_syntax::ast::*;
 use std::collections::HashSet;
@@ -125,7 +126,7 @@ impl<'a> RelaxationLoop<'a> {
                     .map(ScopeFrame::capture)
                     .collect(),
                 self.collect_let_declarations(decls),
-                collect_field_names(decls),
+                collect_field_names(&aliased),
                 self.eval.imports.clone(),
             )
             .with_enclosing(comprehension_body.clone()),
@@ -278,6 +279,7 @@ impl<'a> RelaxationLoop<'a> {
         if let Some((base_struct, base_scopes)) = dynamic_base {
             let mut named_decls = decls.to_vec();
             let mut undecided = Vec::new();
+            let mut resolved_aliases = Vec::new();
             for decl in &mut named_decls {
                 if let Decl::Field(field) = decl
                     && let Label::Dynamic(expr) = &field.label
@@ -301,12 +303,20 @@ impl<'a> RelaxationLoop<'a> {
                                 },
                             });
                         }
-                        Clause::Ready(name) => field.label = Label::String(name),
+                        Clause::Ready(name) => {
+                            if let Some(alias) = bound_alias(field) {
+                                resolved_aliases.push((alias.to_string(), name.clone()));
+                            }
+                            field.label = Label::String(name);
+                        }
                         // A label that is not concrete yet waits on the struct
                         // for a merge to supply it, instead of being dropped.
                         Clause::Incomplete(_) => undecided.push(Rc::new(field.clone())),
                     }
                 }
+            }
+            for (alias, name) in resolved_aliases {
+                resolve_bound_alias(&mut named_decls, &alias, &name);
             }
             named_decls.retain(|decl| {
                 !matches!(
@@ -347,12 +357,25 @@ impl<'a> RelaxationLoop<'a> {
             for field_name in field_names {
                 let name_id = self.eval.arena.string(field_name.as_str());
                 let match_res = crate::unify::unify(&mut self.eval.arena, pc.pattern_val, name_id);
-                if !matches!(self.eval.arena.get(match_res), Some(Value::Bottom(_)))
-                    && let Some(entry) = target.structure.fields.get_mut(&field_name)
-                {
-                    let new_val =
-                        crate::unify::unify(&mut self.eval.arena, entry.val, pc.target_val);
-                    entry.val = new_val;
+                if matches!(self.eval.arena.get(match_res), Some(Value::Bottom(_))) {
+                    continue;
+                }
+                let Some(field_val) = target.structure.fields.get(&field_name).map(|e| e.val)
+                else {
+                    continue;
+                };
+                let target_val = match &pc.aliases {
+                    Some(aliases) => self.pattern_target(
+                        aliases,
+                        pc.target_val,
+                        &target.structure,
+                        &field_name,
+                        field_val,
+                    )?,
+                    None => pc.target_val,
+                };
+                if let Some(entry) = target.structure.fields.get_mut(&field_name) {
+                    entry.val = crate::unify::unify(&mut self.eval.arena, entry.val, target_val);
                 }
             }
         }
@@ -437,15 +460,63 @@ impl<'a> RelaxationLoop<'a> {
             Decl::Field(f) => match &f.label {
                 Label::Pattern(pattern_expr) => {
                     let pattern_val = self.eval.eval_expr(pattern_expr)?;
-                    let target_val = self.eval.eval_expr(&f.value)?;
-                    let is_unresolved = self.eval.arena.is_unresolved(pattern_val)
-                        || self.eval.arena.is_unresolved(target_val);
+                    // An alias the value does not read changes nothing (upstream
+                    // spells a pattern it rewrote `[string]~(name,_)`).
+                    let reads = crate::deps::direct_deps(&f.value);
+                    let label_alias = f.label_alias.clone().filter(|name| reads.contains(name));
+                    let field_alias = f
+                        .alias
+                        .clone()
+                        .or_else(|| f.value_alias.clone())
+                        .filter(|name| reads.contains(name));
+                    if label_alias.is_none() && field_alias.is_none() {
+                        let target_val = self.eval.eval_expr(&f.value)?;
+                        let is_unresolved = self.eval.arena.is_unresolved(pattern_val)
+                            || self.eval.arena.is_unresolved(target_val);
+                        if is_unresolved && !final_pass {
+                            return Ok(false);
+                        }
+                        target
+                            .structure
+                            .add_pattern_constraint(pattern_val, target_val);
+                        return Ok(!is_unresolved);
+                    }
+                    // What every field the pattern matches is at least: the
+                    // value with its label standing for the pattern and its
+                    // field for any value. Each field it meets derives its own.
+                    self.eval.push_scope();
+                    if let Some(name) = &label_alias {
+                        self.eval.insert_binding(name, pattern_val);
+                    }
+                    if let Some(name) = &field_alias {
+                        let top = self.eval.arena.top();
+                        self.eval.insert_binding(name, top);
+                    }
+                    let target_val = self.eval.eval_expr(&f.value);
+                    self.eval.pop_scope();
+                    let target_val = target_val?;
+                    let is_unresolved = self.eval.arena.is_unresolved(pattern_val);
                     if is_unresolved && !final_pass {
                         return Ok(false);
                     }
+                    let recipe = Thunk {
+                        expr: self.eval.expressions.intern(&f.value),
+                        env: env.clone(),
+                        deps: Rc::new(crate::deps::expand_lets(reads, &env.reachable_lets())),
+                        closes: false,
+                    };
                     target
                         .structure
-                        .add_pattern_constraint(pattern_val, target_val);
+                        .pattern_constraints
+                        .push(PatternConstraint {
+                            pattern_val,
+                            target_val,
+                            aliases: Some(PatternAliases {
+                                label: label_alias,
+                                field: field_alias,
+                                recipe,
+                            }),
+                        });
                     Ok(!is_unresolved)
                 }
                 Label::Dynamic(dyn_expr) => {
@@ -1116,7 +1187,7 @@ impl<'a> RelaxationLoop<'a> {
         }
 
         let mut order = derivation_order(s);
-        let mut changed = false;
+        let mut changed = self.derive_aliased_patterns(s)?;
         // Two things move a field here. Deriving the field beside it, and
         // descending into a field the unifier merged, which settles a nested
         // override that a field above it reads. Both feed the same worklist, so
@@ -1153,6 +1224,46 @@ impl<'a> RelaxationLoop<'a> {
         }
         if !settled {
             self.eval.unsettled += 1;
+        }
+        Ok(changed)
+    }
+
+    /// Derive again every field a pattern with aliases matches. The unifier
+    /// met it with what the pattern is for any label (see
+    /// [`PatternConstraint::target_val`]); its own label decides the rest.
+    fn derive_aliased_patterns(&mut self, s: &mut StructValue) -> Result<bool, EvalError> {
+        if s.pattern_constraints.iter().all(|pc| pc.aliases.is_none()) {
+            return Ok(false);
+        }
+        let matched: Vec<String> = s
+            .fields
+            .keys()
+            .filter(|name| {
+                s.pattern_constraints.iter().any(|pc| {
+                    pc.aliases.is_some()
+                        && crate::unify::field_matches_pattern(
+                            &self.eval.arena,
+                            pc.pattern_val,
+                            name,
+                        )
+                })
+            })
+            .cloned()
+            .collect();
+        let mut changed = false;
+        for name in matched {
+            let Some(entry) = s.fields.get(&name).cloned() else {
+                continue;
+            };
+            let Some(val) = self.derive_field(&entry, s, Section::Field, &name)? else {
+                continue;
+            };
+            if val != entry.val
+                && let Some(entry) = s.fields.get_mut(&name)
+            {
+                entry.val = val;
+                changed = true;
+            }
         }
         Ok(changed)
     }
@@ -1325,14 +1436,45 @@ impl<'a> RelaxationLoop<'a> {
                 Some(previous) => unify(&mut self.eval.arena, previous, conjunct_val),
             });
         }
-        let definition =
-            definition.map(|definition| Closure::Recursive.apply(&mut self.eval.arena, definition));
+        let definition = definition.map(|definition| {
+            let definition = self.declare_pattern_fields(s, section, name, definition);
+            Closure::Recursive.apply(&mut self.eval.arena, definition)
+        });
         let val = match (definition, rest) {
             (Some(definition), Some(rest)) => unify(&mut self.eval.arena, definition, rest),
             (Some(val), None) | (None, Some(val)) => val,
             (None, None) => return Ok(None),
         };
-        Ok(Some(self.meet_patterns(s, section, name, val)))
+        Ok(Some(self.meet_patterns(s, section, name, val)?))
+    }
+
+    /// The definition's contributions to a field, met with what the
+    /// definition's own patterns declare for every label before they close:
+    /// `#T: [string]: {n: string}` lets `#T & {o: {}}` hold `o.n`, and the
+    /// field closed over its literal alone would refuse it when
+    /// [`Self::meet_patterns`] adds it after. A closed struct's closed pattern
+    /// target is the definition's.
+    fn declare_pattern_fields(
+        &mut self,
+        s: &StructValue,
+        section: Section,
+        name: &str,
+        mut definition: ValueId,
+    ) -> ValueId {
+        if section != Section::Field || !s.is_closed {
+            return definition;
+        }
+        for pc in &s.pattern_constraints {
+            let closed = matches!(
+                self.eval.arena.get(pc.target_val),
+                Some(Value::Struct(target)) if target.is_closed
+            );
+            if closed && crate::unify::field_matches_pattern(&self.eval.arena, pc.pattern_val, name)
+            {
+                definition = unify(&mut self.eval.arena, definition, pc.target_val);
+            }
+        }
+        definition
     }
 
     /// A regular field's value meets the struct's patterns that match its
@@ -1344,16 +1486,74 @@ impl<'a> RelaxationLoop<'a> {
         section: Section,
         name: &str,
         mut val: ValueId,
-    ) -> ValueId {
+    ) -> Result<ValueId, EvalError> {
         if section != Section::Field {
-            return val;
+            return Ok(val);
         }
+        let field_val = val;
         for pc in &s.pattern_constraints {
             if crate::unify::field_matches_pattern(&self.eval.arena, pc.pattern_val, name) {
-                val = unify(&mut self.eval.arena, val, pc.target_val);
+                let target_val = match &pc.aliases {
+                    Some(aliases) => {
+                        self.pattern_target(aliases, pc.target_val, s, name, field_val)?
+                    }
+                    None => pc.target_val,
+                };
+                val = unify(&mut self.eval.arena, val, target_val);
             }
         }
-        val
+        Ok(val)
+    }
+
+    /// What a pattern with aliases adds to the field `name` it matches: its
+    /// value derived in the literal it was written in, with its label alias
+    /// bound to `name` and its field alias to the field's value.
+    ///
+    /// The field's value includes what the pattern adds to it, so a field
+    /// alias reads the field met with the pattern for any label (`generic`)
+    /// first, then with what that derived: `[string]~X: {a: 1, b: X.a}` reads
+    /// `a` the pattern itself declares.
+    fn pattern_target(
+        &mut self,
+        aliases: &PatternAliases,
+        generic: ValueId,
+        s: &StructValue,
+        name: &str,
+        field_val: ValueId,
+    ) -> Result<ValueId, EvalError> {
+        let label = self.eval.arena.string(name);
+        let saved_field = self.eval.current_field.replace(name.to_string());
+        let mut target = generic;
+        let rounds = if aliases.field.is_some() { 2 } else { 1 };
+        let mut result = Ok(target);
+        for _ in 0..rounds {
+            let mut bindings = Vec::with_capacity(2);
+            if let Some(alias) = &aliases.label {
+                bindings.push((alias.as_str(), label));
+            }
+            if let Some(alias) = &aliases.field {
+                bindings.push((
+                    alias.as_str(),
+                    unify(&mut self.eval.arena, field_val, target),
+                ));
+            }
+            result = self.derive_thunk_with(&aliases.recipe, s, &bindings);
+            match result {
+                Ok(derived) => target = derived,
+                Err(_) => break,
+            }
+        }
+        self.eval.current_field = saved_field;
+        // A pattern a definition declares is closed for every label, as the
+        // generic target is: `#T: [string]~(N,_): {n: N}` refuses `extra`.
+        let closed = matches!(
+            self.eval.arena.get(generic),
+            Some(Value::Struct(target)) if target.is_closed
+        );
+        if closed {
+            return result.map(|target| Closure::Recursive.apply(&mut self.eval.arena, target));
+        }
+        result
     }
 
     /// Evaluate one recipe in the scope it was written in, under one frame
@@ -1364,6 +1564,17 @@ impl<'a> RelaxationLoop<'a> {
     /// declaration contributed. A nested literal needs no frame of its own,
     /// because deriving this field evaluates that literal again from here.
     fn derive_thunk(&mut self, thunk: &Thunk, s: &StructValue) -> Result<ValueId, EvalError> {
+        self.derive_thunk_with(thunk, s, &[])
+    }
+
+    /// [`Self::derive_thunk`], with names bound beside the literal's own
+    /// fields: a pattern's aliases, which shadow them.
+    fn derive_thunk_with(
+        &mut self,
+        thunk: &Thunk,
+        s: &StructValue,
+        bindings: &[(&str, ValueId)],
+    ) -> Result<ValueId, EvalError> {
         let saved_scopes = std::mem::replace(&mut self.eval.scopes, current_scopes(&thunk.env));
         let saved_env = self.eval.current_env.replace(thunk.env.clone());
         // The recipe may have been written in another file, and `pkg.Name` means
@@ -1380,6 +1591,9 @@ impl<'a> RelaxationLoop<'a> {
                     self.eval.insert_binding(name, entry.val);
                 }
             }
+        }
+        for &(name, val) in bindings {
+            self.eval.insert_binding(name, val);
         }
 
         // A binding is a recipe too, and reads the merged values beside it.
@@ -1868,7 +2082,7 @@ impl<'a> RelaxationLoop<'a> {
             let val = if only_rerun {
                 // Nothing else declares the field: the rerun derived it already,
                 // and only the struct's patterns are left to meet it.
-                self.meet_patterns(s, *section, name, after.val)
+                self.meet_patterns(s, *section, name, after.val)?
             } else {
                 self.derive_field(&candidate, s, *section, name)?
                     .unwrap_or(entry.val)
