@@ -1,0 +1,2 @@
+a: undefined field: "#e":
+    ./missing_quoted_field_is_not_the_definition.cue:2:6

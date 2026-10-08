@@ -1,6 +1,6 @@
 //! Concrete operand selection and scalar operations, independent of lexical evaluation.
 use crate::value::{BottomKind, NumberKind, Value, ValueArena, ValueId};
-use cue_syntax::ast::{BinaryOp, UnaryOp};
+use cue_syntax::ast::{BinaryOp, SelectorField, UnaryOp};
 use num_bigint::BigInt;
 use num_traits::{FromPrimitive, Signed, ToPrimitive, Zero};
 use std::cmp::Ordering;
@@ -642,7 +642,7 @@ pub(crate) fn select(
     reading_root_embedding: bool,
     in_definition: bool,
     base_id: ValueId,
-    field: &str,
+    field: &SelectorField,
 ) -> ValueId {
     let base_id = arena.provisional(base_id).unwrap_or(base_id);
     // A selector reads the default of a choice. A choice with no unique
@@ -669,14 +669,21 @@ pub(crate) fn select(
         return arena.bottom_of(BottomKind::Unresolved, message);
     }
     if let Some(s) = arena.fields(base_id) {
-        if let Some(f) = s
-            .fields
-            .get(field)
-            .or_else(|| s.definitions.get(field))
-            .or_else(|| s.hidden.get(field))
-        {
+        // The spelling picks the map: `a.#e` never answers for a field
+        // `"#e"`, nor `a."#e"` for the definition.
+        let section = crate::schedule::Section::of_selector(field);
+        if let Some(f) = section.map(s).get(field.name()) {
             let val = f.val;
-            crate::closedness::read_definition(arena, closed, reading_root_embedding, field, val)
+            match section {
+                crate::schedule::Section::Definition => crate::closedness::read_definition(
+                    arena,
+                    closed,
+                    reading_root_embedding,
+                    field.name(),
+                    val,
+                ),
+                _ => val,
+            }
         } else {
             // The base resolved and has no such field. It may still
             // gain one on a later pass, which is why both kinds below
@@ -922,10 +929,24 @@ mod tests {
         s.insert_field("a".to_string(), val, false);
         let base = arena.alloc(Value::Struct(Box::new(s)));
 
-        let id = select(&mut arena, &mut closed, false, false, base, "a");
+        let id = select(
+            &mut arena,
+            &mut closed,
+            false,
+            false,
+            base,
+            &SelectorField::Ident("a".into()),
+        );
         assert_eq!(id, val);
 
-        let id = select(&mut arena, &mut closed, false, false, base, "missing");
+        let id = select(
+            &mut arena,
+            &mut closed,
+            false,
+            false,
+            base,
+            &SelectorField::Ident("missing".into()),
+        );
         assert!(matches!(
             arena.get(id),
             Some(Value::Bottom(reason)) if reason.kind == BottomKind::UndefinedField
@@ -935,7 +956,14 @@ mod tests {
         let mut s = StructValue::new(true);
         s.insert_field("a".to_string(), val, false);
         let base = arena.alloc(Value::Struct(Box::new(s)));
-        let id = select(&mut arena, &mut closed, false, false, base, "missing");
+        let id = select(
+            &mut arena,
+            &mut closed,
+            false,
+            false,
+            base,
+            &SelectorField::Ident("missing".into()),
+        );
         assert!(matches!(
             arena.get(id),
             Some(Value::Bottom(reason)) if reason.kind == BottomKind::UndefinedFieldDefinite

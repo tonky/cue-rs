@@ -205,6 +205,64 @@ impl Label {
     }
 }
 
+/// The field a selector names, as it was spelled: `a.#e` is the definition
+/// and `a."#e"` the regular field named `#e`, as for a field's [`Label`]. A
+/// keyword after the dot (`a.if`) is an identifier.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SelectorField {
+    Ident(String),
+    DefIdent(String),
+    HiddenIdent(String),
+    HiddenDefIdent(String),
+    /// Quoted: a regular field whatever the text spells.
+    String(String),
+}
+
+impl SelectorField {
+    pub fn name(&self) -> &str {
+        match self {
+            SelectorField::Ident(s)
+            | SelectorField::DefIdent(s)
+            | SelectorField::HiddenIdent(s)
+            | SelectorField::HiddenDefIdent(s)
+            | SelectorField::String(s) => s,
+        }
+    }
+
+    /// `#a` and `_#a`, which live with the definitions.
+    pub fn is_definition(&self) -> bool {
+        matches!(
+            self,
+            SelectorField::DefIdent(_) | SelectorField::HiddenDefIdent(_)
+        )
+    }
+
+    /// `_a`, which lives with the hidden fields.
+    pub fn is_hidden(&self) -> bool {
+        matches!(self, SelectorField::HiddenIdent(_))
+    }
+}
+
+/// The field as a diagnostic names it: bare when that spelling selects it,
+/// quoted otherwise (`undefined field: "#e"`, as upstream words it).
+impl std::fmt::Display for SelectorField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = self.name();
+        let bare = |name: &str| {
+            name.starts_with(|c: char| c.is_alphabetic() || c == '$')
+                && name
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+        };
+        match self {
+            SelectorField::String(name) if !bare(name) => {
+                write!(f, "\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\""))
+            }
+            _ => f.write_str(name),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ComprehensionDecl {
     pub clauses: Vec<ComprehensionClause>,
@@ -321,7 +379,7 @@ pub enum Expr {
     },
     Selector {
         expr: Box<Expr>,
-        field: String,
+        field: SelectorField,
     },
     Index {
         expr: Box<Expr>,

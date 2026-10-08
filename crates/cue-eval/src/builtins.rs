@@ -161,6 +161,7 @@ pub(crate) fn call(
     if let E::Selector { expr, field } = func_expr
         && let E::Ident(pkg) = &**expr
     {
+        let field = field.name();
         use crate::stdlib::signature;
         let path = imports.path_of(pkg);
         let sig = signature::signature(path, field);

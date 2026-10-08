@@ -574,9 +574,9 @@ fn format_expr(expr_node: &Expr, out: &mut String, indent: usize) {
                 expr => format_operand(expr, POSTFIX, out, indent),
             }
             out.push('.');
-            match is_identifier(field) {
-                true => out.push_str(field),
-                false => format_quoted(field, out),
+            match field {
+                SelectorField::String(name) => format_quoted(name, out),
+                field => out.push_str(field.name()),
             }
         }
         Expr::Index { expr, index } => {
@@ -733,30 +733,6 @@ fn unary_op_str(op: UnaryOp) -> &'static str {
 /// upstream spaces them; everything else stays joined: `>=-1`, `!!x`, `*-1`.
 fn reads_as_another_token(outer: &str, inner: &str) -> bool {
     inner.starts_with(['=', '~']) || (outer.ends_with('<') && inner.starts_with('-'))
-}
-
-/// Whether a selector can name the field bare: it lexes as one identifier, or as one of
-/// the keywords the parser accepts after a dot. Anything else is written quoted —
-/// `a."b-c"` bare is `a.b - c`.
-fn is_identifier(name: &str) -> bool {
-    use crate::token::Token;
-    use logos::Logos;
-    let mut lexer = Token::lexer(name);
-    let first = lexer.next();
-    lexer.span() == (0..name.len())
-        && matches!(
-            first,
-            Some(Ok(Token::Ident(_)
-                | Token::DefIdent(_)
-                | Token::HiddenIdent(_)
-                | Token::HiddenDefIdent(_)
-                | Token::KwPackage
-                | Token::KwImport
-                | Token::KwFor
-                | Token::KwIn
-                | Token::KwIf
-                | Token::KwLet))
-        )
 }
 
 /// Whether a list comprehension's struct body can be written as the body's own braces:

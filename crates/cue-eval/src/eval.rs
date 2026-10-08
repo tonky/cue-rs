@@ -941,7 +941,11 @@ impl Evaluator {
                     {
                         // A loaded package is complete: a name it lacks is a
                         // definite error, not a field a later pass may supply.
-                        let Some(f) = s.fields.get(field).or_else(|| s.definitions.get(field))
+                        // Hidden fields are the package's own.
+                        let section = crate::schedule::Section::of_selector(field);
+                        let Some(f) = (section != crate::schedule::Section::Hidden)
+                            .then(|| section.map(s).get(field.name()))
+                            .flatten()
                         else {
                             return Ok(self.arena.bottom_of(
                                 BottomKind::Conflict,
@@ -949,12 +953,17 @@ impl Evaluator {
                             ));
                         };
                         let val = f.val;
-                        return Ok(self.read_definition(field, val));
+                        return Ok(match section {
+                            crate::schedule::Section::Definition => {
+                                self.read_definition(field.name(), val)
+                            }
+                            _ => val,
+                        });
                     }
                     if let Ok(res) = crate::stdlib::call_stdlib_func(
                         &mut self.arena,
                         imports.path_of(pkg_name),
-                        field,
+                        field.name(),
                         &[],
                     ) {
                         return Ok(res);
@@ -1131,7 +1140,10 @@ impl Evaluator {
         };
         Ok(matches!(
             self.arena.get(base),
-            Some(Value::Struct(s)) if s.fields.get(field).is_some_and(|e| e.optional)
+            Some(Value::Struct(s)) if crate::schedule::Section::of_selector(field)
+                .map(s)
+                .get(field.name())
+                .is_some_and(|e| e.optional)
         ))
     }
 

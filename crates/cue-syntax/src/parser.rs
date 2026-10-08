@@ -1424,26 +1424,25 @@ impl<'a> Parser<'a> {
             if self.match_token(&Token::Dot) {
                 // Selector
                 let (tok, span) = self.advance()?;
-                match tok {
-                    Token::Ident(field)
-                    | Token::DefIdent(field)
-                    | Token::HiddenIdent(field)
-                    | Token::HiddenDefIdent(field) => {
+                let field = match &tok {
+                    Token::Ident(field) => Some(SelectorField::Ident(field.clone())),
+                    Token::DefIdent(field) => Some(SelectorField::DefIdent(field.clone())),
+                    Token::HiddenIdent(field) => Some(SelectorField::HiddenIdent(field.clone())),
+                    Token::HiddenDefIdent(field) => {
+                        Some(SelectorField::HiddenDefIdent(field.clone()))
+                    }
+                    // Quoted, the name is a regular field whatever it spells.
+                    Token::StringLit(field) => Some(SelectorField::String(decode_string(
+                        field.clone(),
+                        span.clone(),
+                    )?)),
+                    tok => keyword_ident_name(tok).map(|_| SelectorField::Ident(tok.to_string())),
+                };
+                match field {
+                    Some(field) => {
                         expr = Expr::Selector {
                             expr: Box::new(expr),
                             field,
-                        };
-                    }
-                    Token::StringLit(field) => {
-                        expr = Expr::Selector {
-                            expr: Box::new(expr),
-                            field: decode_string(field, span)?,
-                        };
-                    }
-                    tok if keyword_ident_name(&tok).is_some() => {
-                        expr = Expr::Selector {
-                            expr: Box::new(expr),
-                            field: tok.to_string(),
                         };
                     }
                     _ => {

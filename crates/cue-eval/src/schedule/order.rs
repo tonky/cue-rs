@@ -2,7 +2,8 @@ use crate::value::{FieldMap, StructValue};
 use std::collections::{HashMap, HashSet};
 
 /// Which map of a struct a field lives in. Definitions and hidden fields keep
-/// their sigil in the name, so the three never collide.
+/// their sigil in the name, and a quoted label (`"#e"`) is a regular field
+/// whatever it spells, so a name alone does not say which map holds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Section {
     Field,
@@ -11,6 +12,18 @@ pub(crate) enum Section {
 }
 
 impl Section {
+    /// The map a selector reads: `a.#e` the definitions, `a._x` the hidden
+    /// fields, `a.x` and any quoted `a."#e"` the regular fields.
+    pub(crate) fn of_selector(field: &cue_syntax::ast::SelectorField) -> Section {
+        if field.is_definition() {
+            Section::Definition
+        } else if field.is_hidden() {
+            Section::Hidden
+        } else {
+            Section::Field
+        }
+    }
+
     pub(crate) fn map(self, s: &StructValue) -> &FieldMap {
         match self {
             Section::Field => &s.fields,
