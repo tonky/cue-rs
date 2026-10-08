@@ -192,9 +192,9 @@ builtin's parameters come from the pinned implementation, so a call is
 incomplete only for an abstract argument that could still match, and stays an
 error for one that cannot (`strings.Join([int, ...string], " ")`,
 `list.Avg([string])`). Seven checks got worse, each exposing an older defect:
-`comprehensions/pushdown_inline_cyclic` (two) passed by accident - its postfix
-alias `~(KIND,_)` is skipped by the parser, so `list.Contains(["sm"], KIND)`
-met `reference not found` and answered `false`; `builtins_incomplete`
+`comprehensions/pushdown_inline_cyclic` (two) passed by accident, its postfix
+alias `~(KIND,_)` skipped by the parser - it passes for real since aliases
+parse (see [Aliases](#aliases-accepted-deviations)); `builtins_incomplete`
 `incompleteListError` (two) now inherits `y + []` (`y: _`) being a conflict
 here and incomplete upstream, and `list2` (three) inherits `_Top`'s
 comprehension error being typed a cycle.
@@ -231,6 +231,30 @@ is what would lift both. **A non-converging value is reported as an unresolved
 reference** at the link it is written on, where upstream says `structural cycle`;
 naming it would mean claiming a cycle whenever the allowance runs out, which is
 also what a nine-link chain looks like.
+
+## Aliases: accepted deviations
+
+Every alias form parses and evaluates as the pinned `cue`: a field alias
+(`X=f`, `f~X`), a label alias (`f~(K,V)`, quoted and dynamic labels too), a
+pattern's (`[N=string]`, `[string]~(K,V)`), a value alias (`f: X=v`) and
+`let`. The spelling follows the language version: postfix from v0.18.0 or with
+`@experiment(aliasv2)`, prefix before (`ParseOptions`, a module's
+`language.version`, else `LoadOptions::default_language_version`). Upstream's
+reference checks hold too: an unreferenced field or value alias, and an alias
+and a field of one name that see each other, are errors
+(`tests/conformance/regressions/aliases`, `crates/cue-eval/tests/aliases.rs`).
+What is left accepts more than upstream, never less:
+- A file with no known version (`cue-rs eval` outside a module, the library
+  without a default) accepts both spellings. The conformance worker and the
+  txtar runner parse at the oracle's v0.18.0.
+- A declaration alias `X = v` before v0.18.0 is a `let`; upstream no longer
+  parses it.
+- A quoted or dynamic label with an alias also binds its label as a name in
+  its literal: `X="foo": 1` makes `foo` resolve there.
+- A dynamic label's `K` read outside its field gives the label; upstream says
+  `incomplete value string`.
+- A value alias is visible to the value's siblings at evaluation; the
+  reference check refuses that read first, as upstream.
 
 ## A structural cycle is exported as a placeholder string
 
