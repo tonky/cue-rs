@@ -1,12 +1,22 @@
-use cue_eval::{Evaluator, NumberKind, PackageLoader, TypeKind, Value, ValueId};
+use cue_eval::{Evaluator, LoadOptions, NumberKind, PackageLoader, TypeKind, Value, ValueId};
 use cue_test_harness::conformance::{Check, Observation, Request, Response, Selector};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::Path;
 
+/// The language version of the pinned oracle's revision: what upstream
+/// assumes for a file outside any module.
+pub const ORACLE_LANGUAGE_VERSION: &str = "v0.18.0";
+
 pub fn worker(path: &Path) -> anyhow::Result<()> {
     let request: Request = serde_json::from_slice(&std::fs::read(path)?)?;
-    let evaluated = PackageLoader::load_dir(&request.directory);
+    // The oracle loads an archive without a module at the language version
+    // it implements; an archive's own module states its version.
+    let options = LoadOptions {
+        default_language_version: Some(ORACLE_LANGUAGE_VERSION.to_string()),
+        ..LoadOptions::default()
+    };
+    let evaluated = PackageLoader::load_dir_with(&request.directory, None, &options);
     let observations = request
         .checks
         .iter()

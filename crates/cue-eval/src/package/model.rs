@@ -21,4 +21,8 @@ pub struct OriginAnnotation {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LoadOptions {
     pub origin: Option<OriginAnnotation>,
+    /// The language version of a file outside any module (`v0.18.0`). Unset,
+    /// such a file may use the alias spellings of every version; a module's
+    /// own `language.version` always decides for the files inside it.
+    pub default_language_version: Option<String>,
 }

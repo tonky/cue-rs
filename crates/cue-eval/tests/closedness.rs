@@ -283,6 +283,7 @@ fn origin_options() -> LoadOptions {
             marker: "_service".to_string(),
             field: "originDir".to_string(),
         }),
+        ..LoadOptions::default()
     }
 }
 

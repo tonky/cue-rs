@@ -187,7 +187,11 @@ impl cue_test_harness::legacy::Backend for LegacyBackend {
         let mut last = None;
 
         for (name, content) in files {
-            let file = cue_syntax::parse_file(content).map_err(|e| Failure {
+            // Upstream's fixtures are written at the language version of the
+            // revision they were imported from.
+            let options =
+                cue_syntax::ParseOptions::at_version(crate::conformance::ORACLE_LANGUAGE_VERSION);
+            let file = cue_syntax::parse_file_with(content, &options).map_err(|e| Failure {
                 message: format!("{name}: {e}"),
                 during_export: false,
             })?;
