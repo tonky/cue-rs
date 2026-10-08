@@ -249,3 +249,54 @@ fn alias_regressions_match_the_pinned_reference() {
         );
     }
 }
+
+/// The runner owns its deadlines: nothing on PATH is needed to run a case, so a
+/// stock macOS, which has no GNU `timeout`, runs the corpus too. The oracle
+/// stand-in is a shell script using only builtins; the worker is this binary.
+#[cfg(unix)]
+#[test]
+fn a_case_runs_with_nothing_on_path() {
+    use sha2::{Digest, Sha256};
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let cases = dir.path().join("cases");
+    fs::create_dir(&cases).unwrap();
+    let input = "-- in.cue --\na: 1\n";
+    fs::write(cases.join("case.txtar"), input).unwrap();
+    let sha: String = Sha256::digest(input)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let plan = serde_json::json!({
+        "revision": cue_test_harness::conformance::ORACLE_REVISION,
+        "sha256": sha,
+        "checks": [{"id": "x", "file": "in.cue", "path": [], "operation": "export", "expected": {"a": 1}}],
+    });
+    let oracle = dir.path().join("oracle");
+    fs::write(&oracle, format!("#!/bin/sh\nprintf '%s\\n' '{plan}'\n")).unwrap();
+    fs::set_permissions(&oracle, fs::Permissions::from_mode(0o700)).unwrap();
+    let empty = dir.path().join("empty-path");
+    fs::create_dir(&empty).unwrap();
+    let report = dir.path().join("report.json");
+    let output = Command::new(env!("CARGO_BIN_EXE_cue-rs"))
+        .current_dir(dir.path())
+        .env("PATH", &empty)
+        .arg("conformance")
+        .arg(&cases)
+        .arg("--oracle")
+        .arg(&oracle)
+        .arg("--report")
+        .arg(&report)
+        .output()
+        .unwrap();
+    let report: Value = serde_json::from_slice(
+        &fs::read(&report)
+            .unwrap_or_else(|_| panic!("no report: {}", String::from_utf8_lossy(&output.stderr))),
+    )
+    .unwrap();
+    assert!(output.status.success(), "{report}");
+    assert_eq!(
+        report["cases"][0]["checks"][0]["status"], "passed",
+        "{report}"
+    );
+}

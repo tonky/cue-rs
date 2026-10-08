@@ -217,3 +217,38 @@ fn matched_crashes_and_changed_observation_paths_cannot_satisfy_baseline() {
     changed.cases[0].checks[0].path = vec![Selector::Field("sibling".into())];
     assert!(changed.compare_baseline(&report).is_err());
 }
+
+/// A deadline ends the child's whole process group, not only the child: a
+/// worker that left a descendant running would otherwise outlive its case.
+#[test]
+fn a_timeout_ends_the_descendants_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut runner, fixture) = setup(
+        dir.path(),
+        json!([check("value", "export", &[], json!(1))]),
+        json!({}),
+    );
+    let pid_file = dir.path().join("descendant.pid");
+    runner.worker = executable(
+        dir.path(),
+        "forks",
+        &format!("sleep 30 &\necho $! > {}\nwait", pid_file.display()),
+    );
+    let started = std::time::Instant::now();
+    assert_eq!(runner.run(&fixture).checks[0].status, Status::ResourceLimit);
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    let pid: i32 = fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let gone = (0..100).any(|_| {
+        // Signal 0 checks for existence; a reaped process is gone.
+        let alive = unsafe { libc::kill(pid, 0) } == 0;
+        if alive {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        !alive
+    });
+    assert!(gone, "descendant {pid} outlived the deadline");
+}

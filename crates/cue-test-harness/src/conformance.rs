@@ -6,7 +6,8 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
+use std::time::Duration;
 
 pub const ORACLE_REVISION: &str = "635e4bb441b29b0b8a3d754188b8edefe4012d1d";
 
@@ -358,11 +359,8 @@ impl Runner {
         let crash = |e: std::io::Error| (Status::Crash, e.to_string());
         let stdout = directory.join(format!("{label}.stdout"));
         let stderr = directory.join(format!("{label}.stderr"));
-        // timeout controls the process group, including any descendant. The
-        // enclosing `just safe` cgroup supplies the aggregate memory boundary.
-        let status = Command::new("timeout")
-            .args(["--kill-after=1s", &format!("{}s", self.timeout_seconds)])
-            .arg(program)
+        let mut command = Command::new(program);
+        command
             .args(args)
             .env("CUE_REGISTRY", "none")
             .env("CUE_EXPERIMENT", "")
@@ -370,25 +368,100 @@ impl Runner {
             .env("CUE_UPDATE", "")
             .stdin(Stdio::null())
             .stdout(File::create(&stdout).map_err(crash)?)
-            .stderr(File::create(&stderr).map_err(crash)?)
-            .status()
-            .map_err(crash)?;
+            .stderr(File::create(&stderr).map_err(crash)?);
+        // The deadline is the runner's own, so nothing on PATH is needed (stock
+        // macOS has no GNU `timeout`). The enclosing `just safe` cgroup supplies
+        // the aggregate memory boundary.
+        let limit = Duration::from_secs(self.timeout_seconds);
+        let detail =
+            || String::from_utf8_lossy(&read_limited(&stderr).unwrap_or_default()).into_owned();
+        let Some(status) = run_with_deadline(command, limit).map_err(crash)? else {
+            return Err((
+                Status::ResourceLimit,
+                format!("{label} exceeded {}s: {}", self.timeout_seconds, detail()),
+            ));
+        };
         if !status.success() {
-            let state = if matches!(status.code(), Some(124 | 137)) {
+            let state = if killed_outright(&status) {
                 Status::ResourceLimit
             } else {
                 Status::Crash
             };
-            let detail = read_limited(&stderr).unwrap_or_default();
-            return Err((
-                state,
-                format!(
-                    "{label} exited {status}: {}",
-                    String::from_utf8_lossy(&detail)
-                ),
-            ));
+            return Err((state, format!("{label} exited {status}: {}", detail())));
         }
         read_limited(&stdout).map_err(crash)
+    }
+}
+
+/// Runs `command` in a process group of its own and waits at most `limit` for
+/// it, which is what `timeout --kill-after=1s` did: past the deadline the group
+/// gets SIGTERM, and SIGKILL a second later, so a descendant the child started
+/// ends with it. `None` is a deadline that passed. A waiter thread owns the
+/// child, so an exit is seen when it happens rather than at the next poll.
+#[cfg(unix)]
+fn run_with_deadline(mut command: Command, limit: Duration) -> std::io::Result<Option<ExitStatus>> {
+    use std::os::unix::process::CommandExt;
+    use std::sync::mpsc::{RecvTimeoutError, channel};
+    command.process_group(0);
+    let mut child = command.spawn()?;
+    // The child leads its group, so its pid is the group's id.
+    let group = child.id() as libc::pid_t;
+    let (sender, exited) = channel();
+    let waiter = std::thread::spawn(move || {
+        let _ = sender.send(child.wait());
+    });
+    let status = match exited.recv_timeout(limit) {
+        Ok(status) => Some(status),
+        Err(RecvTimeoutError::Disconnected) => {
+            Some(Err(std::io::Error::other("lost the child's exit status")))
+        }
+        Err(RecvTimeoutError::Timeout) => None,
+    };
+    if let Some(status) = status {
+        let _ = waiter.join();
+        return status.map(Some);
+    }
+    // SAFETY: kill(2) with a negative pid signals a process group and touches
+    // no memory; a group already gone answers ESRCH, which is ignored.
+    unsafe { libc::kill(-group, libc::SIGTERM) };
+    if exited.recv_timeout(Duration::from_secs(1)).is_err() {
+        unsafe { libc::kill(-group, libc::SIGKILL) };
+        let _ = exited.recv();
+    }
+    let _ = waiter.join();
+    Ok(None)
+}
+
+/// Without process groups only the child itself can be stopped.
+#[cfg(not(unix))]
+fn run_with_deadline(mut command: Command, limit: Duration) -> std::io::Result<Option<ExitStatus>> {
+    let mut child = command.spawn()?;
+    let deadline = std::time::Instant::now() + limit;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(status));
+        }
+        if std::time::Instant::now() >= deadline {
+            child.kill()?;
+            child.wait()?;
+            return Ok(None);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// SIGKILL from outside the runner - a memory limit's OOM kill - is a resource
+/// failure, as `timeout` reported it (exit 137), not a crash of the child.
+fn killed_outright(status: &ExitStatus) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        status.signal() == Some(libc::SIGKILL)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = status;
+        false
     }
 }
 

@@ -198,6 +198,7 @@ dependencies = [
  "cue-test-harness",
  "serde_json",
  "serde_yaml_ng",
+ "sha2",
  "tempfile",
 ]
 
@@ -248,6 +249,7 @@ dependencies = [
 name = "cue-test-harness"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "num-bigint",
  "serde",
  "serde_json",
