@@ -15,12 +15,9 @@ fn roots_and_nested_blocks_keep_their_value_kind() {
         ("value\nlet value = 4", json!(4)),
     ] {
         assert_eq!(eval_to_json(source).unwrap(), expected, "{source}");
-        let nested = format!("value: {{{source}}}");
-        assert_eq!(
-            eval_to_json(&nested).unwrap()["value"],
-            expected,
-            "{nested}"
-        );
+        // Not `value:`, which upstream refuses beside `let value`.
+        let nested = format!("out: {{{source}}}");
+        assert_eq!(eval_to_json(&nested).unwrap()["out"], expected, "{nested}");
     }
 }
 
