@@ -27,6 +27,10 @@ pub enum ParseError {
     InterpolationUnsupported { span: Range<usize> },
     #[error("Recursion depth limit exceeded at {span:?}")]
     RecursionDepthExceeded { span: Range<usize> },
+    /// A construct the file's language version or experiments do not allow,
+    /// worded as upstream words it.
+    #[error("{message}")]
+    NotAllowed { message: String, span: Range<usize> },
 }
 
 impl ParseError {
@@ -62,6 +66,7 @@ impl ParseError {
             ParseError::RecursionDepthExceeded { span } => {
                 (span.clone(), "recursion depth limit exceeded".to_string())
             }
+            ParseError::NotAllowed { message, span } => (span.clone(), message.clone()),
         };
 
         let mut line_num: usize = 1;
@@ -113,6 +118,67 @@ pub struct Parser<'a> {
     pos: usize,
     source: &'a str,
     depth: usize,
+    /// The language version the file is parsed at, when known.
+    language_version: Option<String>,
+    /// Which alias spellings this file may use, settled once its attributes
+    /// are read.
+    alias_syntax: AliasSyntax,
+}
+
+/// How a file is parsed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ParseOptions {
+    /// The language version of the module the file belongs to (`v0.18.0`).
+    /// Unknown, a file may use every alias spelling of every version; known,
+    /// it may use only those its version and experiments allow, as upstream.
+    pub language_version: Option<String>,
+}
+
+impl ParseOptions {
+    pub fn at_version(version: impl Into<String>) -> Self {
+        Self {
+            language_version: Some(version.into()),
+        }
+    }
+}
+
+/// Which alias spellings a file may use. Upstream's `aliasv2` experiment,
+/// stable from language v0.18.0 and enabled earlier by `@experiment(aliasv2)`,
+/// replaces the `X=` spellings with the postfix `~X` and `~(K,V)`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum AliasSyntax {
+    /// The language version is unknown: both spellings are read.
+    #[default]
+    Any,
+    /// Before `aliasv2`: only `X=`.
+    Prefix,
+    /// With `aliasv2`: only `~X` and `~(K,V)`.
+    Postfix,
+}
+
+const ALIASV2_STABLE: &str = "v0.18.0";
+
+/// Whether semantic version `a` is at least `b`, as upstream compares them: a
+/// pre-release sorts before its release. A version that does not parse is
+/// older than any that does.
+fn version_at_least(a: &str, b: &str) -> bool {
+    fn parse(v: &str) -> Option<(u64, u64, u64, bool)> {
+        let v = v.strip_prefix('v')?;
+        let (core, pre) = match v.split_once(['-', '+']) {
+            Some((core, rest)) => (core, !rest.is_empty() && v.as_bytes()[core.len()] == b'-'),
+            None => (v, false),
+        };
+        let mut parts = core.split('.').map(|p| p.parse::<u64>().ok());
+        let major = parts.next()??;
+        let minor = parts.next().flatten().unwrap_or(0);
+        let patch = parts.next().flatten().unwrap_or(0);
+        Some((major, minor, patch, !pre))
+    }
+    match (parse(a), parse(b)) {
+        (Some(a), Some(b)) => a >= b,
+        (None, _) => false,
+        (Some(_), None) => true,
+    }
 }
 
 const MAX_PARSE_DEPTH: usize = 64;
@@ -268,6 +334,8 @@ impl<'a> Parser<'a> {
             pos: 0,
             source,
             depth: 0,
+            language_version: None,
+            alias_syntax: AliasSyntax::Any,
         })
     }
 
@@ -295,6 +363,58 @@ impl<'a> Parser<'a> {
         )
     }
 
+    /// A parser for a file at the given options.
+    pub fn with_options(source: &'a str, options: &ParseOptions) -> Result<Self, ParseError> {
+        let mut parser = Self::new(source)?;
+        parser.language_version = options.language_version.clone();
+        Ok(parser)
+    }
+
+    /// The alias spellings a file with these header declarations may use.
+    fn settle_alias_syntax(&mut self, header: &[Decl]) {
+        let experiment = header.iter().any(|decl| {
+            matches!(decl, Decl::Attribute(attr) if attr.name == "experiment"
+                && attr.body.split(',').any(|name| name.trim().eq_ignore_ascii_case("aliasv2")))
+        });
+        self.alias_syntax = match &self.language_version {
+            _ if experiment => AliasSyntax::Postfix,
+            Some(version) if version_at_least(version, ALIASV2_STABLE) => AliasSyntax::Postfix,
+            Some(_) => AliasSyntax::Prefix,
+            None => AliasSyntax::Any,
+        };
+    }
+
+    /// An `X=` alias at `span`, refused where `aliasv2` is on.
+    fn check_prefix_alias(&self, span: Range<usize>) -> Result<(), ParseError> {
+        if self.alias_syntax == AliasSyntax::Postfix {
+            return Err(ParseError::NotAllowed {
+                message: "old-style alias syntax (=) is not allowed with @experiment(aliasv2); use postfix syntax (~X or ~(K,V))".to_string(),
+                span,
+            });
+        }
+        Ok(())
+    }
+
+    /// A postfix alias at `span`, refused where `aliasv2` is off.
+    fn check_postfix_alias(&self, span: Range<usize>) -> Result<(), ParseError> {
+        if self.alias_syntax == AliasSyntax::Prefix {
+            return Err(ParseError::NotAllowed {
+                message: "postfix alias syntax requires @experiment(aliasv2)".to_string(),
+                span,
+            });
+        }
+        Ok(())
+    }
+
+    /// The span of the token `offset` places ahead.
+    fn span_at(&self, offset: usize) -> Range<usize> {
+        self.tokens
+            .get(self.pos + offset)
+            .map_or(self.source.len()..self.source.len(), |(_, span)| {
+                span.clone()
+            })
+    }
+
     pub fn parse_file(&mut self) -> Result<SourceFile, ParseError> {
         // Whatever stands above `package` — a licence header, typically. It cannot go in
         // `decls`, which the formatter writes after the imports.
@@ -311,6 +431,7 @@ impl<'a> Parser<'a> {
             header.push(self.parse_decl()?);
             while self.match_token(&Token::Comma) {}
         }
+        self.settle_alias_syntax(&header);
 
         let package = self.parse_package_opt()?;
         let imports = self.parse_imports_opt()?;
@@ -601,6 +722,7 @@ impl<'a> Parser<'a> {
             && self.tokens.get(self.pos + 1).map(|(t, _)| t) == Some(&Token::Equal)
         {
             let id = id.clone();
+            self.check_prefix_alias(self.span_at(1))?;
             self.pos += 2; // consume ident and '='
             let expr = self.parse_expr()?;
             return Ok(Decl::Alias { ident: id, expr });
@@ -772,23 +894,71 @@ impl<'a> Parser<'a> {
             && self.tokens.get(self.pos + 1).map(|(t, _)| t) == Some(&Token::Equal)
         {
             alias = Some(name.clone());
+            self.check_prefix_alias(self.span_at(1))?;
             self.pos += 2;
         }
 
+        // A pattern's label alias: `[K=string]: ...`
+        let mut label_alias = None;
+        if self.peek() == Some(&Token::LBracket)
+            && let Some((Token::Ident(name), _)) = self.tokens.get(self.pos + 1)
+            && self.tokens.get(self.pos + 2).map(|(t, _)| t) == Some(&Token::Equal)
+        {
+            label_alias = Some(name.clone());
+            self.check_prefix_alias(self.span_at(2))?;
+            self.pos += 3;
+            let expr = self.parse_expr()?;
+            self.expect(Token::RBracket)?;
+            return self.finish_field_decl(alias, label_alias, false, Label::Pattern(expr));
+        }
+
         let label = self.parse_label()?;
-        if self.match_token(&Token::Tilde) {
+        let mut postfix_alias = false;
+        if self.peek() == Some(&Token::Tilde) {
+            self.check_postfix_alias(self.span_at(0))?;
+            self.pos += 1;
+            postfix_alias = true;
             if self.match_token(&Token::LParen) {
-                while !self.is_eof() && !self.match_token(&Token::RParen) {
-                    self.pos += 1;
+                let first = self.parse_alias_name()?;
+                if self.match_token(&Token::Comma) {
+                    label_alias = first;
+                    alias = self.parse_alias_name()?;
+                } else {
+                    alias = first;
                 }
-            } else if let Some((Token::Ident(_), _)) = self.tokens.get(self.pos) {
-                self.pos += 1;
+                self.expect(Token::RParen)?;
+            } else {
+                alias = self.parse_alias_name()?;
             }
         }
+        self.finish_field_decl(alias, label_alias, postfix_alias, label)
+    }
+
+    /// One name of a postfix alias, `_` for none.
+    fn parse_alias_name(&mut self) -> Result<Option<String>, ParseError> {
+        match self.advance()? {
+            (Token::Ident(name), _) => Ok(Some(name)),
+            (Token::Top, _) => Ok(None),
+            (tok, span) => Err(ParseError::UnexpectedToken {
+                found: format!("{tok}"),
+                expected: "alias name".to_string(),
+                span,
+            }),
+        }
+    }
+
+    fn finish_field_decl(
+        &mut self,
+        alias: Option<String>,
+        label_alias: Option<String>,
+        postfix_alias: bool,
+        label: Label,
+    ) -> Result<Decl, ParseError> {
         let optional = self.match_token(&Token::Question) || self.match_token(&Token::Bang);
         self.expect(Token::Colon)?;
 
         // Support label syntactic sugar nesting: `a: b: c: 1`
+        let mut value_alias = None;
         let value = if self.is_label_ahead() {
             let inner_field = self.parse_field_decl()?;
             Expr::Struct(StructLit {
@@ -796,6 +966,14 @@ impl<'a> Parser<'a> {
                 form: StructForm::Path,
             })
         } else {
+            // A value alias: `a: X=expr`.
+            if let Some((Token::Ident(name), _)) = self.tokens.get(self.pos)
+                && self.tokens.get(self.pos + 1).map(|(t, _)| t) == Some(&Token::Equal)
+            {
+                value_alias = Some(name.clone());
+                self.check_prefix_alias(self.span_at(1))?;
+                self.pos += 2;
+            }
             self.parse_expr()?
         };
 
@@ -821,6 +999,9 @@ impl<'a> Parser<'a> {
 
         Ok(Decl::Field(FieldDecl {
             alias,
+            label_alias,
+            value_alias,
+            postfix_alias,
             label,
             optional,
             value,

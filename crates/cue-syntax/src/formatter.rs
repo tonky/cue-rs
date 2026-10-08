@@ -57,14 +57,9 @@ fn write_decl(decl: &Decl, out: &mut String, indent: usize, pad: &str) {
         Decl::BlankLine => {}
         Decl::Field(f) => {
             out.push_str(pad);
-            if let Some(alias) = &f.alias {
-                out.push_str(&format!("{alias}="));
-            }
-            format_label(&f.label, out);
-            if f.optional {
-                out.push('?');
-            }
-            out.push_str(": ");
+            format_field_head(f, out);
+            out.push(' ');
+            format_value_alias(f, out);
             format_expr(&f.value, out, indent);
             for attr in &f.attrs {
                 if attr.body.is_empty() {
@@ -350,17 +345,11 @@ fn render_field(field: &FieldDecl, indent: usize, pad: &str) -> Rendered {
         if i > 0 {
             label.push(' ');
         }
-        if let Some(alias) = &segment.alias {
-            label.push_str(&format!("{alias}="));
-        }
-        format_label(&segment.label, &mut label);
-        if segment.optional {
-            label.push('?');
-        }
-        label.push(':');
+        format_field_head(segment, &mut label);
     }
 
     let mut value = String::new();
+    format_value_alias(last, &mut value);
     format_expr(&last.value, &mut value, indent);
 
     let attrs = last
@@ -441,6 +430,42 @@ fn holds_composite(expr: &Expr) -> bool {
             InterpolationPart::Lit(_) => false,
         }),
         _ => false,
+    }
+}
+
+/// A field's aliases, label and marker up to its colon, in the alias syntax
+/// it was written in: `X=a?:`, `[K=string]:`, `a~X:`, `a~(K,V):`.
+fn format_field_head(field: &FieldDecl, out: &mut String) {
+    let name = |alias: &Option<String>| alias.clone().unwrap_or_else(|| "_".to_string());
+    if field.postfix_alias {
+        format_label(&field.label, out);
+        out.push('~');
+        match &field.label_alias {
+            None => out.push_str(&name(&field.alias)),
+            Some(label) => out.push_str(&format!("({label},{})", name(&field.alias))),
+        }
+    } else {
+        if let Some(alias) = &field.alias {
+            out.push_str(&format!("{alias}="));
+        }
+        match (&field.label_alias, &field.label) {
+            (Some(label), Label::Pattern(expr)) => {
+                out.push_str(&format!("[{label}="));
+                format_expr(expr, out, 0);
+                out.push(']');
+            }
+            _ => format_label(&field.label, out),
+        }
+    }
+    if field.optional {
+        out.push('?');
+    }
+    out.push(':');
+}
+
+fn format_value_alias(field: &FieldDecl, out: &mut String) {
+    if let Some(alias) = &field.value_alias {
+        out.push_str(&format!("{alias}="));
     }
 }
 

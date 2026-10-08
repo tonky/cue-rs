@@ -131,10 +131,23 @@ pub enum Decl {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FieldDecl {
-    /// `X=label: value`: a name for this field within the enclosing literal,
-    /// whatever form the label takes.
+    /// The field alias, `X=label: value` or `label~X: value` (`label~(K,X)`): a
+    /// name for this field within the enclosing literal, whatever form the
+    /// label takes.
     #[serde(default)]
     pub alias: Option<String>,
+    /// The label alias, `label~(K,V): value` or `[K=pattern]: value`: the
+    /// field's label as a string.
+    #[serde(default)]
+    pub label_alias: Option<String>,
+    /// The value alias, `label: X=value`: a name for this field within its
+    /// own value.
+    #[serde(default)]
+    pub value_alias: Option<String>,
+    /// The aliases were written in postfix form (`~`, `@experiment(aliasv2)`)
+    /// rather than with `=`.
+    #[serde(default)]
+    pub postfix_alias: bool,
     pub label: Label,
     pub optional: bool,
     pub value: Expr,

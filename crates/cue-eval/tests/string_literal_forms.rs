@@ -176,6 +176,9 @@ fn a_form_that_cannot_hold_its_value_falls_back_to_quoting() {
                 imports: Vec::new(),
                 decls: vec![Decl::Field(FieldDecl {
                     alias: None,
+                    label_alias: None,
+                    value_alias: None,
+                    postfix_alias: false,
                     label: Label::Ident("a".to_string()),
                     optional: false,
                     value: Expr::String(StringLit {

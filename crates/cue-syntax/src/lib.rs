@@ -12,13 +12,20 @@ pub use bound::{Bound, NotABound};
 pub use formatter::format_file;
 pub use import_path::{ImportAlias, ImportPathError, PackagePath};
 pub use number::{NumberError, NumberLit, NumberValue};
-pub use parser::{ParseError, Parser};
+pub use parser::{ParseError, ParseOptions, Parser};
 pub use token::Token;
 pub use visitor::{Folder, Visitor};
 
 /// Parse a CUE source string into a `SourceFile`.
 pub fn parse_file(source: &str) -> Result<SourceFile, ParseError> {
     let mut parser = Parser::new(source)?;
+    parser.parse_file()
+}
+
+/// Parse a CUE source file at the given options: its language version decides
+/// which alias spellings it may use.
+pub fn parse_file_with(source: &str, options: &ParseOptions) -> Result<SourceFile, ParseError> {
+    let mut parser = Parser::with_options(source, options)?;
     parser.parse_file()
 }
 
